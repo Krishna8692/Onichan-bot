@@ -932,16 +932,21 @@ def check_card_php(gate_name, cc, mm, yy, cvv, user_id):
             "time": 0
         }
 
+_BIN_CACHE = {}
+
 def get_bin_info(cc):
     import requests
-    
+
     bin_number = cc[:6] if len(cc) >= 6 else 'XXXXXX'
-    
+
+    if bin_number in _BIN_CACHE:
+        return _BIN_CACHE[bin_number]
+
     apis = [
         f"https://lookup.binlist.net/{bin_number}",
         f"https://bins.antipublic.cc/bins/{bin_number}",
     ]
-    
+
     for api_url in apis:
         try:
             response = requests.get(api_url, timeout=3)
@@ -958,8 +963,8 @@ def get_bin_info(cc):
                     country = country_data.get('name', 'UNITED STATES') if country_data else 'UNITED STATES'
                     country_code = country_data.get('alpha2', 'US') if country_data else 'US'
                     emoji = country_data.get('emoji', '🇺🇸') if country_data else '🇺🇸'
-                    
-                    return {
+
+                    result = {
                         'bin': bin_number,
                         'brand': brand,
                         'type': card_type,
@@ -969,12 +974,14 @@ def get_bin_info(cc):
                         'country_code': country_code,
                         'emoji': emoji
                     }
+                    _BIN_CACHE[bin_number] = result
+                    return result
         except Exception as e:
             print(f"BIN lookup error for {api_url}: {e}")
             continue
-    
+
     bin_first_digit = bin_number[0] if bin_number else '4'
-    
+
     if bin_first_digit == '4':
         brand = 'VISA'
     elif bin_first_digit == '5':
@@ -985,8 +992,8 @@ def get_bin_info(cc):
         brand = 'DISCOVER'
     else:
         brand = 'VISA'
-    
-    return {
+
+    fallback = {
         'bin': bin_number,
         'brand': brand,
         'type': 'CREDIT',
@@ -996,6 +1003,8 @@ def get_bin_info(cc):
         'country_code': 'US',
         'emoji': '🇺🇸'
     }
+    _BIN_CACHE[bin_number] = fallback
+    return fallback
 
 def clean_json_response(msg):
     """Extract clean message from JSON response strings"""
