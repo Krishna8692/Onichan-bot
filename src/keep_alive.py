@@ -7120,11 +7120,6 @@ function startBulkHit(){
   btn.disabled = true;
   btn.textContent = '⏳ Hitting…';
 
-  var formData = new FormData();
-  formData.append('url', url);
-  formData.append('bin', bin);
-  formData.append('count', count);
-
   if(activeES){ activeES.close(); activeES = null; }
   activeES = new EventSource('/api/bulkhit?' + new URLSearchParams({url:url, bin:bin, count:count}));
 
