@@ -5028,19 +5028,39 @@ def user_settings():
 # ============================================================
 
 AVAILABLE_GATES = [
-    {'id': 'se1', 'name': 'Stripe Charge', 'premium': False},
-    {'id': 'st', 'name': 'Stripe Auth', 'premium': True},
-    {'id': 'stm', 'name': 'Stripe Mass Auth', 'premium': False},
-    {'id': 'rz', 'name': 'Razorpay ₹10', 'premium': True},
-    {'id': 'sh', 'name': 'Shopify Auto', 'premium': True},
-    {'id': 'bu', 'name': 'Braintree Auth', 'premium': True},
-    {'id': 'sq', 'name': 'Square Auth', 'premium': True},
-    {'id': 'pp', 'name': '1$ PayPal', 'premium': True},
-    {'id': 'sor', 'name': '2$ Stripe', 'premium': True},
-    {'id': 'st5', 'name': '5$ Stripe', 'premium': True},
-    {'id': 'st12', 'name': '12$ Stripe', 'premium': True},
-    {'id': 'str', 'name': '15$ Stripe', 'premium': True},
-    {'id': 'dep', 'name': '49$ Stripe', 'premium': True},
+    # ── Original gates ──────────────────────────────────────
+    {'id': 'se1',   'name': 'Stripe Charge',     'premium': False, 'group': 'STRIPE'},
+    {'id': 'st',    'name': 'Stripe Auth',        'premium': True,  'group': 'STRIPE'},
+    {'id': 'stm',   'name': 'Stripe Mass Auth',   'premium': False, 'group': 'STRIPE'},
+    {'id': 'sor',   'name': '2$ Stripe',          'premium': True,  'group': 'STRIPE'},
+    {'id': 'st5',   'name': '5$ Stripe',          'premium': True,  'group': 'STRIPE'},
+    {'id': 'st12',  'name': '12$ Stripe',         'premium': True,  'group': 'STRIPE'},
+    {'id': 'str',   'name': '15$ Stripe',         'premium': True,  'group': 'STRIPE'},
+    {'id': 'dep',   'name': '49$ Stripe',         'premium': True,  'group': 'STRIPE'},
+    {'id': 'rz',    'name': 'Razorpay ₹10',       'premium': True,  'group': 'OTHER'},
+    {'id': 'sh',    'name': 'Shopify Auto',       'premium': True,  'group': 'OTHER'},
+    {'id': 'bu',    'name': 'Braintree Auth',     'premium': True,  'group': 'OTHER'},
+    {'id': 'sq',    'name': 'Square Auth',        'premium': True,  'group': 'OTHER'},
+    {'id': 'pp',    'name': '1$ PayPal',          'premium': True,  'group': 'OTHER'},
+    # ── Cybor gates ─────────────────────────────────────────
+    # STRIPE gateway
+    {'id': 'stv1',    'name': 'Stripe Auth V1',   'premium': False, 'group': 'STRIPE'},
+    {'id': 'stv2',    'name': 'Stripe Auth V2',   'premium': False, 'group': 'STRIPE'},
+    {'id': 'stv3',    'name': 'Stripe Auth V3',   'premium': False, 'group': 'STRIPE'},
+    {'id': 'skbased', 'name': 'SKBASED CVV',      'premium': False, 'group': 'STRIPE',
+     'needs_sk': True},
+    # SHOPII gateway
+    {'id': 'shopii1', 'name': 'Shopii #1',        'premium': True,  'group': 'SHOPII'},
+    {'id': 'shopii2', 'name': 'Shopii #2',        'premium': False, 'group': 'SHOPII'},
+    {'id': 'shopii3', 'name': 'Shopii #3',        'premium': False, 'group': 'SHOPII'},
+    {'id': 'shopii4', 'name': 'Shopii #4',        'premium': False, 'group': 'SHOPII'},
+    # PP gateway
+    {'id': 'ppkb',  'name': 'PP KeyBased',        'premium': True,  'group': 'PP',
+     'needs_pp_creds': True},
+    {'id': 'pp2',   'name': 'PP #2',              'premium': True,  'group': 'PP'},
+    # B3 gateway
+    {'id': 'b31',   'name': 'B3 #1',              'premium': True,  'group': 'B3'},
+    {'id': 'b32',   'name': 'B3 #2',              'premium': True,  'group': 'B3'},
 ]
 
 def parse_card_flexible(card_text):
@@ -5091,6 +5111,9 @@ def user_checker():
     if request.method == 'POST':
         card = request.form.get('card', '').strip()
         gate = request.form.get('gate', 'se1')
+        sk_key = request.form.get('sk_key', '').strip() or None
+        pp_client_id = request.form.get('pp_client_id', '').strip() or None
+        pp_client_secret = request.form.get('pp_client_secret', '').strip() or None
         
         if not card:
             error = "Please enter a card to check"
@@ -5101,12 +5124,14 @@ def user_checker():
                     cc, mm, yy, cvv = parsed
                     
                     from modules.gate_checker import check_card_php
-                    check_result = check_card_php(gate, cc, mm, yy, cvv, user_id)
+                    check_result = check_card_php(gate, cc, mm, yy, cvv, user_id,
+                                                  sk_key=sk_key,
+                                                  pp_client_id=pp_client_id,
+                                                  pp_client_secret=pp_client_secret)
                     
                     message = check_result.get('message', 'No response')
                     message_lower = message.lower()
                     
-                    # Determine status based on message content
                     if 'approved' in message_lower or 'success' in message_lower or 'charged' in message_lower or 'captured' in message_lower or 'authorized' in message_lower:
                         determined_status = 'approved'
                     elif 'declined' in message_lower or 'failed' in message_lower or 'error' in message_lower or 'invalid' in message_lower or 'expired' in message_lower:
@@ -5132,12 +5157,25 @@ def user_checker():
                     error = "Invalid card format. Use: CC|MM|YY|CVV or CC|MMYY|CVV"
             except Exception as e:
                 error = f"Check failed: {str(e)[:50]}"
-    
+
+    # Build grouped gate <select> with <optgroup> per gateway
+    is_premium_user = user_info['type'] in ['premium', 'owner']
+    groups_order = ['STRIPE', 'SHOPII', 'PP', 'B3', 'OTHER']
+    grouped = {g: [] for g in groups_order}
+    for gate in AVAILABLE_GATES:
+        grp = gate.get('group', 'OTHER')
+        grouped.setdefault(grp, []).append(gate)
     gates_html = ""
-    for g in AVAILABLE_GATES:
-        disabled = 'disabled' if g['premium'] and user_info['type'] not in ['premium', 'owner'] else ''
-        premium_tag = ' (Premium)' if g['premium'] else ''
-        gates_html += f'<option value="{g["id"]}" {disabled}>{g["name"]}{premium_tag}</option>'
+    for grp in groups_order:
+        items = grouped.get(grp, [])
+        if not items:
+            continue
+        gates_html += f'<optgroup label="── {grp} ──">'
+        for g in items:
+            disabled = 'disabled' if g['premium'] and not is_premium_user else ''
+            lock_tag = ' 🔒' if g['premium'] and not is_premium_user else ''
+            gates_html += f'<option value="{g["id"]}" {disabled}>{g["name"]}{lock_tag}</option>'
+        gates_html += '</optgroup>'
     
     result_html = ""
     if result:
@@ -5155,7 +5193,14 @@ Time: {result['time']}s
     
     return render_template_string(f"""
     <html>
-    <head><title>Card Checker - Onichan</title>{USER_CSS}</head>
+    <head><title>Card Checker - Onichan</title>{USER_CSS}
+    <style>
+    .gate-extra-field {{ margin-top: 10px; display: none; }}
+    .gate-extra-field.visible {{ display: block; }}
+    .gate-badge {{ display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 4px;
+                   background: rgba(255,20,147,0.2); color: #ff1493; margin-left: 6px; }}
+    </style>
+    </head>
     <body>
         {get_user_sidebar('checker', 'Card Checker')}
         <div class="main">
@@ -5174,9 +5219,28 @@ Time: {result['time']}s
                     </div>
                     <div class="form-group">
                         <label>Select Gate</label>
-                        <select name="gate">
+                        <select name="gate" id="gateSelect" onchange="handleGateChange(this.value)">
                             {gates_html}
                         </select>
+                    </div>
+
+                    <div class="gate-extra-field" id="skField">
+                        <div class="form-group">
+                            <label>Stripe SK Key <span class="gate-badge">SKBASED CVV</span></label>
+                            <input type="text" name="sk_key" placeholder="sk_live_xxxxx or sk_test_xxxxx">
+                            <small style="color:#a78bfa;">Leave blank to use the platform default SK key (if configured)</small>
+                        </div>
+                    </div>
+
+                    <div class="gate-extra-field" id="ppField">
+                        <div class="form-group">
+                            <label>PayPal Client ID <span class="gate-badge">PP KeyBased</span></label>
+                            <input type="text" name="pp_client_id" placeholder="AxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX">
+                        </div>
+                        <div class="form-group">
+                            <label>PayPal Client Secret</label>
+                            <input type="password" name="pp_client_secret" placeholder="Exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary" id="checkBtn">Check Card</button>
                 </form>
@@ -5187,11 +5251,23 @@ Time: {result['time']}s
                 </div>
                 {result_html}
                 <script>
+                    function handleGateChange(gateId) {{
+                        var skField = document.getElementById('skField');
+                        var ppField = document.getElementById('ppField');
+                        skField.classList.remove('visible');
+                        ppField.classList.remove('visible');
+                        if (gateId === 'skbased') {{
+                            skField.classList.add('visible');
+                        }} else if (gateId === 'ppkb') {{
+                            ppField.classList.add('visible');
+                        }}
+                    }}
                     document.getElementById('checkForm').addEventListener('submit', function() {{
                         document.getElementById('loadingDiv').style.display = 'block';
                         document.getElementById('checkBtn').disabled = true;
                         document.getElementById('checkBtn').style.opacity = '0.6';
                     }});
+                    handleGateChange(document.getElementById('gateSelect').value);
                 </script>
             </div>
             

