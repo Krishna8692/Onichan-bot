@@ -27,6 +27,7 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace/src && python bot.py"
+waitForPort = 5000
 
 [agent]
 stack = "PNPM_WORKSPACE"
