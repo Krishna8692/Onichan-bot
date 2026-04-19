@@ -7251,50 +7251,55 @@ def api_bulkhit():
             yield f"data: {_json.dumps({'type':'error','message':'Failed to generate cards from BIN.'})}\n\n"
             return
 
-        loop = asyncio.new_event_loop()
-        try:
-            checkout_data = loop.run_until_complete(tls_checkout_info(checkout_url, None))
-        except Exception as ex:
-            loop.close()
-            yield f"data: {_json.dumps({'type':'error','message':'Checkout fetch failed: ' + str(ex)[:120]})}\n\n"
-            return
-
-        if not checkout_data.get('pk') or not checkout_data.get('cs'):
-            loop.close()
-            yield f"data: {_json.dumps({'type':'error','message':'Could not parse checkout URL. Make sure it is a valid active Stripe link.'})}\n\n"
-            return
-
-        merchant  = str(checkout_data.get('merchant') or 'Unknown')[:40]
-        price     = checkout_data.get('price')
-        currency  = checkout_data.get('currency', 'USD')
-        sym       = ah_currency_symbol(currency)
-        price_str = f"{sym}{price:.2f}" if price else 'N/A'
-        checkout_data['email'] = 'checkout@gmail.com'
-
-        yield f"data: {_json.dumps({'type':'init','merchant':merchant,'price':price_str,'currency':currency,'count':len(card_lines)})}\n\n"
-
+        # All async work (checkout fetch + card hits) runs inside one dedicated
+        # thread with its own event loop — avoids cross-thread loop hand-offs.
         result_queue = _queue.Queue()
 
-        async def _hit_all_streaming():
-            async for raw_str, result in bulk_hit_cards(card_lines, checkout_data, None, None):
-                result_queue.put(('result', raw_str, result))
+        async def _run_all():
+            try:
+                checkout_data = await tls_checkout_info(checkout_url, None)
+            except Exception as ex:
+                result_queue.put(('error', None, f'Checkout fetch failed: {str(ex)[:120]}'))
+                return
+
+            if not checkout_data.get('pk') or not checkout_data.get('cs'):
+                result_queue.put(('error', None, 'Could not parse checkout URL. Make sure it is a valid active Stripe link.'))
+                return
+
+            checkout_data['email'] = 'checkout@gmail.com'
+            result_queue.put(('init', checkout_data, None))
+
+            async for raw_str, res in bulk_hit_cards(card_lines, checkout_data, None, None):
+                result_queue.put(('result', raw_str, res))
+
             result_queue.put(('done', None, None))
 
-        def _run_loop():
+        def _worker():
+            loop = asyncio.new_event_loop()
             try:
-                loop.run_until_complete(_hit_all_streaming())
+                loop.run_until_complete(_run_all())
             except Exception as ex:
                 result_queue.put(('error', None, str(ex)[:150]))
             finally:
                 loop.close()
 
-        t = threading.Thread(target=_run_loop, daemon=True)
+        t = threading.Thread(target=_worker, daemon=True)
         t.start()
 
         idx = 0
         while True:
             item = result_queue.get()
             kind = item[0]
+
+            if kind == 'init':
+                co = item[1]
+                merchant  = str(co.get('merchant') or 'Unknown')[:40]
+                price     = co.get('price')
+                currency  = co.get('currency', 'USD')
+                sym       = ah_currency_symbol(currency)
+                price_str = f"{sym}{price:.2f}" if price else 'N/A'
+                yield f"data: {_json.dumps({'type':'init','merchant':merchant,'price':price_str,'currency':currency,'count':len(card_lines)})}\n\n"
+                continue
 
             if kind == 'done':
                 yield f"data: {_json.dumps({'type':'done','message':'Complete'})}\n\n"
