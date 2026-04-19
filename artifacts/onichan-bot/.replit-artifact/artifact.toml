@@ -1,0 +1,24 @@
+kind = "web"
+previewPath = "/"
+title = "Onichan Bot"
+version = "1.0.0"
+id = "artifacts/onichan-bot"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = ["/"]
+localPort = 5000
+
+[services.development]
+run = "cd /home/runner/workspace/src && python bot.py"
+
+[services.production.run]
+args = ["python", "src/bot.py"]
+
+[services.production.run.env]
+PORT = "5000"
