@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=400">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --pink:#f472b6;--pink-dark:#db2777;--pink-glow:rgba(244,114,182,0.4);
+  --purple:#a78bfa;--purple-dark:#7c3aed;
+  --green:#4ade80;--red:#f87171;--blue:#60a5fa;
+  --bg:#07040f;--bg2:#0f0720;--card:rgba(255,255,255,0.04);
+  --border:rgba(244,114,182,0.18);--text:#e2d9f3;--muted:#8b7db0;
+}
+html,body{width:400px;min-height:700px;background:var(--bg);font-family:'Inter',sans-serif;color:var(--text);overflow-x:hidden}
+body{background-image:radial-gradient(ellipse 60% 40% at 15% 20%,rgba(244,114,182,0.12),transparent),radial-gradient(ellipse 50% 50% at 85% 85%,rgba(124,58,237,0.14),transparent)}
+
+/* ── HEADER ── */
+.hdr{display:flex;align-items:center;gap:10px;padding:14px 16px;
+  background:linear-gradient(135deg,rgba(244,114,182,0.08),rgba(124,58,237,0.06));
+  border-bottom:1px solid var(--border);position:relative;overflow:hidden}
+.hdr::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(244,114,182,0.06),transparent 60%);pointer-events:none}
+.mascot-ring{width:46px;height:46px;border-radius:50%;padding:2px;
+  background:linear-gradient(135deg,var(--pink),var(--purple));flex-shrink:0}
+.mascot-img{width:100%;height:100%;border-radius:50%;background:linear-gradient(135deg,#1f0838,#0a0410);display:flex;align-items:center;justify-content:center;font-size:20px}
+.hdr-brand{flex:1}
+.hdr-title{font-family:'Orbitron',sans-serif;font-weight:800;font-size:13px;
+  letter-spacing:2px;background:linear-gradient(90deg,#fff,var(--pink));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr-sub{font-size:10px;color:var(--purple);letter-spacing:1.5px;margin-top:2px;font-weight:600}
+.hdr-actions{display:flex;gap:6px}
+.hbtn{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,0.05);
+  border:1px solid rgba(244,114,182,0.2);color:var(--text);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font-size:13px;transition:.15s}
+.hbtn:hover{background:rgba(244,114,182,0.12);border-color:var(--pink)}
+
+/* ── LICENSE BANNER ── */
+.lic-banner{margin:10px 12px;border-radius:12px;padding:10px 14px;
+  background:linear-gradient(135deg,rgba(74,222,128,0.1),rgba(34,197,94,0.05));
+  border:1px solid rgba(74,222,128,0.25);display:flex;align-items:center;gap:10px}
+.lic-dot{width:8px;height:8px;background:var(--green);border-radius:50%;
+  box-shadow:0 0 8px var(--green);flex-shrink:0}
+.lic-info{flex:1}
+.lic-title{font-size:12px;font-weight:700;color:var(--green)}
+.lic-sub{font-size:10px;color:var(--muted);margin-top:1px}
+.lic-badge{background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.3);
+  color:var(--green);font-size:9px;font-weight:700;padding:3px 8px;border-radius:20px;letter-spacing:1px}
+
+/* ── STATS ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:0 12px 10px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:10px 6px;text-align:center;position:relative;overflow:hidden}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.stat.s-total::before{background:var(--blue)}
+.stat.s-charged::before{background:var(--green)}
+.stat.s-live::before{background:var(--purple)}
+.stat.s-dead::before{background:var(--red)}
+.stat-val{font-family:'Orbitron',sans-serif;font-size:20px;font-weight:800;line-height:1}
+.stat.s-total .stat-val{color:var(--blue);text-shadow:0 0 12px rgba(96,165,250,0.5)}
+.stat.s-charged .stat-val{color:var(--green);text-shadow:0 0 12px rgba(74,222,128,0.5)}
+.stat.s-live .stat-val{color:var(--purple);text-shadow:0 0 12px rgba(167,139,250,0.5)}
+.stat.s-dead .stat-val{color:var(--red);text-shadow:0 0 12px rgba(248,113,113,0.5)}
+.stat-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;font-weight:700;margin-top:4px}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:2px;padding:0 10px 8px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex-shrink:0;padding:7px 12px;border-radius:8px;border:1px solid transparent;
+  font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;background:none;
+  font-family:'Inter',sans-serif;transition:.15s;white-space:nowrap}
+.tab.active{background:rgba(244,114,182,0.15);border-color:rgba(244,114,182,0.4);color:var(--pink)}
+.tab:not(.active):hover{background:rgba(255,255,255,0.04);color:var(--text)}
+
+/* ── TAB PANE ── */
+.pane{padding:10px 12px;display:none}.pane.active{display:block}
+
+/* ── START BLOCK ── */
+.start-block{margin-bottom:12px}
+.start-btn{width:100%;padding:15px;border:none;border-radius:14px;font-family:'Orbitron',sans-serif;
+  font-size:13px;font-weight:800;letter-spacing:2px;cursor:pointer;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#4ade80,#22c55e);color:#032d0a;
+  box-shadow:0 4px 20px rgba(74,222,128,0.45),inset 0 1px 0 rgba(255,255,255,0.2)}
+.start-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,0.15),transparent 60%);pointer-events:none}
+.start-status{margin-top:6px;text-align:center;font-size:11px;color:var(--muted);
+  padding:6px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(244,114,182,0.12);
+  border-radius:8px;font-weight:500}
+.start-status.ok{color:var(--green);border-color:rgba(74,222,128,0.25);background:rgba(74,222,128,0.05)}
+
+/* ── SECTION ── */
+.section{background:var(--card);border:1px solid var(--border);border-radius:14px;
+  margin-bottom:10px;overflow:hidden}
+.section-hdr{display:flex;align-items:center;justify-content:space-between;
+  padding:11px 14px;background:rgba(0,0,0,0.25)}
+.section-hdr h2{font-size:12px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:7px}
+.section-hdr h2::before{content:'';width:3px;height:14px;background:linear-gradient(var(--pink),var(--purple));border-radius:2px;display:block}
+.section-body{padding:12px 14px}
+
+/* mode toggle */
+.mode-toggle{display:flex;background:rgba(0,0,0,0.3);border-radius:8px;padding:2px;gap:2px;border:1px solid rgba(244,114,182,0.15)}
+.mode-btn{padding:4px 12px;border:none;border-radius:6px;font-size:10px;font-weight:700;
+  cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:0.5px;background:transparent;color:var(--muted);transition:.15s}
+.mode-btn.active{background:linear-gradient(135deg,var(--pink-dark),var(--purple-dark));color:#fff;box-shadow:0 2px 8px rgba(244,114,182,0.4)}
+
+/* inputs */
+label{font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;display:block;margin-bottom:5px}
+.inp{width:100%;padding:10px 12px;background:rgba(0,0,0,0.35);border:1px solid rgba(244,114,182,0.2);
+  border-radius:10px;color:var(--text);font-family:'Inter',sans-serif;font-size:12px;font-weight:500;outline:none}
+.inp:focus{border-color:var(--pink);box-shadow:0 0 0 3px rgba(244,114,182,0.1)}
+.inp::placeholder{color:rgba(139,125,176,0.6)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hint{font-size:10px;color:var(--muted);margin-top:8px;padding:7px 10px;
+  background:rgba(244,114,182,0.05);border:1px solid rgba(244,114,182,0.1);border-radius:8px;line-height:1.5}
+.hint code{background:rgba(244,114,182,0.15);color:var(--pink);padding:1px 5px;border-radius:4px;font-size:9px}
+
+/* toggle switch */
+.toggle{position:relative;width:42px;height:24px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:24px;cursor:pointer;transition:.25s}
+.toggle-slider::after{content:'';position:absolute;left:2px;top:2px;width:18px;height:18px;background:var(--muted);border-radius:50%;transition:.25s}
+input:checked+.toggle-slider{background:linear-gradient(135deg,var(--pink-dark),var(--purple-dark));border-color:var(--pink)}
+input:checked+.toggle-slider::after{transform:translateX(18px);background:#fff}
+
+/* checkboxes */
+.gw-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.gw-opt{display:flex;align-items:center;gap:8px;padding:7px 10px;
+  background:rgba(0,0,0,0.2);border:1px solid rgba(244,114,182,0.1);border-radius:8px;cursor:pointer;font-size:11px;font-weight:500}
+.gw-opt input{accent-color:var(--pink);width:14px;height:14px}
+
+/* select */
+select.inp{cursor:pointer}
+
+/* ── OVERLAY PREVIEW ── */
+.overlay-preview{background:linear-gradient(165deg,#1f0838,#0a0410);border:1px solid rgba(244,114,182,0.4);
+  border-radius:16px;width:280px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.7),0 0 30px rgba(244,114,182,0.2)}
+.ov-hdr{display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(0,0,0,0.4);
+  border-bottom:1px solid rgba(244,114,182,0.2);cursor:move}
+.ov-mascot{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--pink),var(--purple));display:flex;align-items:center;justify-content:center;font-size:13px}
+.ov-title-block{flex:1}
+.ov-title{font-family:'Orbitron',sans-serif;font-weight:800;font-size:11px;color:var(--pink);letter-spacing:1.5px}
+.ov-sub{font-size:9px;color:var(--muted)}
+.ov-body{padding:12px}
+.ov-status{display:flex;align-items:center;gap:8px;background:rgba(74,222,128,0.08);
+  border:1px solid rgba(74,222,128,0.2);border-radius:10px;padding:8px 12px;margin-bottom:10px}
+.ov-status-icon{font-size:16px}
+.ov-status-text{font-size:12px;font-weight:700;color:var(--green)}
+.ov-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px}
+.ov-stat{text-align:center;padding:6px 4px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06)}
+.ov-sv{font-family:'Orbitron',sans-serif;font-size:15px;font-weight:800}
+.ov-sl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}
+.ov-info{font-size:10px;margin-bottom:10px}
+.ov-info-row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+.ov-info-row:last-child{border:none}
+.ov-info-row span:first-child{color:var(--muted)}
+.ov-info-row span:last-child{color:var(--text);font-weight:600}
+.ov-ctrls{display:flex;gap:6px}
+.ov-start{flex:1;padding:10px;background:linear-gradient(135deg,#4ade80,#22c55e);color:#032d0a;
+  border:none;border-radius:10px;font-family:'Orbitron',sans-serif;font-size:10px;font-weight:800;cursor:pointer;letter-spacing:1px}
+.ov-stop{width:38px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);
+  color:var(--red);border-radius:10px;cursor:pointer;font-size:14px}
+.ov-lock{width:38px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);
+  color:var(--muted);border-radius:10px;cursor:pointer;font-size:13px}
+</style>
+</head>
+<body>
+
+<!-- =============================== POPUP REDESIGN =============================== -->
+<!-- HEADER -->
+<div class="hdr">
+  <div class="mascot-ring">
+    <div class="mascot-img">🌸</div>
+  </div>
+  <div class="hdr-brand">
+    <div class="hdr-title">ONICHAN BYPASSER</div>
+    <div class="hdr-sub">V2.0 · PREMIUM EDITION</div>
+  </div>
+  <div class="hdr-actions">
+    <button class="hbtn">🔔</button>
+    <button class="hbtn">🚪</button>
+  </div>
+</div>
+
+<!-- LICENSE BANNER -->
+<div class="lic-banner">
+  <div class="lic-dot"></div>
+  <div class="lic-info">
+    <div class="lic-title">Premium Active</div>
+    <div class="lic-sub">29d 23h remaining</div>
+  </div>
+  <div class="lic-badge">PREMIUM</div>
+</div>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat s-total"><div class="stat-val">82</div><div class="stat-label">Total</div></div>
+  <div class="stat s-charged"><div class="stat-val">0</div><div class="stat-label">Charged</div></div>
+  <div class="stat s-live"><div class="stat-val">3</div><div class="stat-label">Live</div></div>
+  <div class="stat s-dead"><div class="stat-val">79</div><div class="stat-label">Dead</div></div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active">Bypass</button>
+  <button class="tab">History</button>
+  <button class="tab">News</button>
+  <button class="tab">Captcha</button>
+  <button class="tab">Proxy</button>
+  <button class="tab">Tools</button>
+  <button class="tab">Settings</button>
+</div>
+
+<!-- BYPASS TAB -->
+<div class="pane active">
+  <!-- Start Block -->
+  <div class="start-block">
+    <button class="start-btn">⚡ START HITTING</button>
+    <div class="start-status ok">💗 10 cards ready · Stripe page detected</div>
+  </div>
+
+  <!-- BIN / CC List -->
+  <div class="section">
+    <div class="section-hdr">
+      <h2>BIN / CC List</h2>
+      <div class="mode-toggle">
+        <button class="mode-btn active">BIN</button>
+        <button class="mode-btn">CC List</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="row2">
+        <div>
+          <label>BIN</label>
+          <input class="inp" placeholder="44304400" value="37435512">
+        </div>
+        <div>
+          <label>CVV</label>
+          <input class="inp" placeholder="RND" value="RND">
+        </div>
+      </div>
+      <div class="row2" style="margin-top:8px">
+        <div>
+          <label>Expiry Month</label>
+          <select class="inp"><option>RND</option></select>
+        </div>
+        <div>
+          <label>Expiry Year</label>
+          <select class="inp"><option>RND</option></select>
+        </div>
+      </div>
+      <div class="hint">💡 <code>RND</code> = random per card · AMEX BINs (34/37) auto-detected</div>
+    </div>
+  </div>
+
+  <!-- Card Replacement -->
+  <div class="section">
+    <div class="section-hdr">
+      <h2>Card Replacement</h2>
+      <label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label>
+    </div>
+  </div>
+
+  <!-- CVV Bypass -->
+  <div class="section">
+    <div class="section-hdr">
+      <h2>CVV Bypass</h2>
+      <label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+    </div>
+    <div class="section-body">
+      <div class="gw-grid">
+        <label class="gw-opt"><input type="checkbox"><span>Stripe</span></label>
+        <label class="gw-opt"><input type="checkbox"><span>Adyen</span></label>
+        <label class="gw-opt"><input type="checkbox"><span>Checkout.com</span></label>
+        <label class="gw-opt"><input type="checkbox"><span>Recurly</span></label>
+        <label class="gw-opt"><input type="checkbox"><span>Xsolla</span></label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Payment UA Bypass -->
+  <div class="section">
+    <div class="section-hdr">
+      <h2>Payment UA Bypass</h2>
+      <label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label>
+    </div>
+  </div>
+</div>
+
+<hr style="border:none;border-top:1px solid rgba(244,114,182,0.1);margin:20px 12px 16px">
+
+<!-- =============================== OVERLAY REDESIGN =============================== -->
+<div style="padding:12px">
+  <div style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">Floating Overlay Preview</div>
+  <div class="overlay-preview">
+    <div class="ov-hdr">
+      <div class="ov-mascot">🌸</div>
+      <div class="ov-title-block">
+        <div class="ov-title">ONICHAN</div>
+        <div class="ov-sub">AUTOMATION 💗</div>
+      </div>
+      <button style="background:rgba(255,255,255,0.06);border:1px solid rgba(244,114,182,0.2);color:#fff;border-radius:6px;padding:3px 7px;font-size:10px;cursor:pointer">📌</button>
+      <button style="background:rgba(255,255,255,0.06);border:1px solid rgba(244,114,182,0.2);color:#fff;border-radius:6px;padding:3px 7px;font-size:10px;cursor:pointer;margin-left:4px">✕</button>
+    </div>
+    <div class="ov-body">
+      <div class="ov-status">
+        <div class="ov-status-icon">💗</div>
+        <div class="ov-status-text">10 cards ready · Press START</div>
+      </div>
+      <div class="ov-stats">
+        <div class="ov-stat"><div class="ov-sv" style="color:var(--blue)">82</div><div class="ov-sl">Total</div></div>
+        <div class="ov-stat"><div class="ov-sv" style="color:var(--green)">0</div><div class="ov-sl">Charged</div></div>
+        <div class="ov-stat"><div class="ov-sv" style="color:var(--purple)">3</div><div class="ov-sl">Live</div></div>
+        <div class="ov-stat"><div class="ov-sv" style="color:var(--red)">79</div><div class="ov-sl">Dead</div></div>
+      </div>
+      <div class="ov-info">
+        <div class="ov-info-row"><span>Card</span><span>3743****5062</span></div>
+        <div class="ov-info-row"><span>Processed</span><span>79/82</span></div>
+        <div class="ov-info-row"><span>Speed</span><span>6.2 cpm</span></div>
+        <div class="ov-info-row"><span>Time</span><span>12:45</span></div>
+      </div>
+      <div class="ov-ctrls">
+        <button class="ov-start">▶ START</button>
+        <button class="ov-stop">⏹</button>
+        <button class="ov-lock">🔒</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

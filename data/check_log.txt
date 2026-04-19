@@ -1,0 +1,23 @@
+2025-12-14 14:00:14.279980|8205566918|525042xxxx|razorpay|error|Gate not implemented
+2025-12-14 14:02:55.430947|8205566918|525042xxxx|razorpay|error|Gate not implemented
+2025-12-14 14:02:59.439940|8205566918|525042xxxx|razorpay|error|Gate not implemented
+2025-12-14 14:03:04.081167|8205566918|525042xxxx|stripe_auth|error|Gate not implemented
+2025-12-14 14:03:10.591919|8205566918|525042xxxx|stripe_auth|error|Gate not implemented
+2025-12-14 14:06:36.803550|8205566918|525042xxxx|rp|success|Card Declined
+2025-12-14 14:06:59.171076|8205566918|525042xxxx|ss|success|Card test - Gate testing mode
+2025-12-14 14:07:25.613941|8205566918|525042xxxx|ss|success|Card test - Gate testing mode
+2025-12-14 14:17:28.586719|8205566918|525042xxxx|sh|success|Card test - Gate testing mode
+2025-12-14 14:21:22.630671|8205566918|525042xxxx|sh|success|Card test - Gate testing mode
+2025-12-14 14:22:30.723605|8205566918|525042xxxx|sh|success|Card test - Gate testing mode
+2025-12-14 14:23:13.897274|8205566918|525042xxxx|rp|success|Card Declined
+2025-12-14 14:26:44.031499|8205566918|525042xxxx|rp|success|Card Declined
+2025-12-14 14:27:01.035614|8205566918|525042xxxx|rp|success|Card Declined
+2025-12-14 14:27:31.506329|8205566918|525042xxxx|ss|success|Card test - Gate testing mode
+2025-12-14 14:45:15.747280|8205566918|525042xxxx|ss|error|Stripe Auth API unavailable - try again
+2025-12-14 14:45:28.568254|8205566918|525042xxxx|rp|success|Card Declined
+2025-12-14 14:50:53.419480|8205566918|525042xxxx|rp|declined|Card Declined
+2025-12-14 14:51:10.143222|8205566918|525042xxxx|rp|declined|Card Declined
+2025-12-14 15:06:55.742930|8205566918|525042xxxx|sh|error|Shopify API unavailable
+2025-12-14 15:40:44.384157|8205566918|410621xxxx|sh|error|Shopify API unavailable
+2025-12-14 15:45:26.327338|8205566918|525042xxxx|sh|error|Shopify Gateway Testing - Card Check Complete
+2025-12-14 15:47:10.399721|8205566918|525042xxxx|sh|error|Shopify Gateway Testing - Card Check Complete

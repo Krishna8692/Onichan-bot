@@ -1,0 +1,2227 @@
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:14:01
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4147400260297583|04|29|456
+Gateway: ss
+Response: Charge Successful
+BIN: 414740
+Brand: VISA
+Type: CREDIT
+Bank: Jpmorgan Chase Bank N.A.
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:15:03
+User ID: 6762475454
+Username: @selluman
+Card: 4147400260297583|04|29|456
+Gateway: ss
+Response: Declined - Invalid Card
+BIN: 414740
+Brand: UNKNOWN
+Type: UNKNOWN
+Bank: UNKNOWN
+Country: UNKNOWN 🌍
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:18:17
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4748382161066270|12|28|455
+Gateway: pp
+Response: Charge Successful
+BIN: 474838
+Brand: UNKNOWN
+Type: UNKNOWN
+Bank: UNKNOWN
+Country: UNKNOWN 🌍
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:18:20
+User ID: 5762701937
+Username: @CARAXSS
+Card: 5395937533636366|11|26|961
+Gateway: pp
+Response: Charge Successful
+BIN: 539593
+Brand: UNKNOWN
+Type: UNKNOWN
+Bank: UNKNOWN
+Country: UNKNOWN 🌍
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:18:25
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4784489502177198|07|29|703
+Gateway: pp
+Response: Approved - Card Valid
+BIN: 478448
+Brand: UNKNOWN
+Type: UNKNOWN
+Bank: UNKNOWN
+Country: UNKNOWN 🌍
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:18:30
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4374560001447351|06|28|568
+Gateway: pp
+Response: Charge Successful
+BIN: 437456
+Brand: UNKNOWN
+Type: UNKNOWN
+Bank: UNKNOWN
+Country: UNKNOWN 🌍
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:18:33
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4506445472422276|12|26|048
+Gateway: pp
+Response: Charge Successful
+BIN: 450644
+Brand: UNKNOWN
+Type: UNKNOWN
+Bank: UNKNOWN
+Country: UNKNOWN 🌍
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:18:36
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4570665004707602|04|27|564
+Gateway: pp
+Response: Charge Successful
+BIN: 457066
+Brand: UNKNOWN
+Type: UNKNOWN
+Bank: UNKNOWN
+Country: UNKNOWN 🌍
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 01:18:39
+User ID: 5762701937
+Username: @CARAXSS
+Card: 5256290200294624|11|27|285
+Gateway: pp
+Response: Approved - Card Valid
+BIN: 525629
+Brand: UNKNOWN
+Type: UNKNOWN
+Bank: UNKNOWN
+Country: UNKNOWN 🌍
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 11:53:24
+User ID: 7292047135
+Username: @Xaseer
+Card: 5229816126513756|02|27|485
+Gateway: sor
+Response: Approved - CVV Match
+BIN: 522981
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Triplink International Co.,Limited
+Country: Hong Kong 🇭🇰
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 11:53:26
+User ID: 7292047135
+Username: @Xaseer
+Card: 4213890044616729|05|28|639
+Gateway: sor
+Response: Transaction Successful
+BIN: 421389
+Brand: VISA
+Type: CREDIT
+Bank: The Federal Bank Ltd
+Country: India 🇮🇳
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 11:53:29
+User ID: 7292047135
+Username: @Xaseer
+Card: 5229816126621419|02|27|152
+Gateway: sor
+Response: Charge Successful
+BIN: 522981
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Triplink International Co.,Limited
+Country: Hong Kong 🇭🇰
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 11:53:31
+User ID: 7292047135
+Username: @Xaseer
+Card: 5218220399779462|11|27|906
+Gateway: sor
+Response: Approved - CVV Match
+BIN: 521822
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Metropolitan Bank And Trust Company (Metrobank)
+Country: Philippines (the) 🇵🇭
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 11:53:36
+User ID: 7292047135
+Username: @Xaseer
+Card: 5423802304703298|02|30|026
+Gateway: sor
+Response: Approved - Card Valid
+BIN: 542380
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 11:53:43
+User ID: 7292047135
+Username: @Xaseer
+Card: 4304450802228637|07|25|998
+Gateway: sor
+Response: Charge Successful
+BIN: 430445
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 11:54:29
+User ID: 5762701937
+Username: @CARAXSS
+Card: 5196035000714153|06|28|392
+Gateway: pp
+Response: Charge Successful
+BIN: 519603
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:01:40
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4649520268923535|10|28|583
+Gateway: pp
+Response: Approved - Card Valid
+BIN: 464952
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:08:08
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4304450802228637|07|25|998
+Gateway: pp
+Response: Declined - Invalid Card
+BIN: 430445
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:10:10
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4304450802228637|07|25|998
+Gateway: pp
+Response: Declined - Invalid Card
+BIN: 430445
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:10:36
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4304450802228637|07|25|998
+Gateway: pp
+Response: Approved - CVV Match
+BIN: 430445
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:15:01
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4649520269006488|12|28|430
+Gateway: pp
+Response: Transaction Successful
+BIN: 464952
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:15:09
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4649520261385211|06|27|725
+Gateway: pp
+Response: Transaction Successful
+BIN: 464952
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:15:13
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4649520267197297|02|28|892
+Gateway: pp
+Response: Transaction Successful
+BIN: 464952
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:15:20
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4649520267372072|03|32|851
+Gateway: pp
+Response: Approved - CVV Match
+BIN: 464952
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:15:25
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4649520262679414|07|29|628
+Gateway: pp
+Response: Approved - Card Valid
+BIN: 464952
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 12:15:30
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4649520260550500|09|28|073
+Gateway: pp
+Response: Approved - CVV Match
+BIN: 464952
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-08 20:35:57
+User ID: 5762701937
+Username: @CARAXSS
+Card: 377481261318890|09|28|0000
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 377481
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: BANK
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-10 14:20:22
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4602870182018440|10|28|496
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 460287
+Brand: VISA
+Type: PREPAID
+Bank: Ayeryarwady Bank Public Company Limited - Aya Bank Pcl
+Country: Myanmar 🇲🇲
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-15 18:56:10
+User ID: 5762701937
+Username: @CARAXSS
+Card: 5171162901317974|03|26|479
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 517116
+Brand: MASTERCARD
+Type: DEBIT
+Bank: Rhb Bank Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-15 18:57:59
+User ID: 5762701937
+Username: @CARAXSS
+Card: 5171262903317974|03|26|000
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 517126
+Brand: MASTERCARD
+Type: PREPAID
+Bank: Fiserv Solutions, Llc
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-15 21:42:40
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4848100068970173|04|27|380
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 484810
+Brand: VISA
+Type: DEBIT
+Bank: Public Bank Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-15 22:58:46
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4848100068970173|04|27|380
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 484810
+Brand: VISA
+Type: DEBIT
+Bank: Public Bank Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 09:00:30
+User ID: 6116329157
+Username: @zx_wk
+Card: 5156768594111273|08|27|152
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 515676
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Capital One, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 09:02:12
+User ID: 6116329157
+Username: @zx_wk
+Card: 5355221453171706|07|29|381
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 535522
+Brand: MASTERCARD
+Type: DEBIT
+Bank: Monzo Bank Limited
+Country: United Kingdom of Great Britain and Northern Ireland (the) 🇬🇧
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 09:03:14
+User ID: 6116329157
+Username: @zx_wk
+Card: 5342833741599997|07|29|134
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 534283
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 09:05:19
+User ID: 6116329157
+Username: @zx_wk
+Card: 5229622376030263|11|27|561
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 522962
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 09:05:33
+User ID: 6116329157
+Username: @zx_wk
+Card: 3766836377534099|05|28|217
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 376683
+Brand: AMEX
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 09:11:56
+User ID: 6116329157
+Username: @zx_wk
+Card: 5462130216284005|06|26|825
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 546213
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 17:50:06
+User ID: 6116329157
+Username: @zx_wk
+Card: 4430440038862017|01|28|221
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 443044
+Brand: VISA
+Type: DEBIT
+Bank: Pnc Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 18:31:11
+User ID: 6116329157
+Username: @zx_wk
+Card: 4280035846427879|10|27|546
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 428003
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 18:32:03
+User ID: 6116329157
+Username: @zx_wk
+Card: 4430400016675104|01|28|300
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 443040
+Brand: VISA
+Type: DEBIT
+Bank: Pnc Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-11-16 22:43:07
+User ID: 5762701937
+Username: @CARAXSS
+Card: 5196032055704957|11|27|506
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 519603
+Brand: MASTERCARD
+Type: DEBIT
+Bank: Cimb Bank Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-03 08:06:16
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4160210843362206|07|27|649
+Gateway: pp
+Response: Declined - OAS_VALIDATION_ERROR
+BIN: 416021
+Brand: VISA
+Type: DEBIT
+Bank: Hdfc Bank Limited
+Country: India 🇮🇳
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-13 06:12:17
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4147202681515316|06|29|471
+Gateway: rp
+Response: Approved
+BIN: 414720
+Brand: VISA
+Type: CREDIT
+Bank: Jpmorgan Chase Bank N.A.
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-14 16:28:18
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4179030042205389|08|27|740
+Gateway: rp
+Response: Card Approved
+BIN: 417903
+Brand: VISA
+Type: CREDIT
+Bank: U.S. Bank National Association-Credit
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-14 16:29:08
+User ID: 8205566918
+Username: @Aajaonababy
+Card: 4179030042205389|08|27|740
+Gateway: rp
+Response: Card Approved
+BIN: 417903
+Brand: VISA
+Type: CREDIT
+Bank: U.S. Bank National Association-Credit
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-14 16:30:44
+User ID: 8205566918
+Username: @Aajaonababy
+Card: 4179030042205389|08|27|740
+Gateway: rp
+Response: Card Approved
+BIN: 417903
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-14 16:37:04
+User ID: 8205566918
+Username: @Aajaonababy
+Card: 4179030042205389|08|27|740
+Gateway: rp
+Response: Card Approved
+BIN: 417903
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-14 16:50:07
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4179030042205389|08|27|740
+Gateway: rp
+Response: Card Approved
+BIN: 417903
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 14:47:30
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4342586254737817|05|26|079
+Gateway: rp
+Response: Card Approved
+BIN: 434258
+Brand: VISA
+Type: DEBIT
+Bank: Wells Fargo Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:00:47
+User ID: 8119946836
+Username: @s4chiz
+Card: 4015432023408701|05|28|203
+Gateway: rz
+Response: Declined - {"status":"success","data":{"status":"DECLINED ❌","response":"card_not_enrolled"},"processing_time_seconds":17.644}
+BIN: 401543
+Brand: VISA
+Type: DEBIT
+Bank: Wafd Bank
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:02:27
+User ID: 8119946836
+Username: @s4chiz
+Card: 4015432023408701|05|28|203
+Gateway: rz
+Response: Declined - {"status":"success","data":{"status":"DECLINED ❌","response":"card_not_enrolled"},"processing_time_seconds":15.29}
+BIN: 401543
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:04:30
+User ID: 8119946836
+Username: @s4chiz
+Card: 5244630006782105|07|29|972
+Gateway: rz
+Response: Declined - {"status":"success","data":{"status":"DECLINED ❌","response":"NA"},"processing_time_seconds":12.782}
+BIN: 524463
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:05:10
+User ID: 8119946836
+Username: @s4chiz
+Card: 4684510475192095|01|28|364
+Gateway: rz
+Response: Declined - {"status":"success","data":{"status":"DECLINED ❌","response":"debit_instrument_blocked"},"processing_time_seconds":9.515}
+BIN: 468451
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:15:15
+User ID: 8119946836
+Username: @s4chiz
+Card: 4684510475192095|01|28|364
+Gateway: st
+Response: Approved - {"success":false,"data":{"error":{"message":"Your card was declined."}}}
+BIN: 468451
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:21:38
+User ID: 8119946836
+Username: @s4chiz
+Card: 4684510475192095|01|28|364
+Gateway: st
+Response: Approved - {"success":false,"data":{"error":{"message":"Your card was declined."}}}
+BIN: 468451
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:23:16
+User ID: 8119946836
+Username: @s4chiz
+Card: 4684510475192095|01|28|364
+Gateway: st
+Response: Approved - {"success":false,"data":{"error":{"message":"Your card was declined."}}}
+BIN: 468451
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:32:03
+User ID: 8119946836
+Username: @s4chiz
+Card: 4684510475192095|01|28|364
+Gateway: st
+Response: Declined - {"Success":False,"Data":{"Error":{"Message":"Your Card Was Declined."}}}
+BIN: 468451
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:38:09
+User ID: 8119946836
+Username: @s4chiz
+Card: 4684510475192095|01|28|364
+Gateway: st
+Response: Declined - {"Success":False,"Data":{"Error":{"Message":"Your Card Was Declined."}}}
+BIN: 468451
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-20 15:38:33
+User ID: 8119946836
+Username: @s4chiz
+Card: 4684510475192095|01|28|364
+Gateway: st
+Response: Declined - {"Success":False,"Data":{"Error":{"Message":"Your Card Was Declined."}}}
+BIN: 468451
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-21 11:10:30
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 5597580228595137|07|28|019
+Gateway: rz
+Response: Approved - Payment Successful
+BIN: 559758
+Brand: MASTERCARD
+Type: PREPAID
+Bank: Comerica Bank
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2025-12-21 11:17:09
+User ID: 8119946836
+Username: @s4chiz
+Card: 5597581710024909|07|30|940
+Gateway: rz
+Response: Approved - Payment Successful
+BIN: 559758
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-06 16:17:37
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 5269110140438070|04|26|194
+Gateway: rz
+Response: Approved - Request Failed After 3 Attempts: Invalid Url 'Site': No Scheme Supplied. Perhaps You Meant Https://Site?
+BIN: 526911
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Enpara Bank A S
+Country: Türkiye 🇹🇷
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 04:26:47
+User ID: 7292047135
+Username: @Ryvoda
+Card: 379363038411315|10|32|9888
+Gateway: rz
+Response: Approved - Request Failed After 3 Attempts: Invalid Url 'Site': No Scheme Supplied. Perhaps You Meant Https://Site?
+BIN: 379363
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: BANK
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 09:55:08
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 5178058372989189|06|26|044
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 517805
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Capital One, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 09:58:48
+User ID: 8434547669
+Username: @yourspoison
+Card: 4327390119674201|10|27|559
+Gateway: pp
+Response: CVV Match - INVALID_SECURITY_CODE
+BIN: 432739
+Brand: VISA
+Type: DEBIT
+Bank: State Employees' Credit Union
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 12:13:24
+User ID: 8119946836
+Username: @s4chiz
+Card: 5244630006782105|07|29|972
+Gateway: ppv
+Response: RISK_DISALLOWED
+BIN: 524463
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Banco De Reservas De La Republica Dominicana
+Country: Dominican Republic (the) 🇩🇴
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 12:15:32
+User ID: 8119946836
+Username: @s4chiz
+Card: 5244630006782105|07|29|972
+Gateway: ppv
+Response: RISK_DISALLOWED
+BIN: 524463
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Banco De Reservas De La Republica Dominicana
+Country: Dominican Republic (the) 🇩🇴
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 12:19:27
+User ID: 8119946836
+Username: @s4chiz
+Card: 5244630006782105|07|29|972
+Gateway: ppv
+Response: RISK_DISALLOWED
+BIN: 524463
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 12:20:13
+User ID: 8119946836
+Username: @s4chiz
+Card: 5244630006782105|07|29|972
+Gateway: ppv
+Response: RISK_DISALLOWED
+BIN: 524463
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 12:20:39
+User ID: 8119946836
+Username: @s4chiz
+Card: 5244630006782105|07|29|972
+Gateway: ppv
+Response: RISK_DISALLOWED
+BIN: 524463
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Banco De Reservas De La Republica Dominicana
+Country: Dominican Republic (the) 🇩🇴
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-07 13:33:58
+User ID: 7576309973
+Username: @JOFARAA
+Card: 5524331210356890|01|28|030
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 552433
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Bank Of America, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 11:42:23
+User ID: 7292047135
+Username: @Ryvoda
+Card: 4693080257391397|03|28|718
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 469308
+Brand: VISA
+Type: PREPAID
+Bank: Bigpay Malaysia Sdn. Bhd.
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 11:46:47
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4737023103528596|09|29|239
+Gateway: pp
+Response: CVV Match - INVALID_SECURITY_CODE
+BIN: 473702
+Brand: VISA
+Type: DEBIT
+Bank: Wells Fargo Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 11:46:52
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4737023103528547|09|29|529
+Gateway: pp
+Response: CVV Match - INVALID_SECURITY_CODE
+BIN: 473702
+Brand: VISA
+Type: DEBIT
+Bank: Wells Fargo Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 11:47:01
+User ID: 7292047135
+Username: @Ryvoda
+Card: 4632252048091073|07|28|816
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 463225
+Brand: VISA
+Type: DEBIT
+Bank: Malayan Banking Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 11:52:03
+User ID: 8271254197
+Username: @Ruhvaan
+Card: 4737023103528547|09|29|529
+Gateway: pp
+Response: CVV Match - INVALID_SECURITY_CODE
+BIN: 473702
+Brand: VISA
+Type: DEBIT
+Bank: Wells Fargo Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 14:46:08
+User ID: 5618527566
+Username: @aliiii_airiiii
+Card: 4400664606517614|02|30|886
+Gateway: pp
+Response: CVV Match - INVALID_SECURITY_CODE
+BIN: 440066
+Brand: VISA
+Type: CREDIT
+Bank: Bank Of America - Consumer Credit
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 15:01:08
+User ID: 7845824201
+Username: @unfornt
+Card: 4737033039343028|05|29|588
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 473703
+Brand: VISA
+Type: DEBIT
+Bank: Wells Fargo Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 15:01:13
+User ID: 7845824201
+Username: @unfornt
+Card: 4388576206018221|09|30|545
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 438857
+Brand: VISA
+Type: CREDIT
+Bank: Jpmorgan Chase Bank N.A.
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 15:01:19
+User ID: 7845824201
+Username: @unfornt
+Card: 5333171127020507|05|26|724
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 533317
+Brand: MASTERCARD
+Type: PREPAID
+Bank: Postepay S.P.A
+Country: Italy 🇮🇹
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 15:03:59
+User ID: 7845824201
+Username: @unfornt
+Card: 4342562533220776|09|29|055
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 434256
+Brand: VISA
+Type: DEBIT
+Bank: Wells Fargo Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 15:04:11
+User ID: 7845824201
+Username: @unfornt
+Card: 5524332310663441|11|27|113
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 552433
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Bank Of America, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 15:04:16
+User ID: 7845824201
+Username: @unfornt
+Card: 4400662787406110|10|27|977
+Gateway: pp
+Response: CVV Match - INVALID_SECURITY_CODE
+BIN: 440066
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 15:06:36
+User ID: 7845824201
+Username: @unfornt
+Card: 4388540113152200|09|30|934
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 438854
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 15:06:53
+User ID: 7845824201
+Username: @unfornt
+Card: 5205245081440037|12|29|691
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 520524
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:15:45
+User ID: 5911009164
+Username: @xddevil99
+Card: 4037661096756166|03|27|275
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 403766
+Brand: VISA
+Type: CREDIT
+Bank: U.S. Bank National Association-Credit
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:16:52
+User ID: 5911009164
+Username: @xddevil99
+Card: 4037660814696746|02|27|338
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 403766
+Brand: VISA
+Type: CREDIT
+Bank: U.S. Bank National Association-Credit
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:17:35
+User ID: 7214730073
+Username: @Lala_mitha
+Card: 4251159000485799|04|27|932
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 425115
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:17:55
+User ID: 7214730073
+Username: @Lala_mitha
+Card: 4251159000485799|04|27|932
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 425115
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:18:08
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4100400103410687|06|28|111
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 410040
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:18:12
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4100400136859587|07|28|101
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 410040
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:18:16
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 4100400431647026|01|26|817
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 410040
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:20:29
+User ID: 7214730073
+Username: @Lala_mitha
+Card: 5326780007945069|09|28|119
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 532678
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:23:11
+User ID: 803071801
+Username: @Vedansh Daddy
+Card: 4400661922871063|12|29|553
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 440066
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-11 17:23:49
+User ID: 7292047135
+Username: @Ryvoda
+Card: 4400665709202244|04|28|886
+Gateway: pp
+Response: CVV Match - INVALID_SECURITY_CODE
+BIN: 440066
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-12 06:48:19
+User ID: 5911009164
+Username: @xddevil99
+Card: 4737028056527552|09|28|568
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 473702
+Brand: VISA
+Type: DEBIT
+Bank: Wells Fargo Bank, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-13 05:57:54
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4059986128491471|12|30|113
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 405998
+Brand: VISA
+Type: DEBIT
+Bank: Bank Simpanan Nasional
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-13 05:58:04
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4366880070264101|04|28|223
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 436688
+Brand: VISA
+Type: CREDIT
+Bank: Public Bank Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-13 05:58:09
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4382890001844848|08|26|198
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 438289
+Brand: VISA
+Type: CREDIT
+Bank: United Overseas Bank (Malaysia) Bhd
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-13 05:58:19
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4632252053160029|11|28|652
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 463225
+Brand: VISA
+Type: DEBIT
+Bank: Malayan Banking Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-13 05:58:23
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4632252061569369|07|29|074
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 463225
+Brand: VISA
+Type: DEBIT
+Bank: Malayan Banking Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-13 05:58:28
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4632252064004067|09|29|504
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 463225
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-13 05:58:36
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4632252067735402|04|32|503
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 463225
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-13 11:22:03
+User ID: 803071801
+Username: @Vedansh Daddy
+Card: 4632252041433421|12|27|176
+Gateway: st
+Response: Response - {"Success":True,"Data":{"Status":"Succeeded","Id":"Seti 1Sp5Fhk6Ygoko7Rxhrzal5Bj","Client Secret":"Seti 1Sp5Fhk6Ygoko7Rxhrzal5Bj Secret Tmezvdyfvybzx5V1Qxmwuluz5Iq1Rdl","Next Action":Null,"Payment Type":"Card","Return Url":"Https%3A%2F%2Fwww.Epicalarc.Com%2Fmy-Account%2Fpayment-Methods%2F"}}
+BIN: 463225
+Brand: VISA
+Type: DEBIT
+Bank: Malayan Banking Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-14 13:07:23
+User ID: 8434547669
+Username: @yourspoison
+Card: 4147202146025935|11|26|327
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 414720
+Brand: VISA
+Type: CREDIT
+Bank: Jpmorgan Chase Bank N.A.
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-14 13:07:29
+User ID: 8434547669
+Username: @yourspoison
+Card: 4147202272183938|11|27|235
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 414720
+Brand: VISA
+Type: CREDIT
+Bank: Jpmorgan Chase Bank N.A.
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-14 13:07:34
+User ID: 8434547669
+Username: @yourspoison
+Card: 4147202298847508|05|28|694
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 414720
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-14 13:07:42
+User ID: 8434547669
+Username: @yourspoison
+Card: 4147202306923911|06|27|172
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 414720
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-14 13:07:50
+User ID: 8434547669
+Username: @yourspoison
+Card: 4147202314538263|05|27|586
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 414720
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:07:14
+User ID: 5762701937
+Username: @CARAXSS
+Card: 4029886038583507|12|27|103
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 402988
+Brand: VISA
+Type: CREDIT
+Bank: Rhb Bank Berhad
+Country: Malaysia 🇲🇾
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:35:07
+User ID: 5911009164
+Username: @xddevil99
+Card: 4337840006380625|09|26|922
+Gateway: pp
+Response: CVV Match - EXISTING_ACCOUNT_RESTRICTED
+BIN: 433784
+Brand: VISA
+Type: DEBIT
+Bank: Stanford Federal Credit Union
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:35:07
+User ID: 5911009164
+Username: @xddevil99
+Card: 4337840006380625|09|26|922
+Gateway: pp
+Response: CVV Match - EXISTING_ACCOUNT_RESTRICTED
+BIN: 433784
+Brand: VISA
+Type: DEBIT
+Bank: Stanford Federal Credit Union
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:46:36
+User ID: 5911009164
+Username: @xddevil99
+Card: 5571268263414790|04|26|545
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 557126
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:50:56
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4283322125023158|08|26|784
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 428332
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:51:03
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4283322125986297|04|28|315
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 428332
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:51:11
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4283322125311850|06|26|645
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 428332
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:51:18
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4283322125884963|09|27|422
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 428332
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:51:26
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4283322125651719|01|27|563
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 428332
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:51:33
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4283322125020220|04|30|809
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 428332
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:51:41
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4283322125801074|09|30|552
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 428332
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-16 14:51:48
+User ID: 8315528188
+Username: @ile_gaI
+Card: 4283322125480531|02|30|735
+Gateway: pp
+Response: Payment Charged $0.01
+BIN: 428332
+Brand: VISA
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-01-18 07:30:52
+User ID: 5668200230
+Username: @CVV_LOVER
+Card: 4143980680572602|09|27|657
+Gateway: pp
+Response: CVV Match - INVALID_BILLING_ADDRESS
+BIN: 414398
+Brand: VISA
+Type: DEBIT
+Bank: Green Dot Bank Dba Bonneville Bank
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-14 03:52:07
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355128625049|02|30|3626
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-17 09:18:00
+User ID: 8238414113
+Username: @mrluccii
+Card: 377481345101437|08|26|5392
+Gateway: auto_hitter
+Response: Charged USD 11.25
+BIN: 377481
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: MACYS
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-17 13:32:35
+User ID: 8250282523
+Username: @𝗟𝗬𝗥𝗢𝗫 𝗛𝗤 </>
+Card: 377481345202755|09|31|7276
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 377481
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: MACYS
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-17 13:32:48
+User ID: 8250282523
+Username: @𝗟𝗬𝗥𝗢𝗫 𝗛𝗤 </>
+Card: 377481345338070|12|32|0761
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 377481
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: MACYS
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-17 14:02:10
+User ID: 8250282523
+Username: @𝗟𝗬𝗥𝗢𝗫 𝗛𝗤 </>
+Card: 377481345995077|10|27|0837
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 377481
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: MACYS
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-17 14:27:57
+User ID: 7205267248
+Username: @WASIxCARDER
+Card: 5143773816507841|04|26|076
+Gateway: st
+Response: Approved - #APPROVED Your payment method added
+BIN: 514377
+Brand: MASTERCARD
+Type: DEBIT
+Bank: The Bancorp Bank National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-17 14:28:21
+User ID: 7205267248
+Username: @WASIxCARDER
+Card: 5143773816507841|04|26|076
+Gateway: st
+Response: Approved - #APPROVED Your payment method added
+BIN: 514377
+Brand: MASTERCARD
+Type: DEBIT
+Bank: The Bancorp Bank National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-17 14:29:01
+User ID: 7205267248
+Username: @WASIxCARDER
+Card: 5143773816507841|04|26|076
+Gateway: st
+Response: Approved - #APPROVED Your payment method added
+BIN: 514377
+Brand: MASTERCARD
+Type: CREDIT
+Bank: BANK
+Country: UNITED STATES 🇺🇸
+================================================================================
+

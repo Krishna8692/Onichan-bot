@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "python-3.11"]
 
 [deployment]
 router = "application"
@@ -11,6 +11,23 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start Bot"
+
+[[workflows.workflow]]
+name = "Start Bot"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace/src && python bot.py"
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -18,3 +35,27 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 80
+
+[nix]
+channel = "stable-25_05"
+packages = ["cargo", "freetype", "lcms2", "libiconv", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib"]
+
+[userenv]
+
+[userenv.shared]
+BOT_TOKEN = "8247559527:AAFv5TZwfTJe3UZjs1_Kf05pkbuq0hvjOyM"
+OWNER_ID = "1857417752"
+ADMIN_PASSWORD = "onichan2024"
+TON_WALLET = "UQDkmtGV9yrcSjR4zstKvmaTfuIl0-WnqoXwMPdzeuv5obCU"
