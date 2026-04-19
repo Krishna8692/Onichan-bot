@@ -3355,7 +3355,7 @@ def get_user_sidebar(active_page, page_title="Onichan"):
 
     # Bottom-nav tab grouping — which active_page lights up which tab
     _shop_keys = {'ccshop', 'purchased', 'proxyshop', 'myproxies'}
-    _tools_keys = {'checker', 'masscheck', 'generator', 'autohitter', 'razorpay',
+    _tools_keys = {'checker', 'masscheck', 'generator', 'autohitter', 'bulkhitter', 'razorpay',
                    'payu', 'shopify', 'cleaner', 'binlookup', 'proxychecker', 'proxygen'}
     _casino_keys = {'casino'}
 
@@ -3481,6 +3481,7 @@ def get_user_sidebar(active_page, page_title="Onichan"):
             {link('masscheck', 'Mass Check', '/user/masscheck')}
             {link('generator', 'CC Generator', '/user/generator')}
             {link('autohitter', 'Auto Hitter', '/user/autohitter')}
+            {link('bulkhitter', '⚡ Bulk Hitter', '/user/bulkhitter')}
             {link('razorpay', 'Auto Razorpay', '/user/razorpay')}
             {link('payu', 'Auto PayU', '/user/payu')}
             {link('shopify', 'Auto Shopify V2', '/user/shopify')}
@@ -6924,6 +6925,374 @@ def _render_autohitter_page():
 def user_autohitter():
     """User Auto Hitter page - same full-featured interface as admin"""
     return _render_autohitter_page()
+
+
+# ─── BULK STRIPE HITTER ───────────────────────────────────────────────────────
+
+@app.route('/user/bulkhitter', methods=['GET'])
+@user_required
+def user_bulkhitter():
+    """Bulk Stripe Hitter — generate cards from BIN and hit all simultaneously."""
+    user_id = session.get('user_id')
+    user_info = get_user_info(user_id)
+    is_prem = user_info.get('type') in ('premium', 'owner')
+    max_cards = 50 if is_prem else 10
+    sidebar = get_user_sidebar('bulkhitter', '⚡ Bulk Hitter')
+    plan_badge = ('💎 Premium' if user_info.get('type') == 'premium'
+                  else '👑 Owner' if user_info.get('type') == 'owner'
+                  else '👤 Free')
+
+    return render_template_string("""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Bulk Stripe Hitter - Onichan</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d0a1f;--card:rgba(45,27,61,.85);--input:rgba(20,10,35,.9);--border:rgba(255,105,180,.15);--accent:#ff69b4;--accent2:#ff1493;--green:#22c55e;--red:#ef4444;--yellow:#facc15;--blue:#60a5fa;--text:#f0e6f6;--muted:#7a6890;--mono:'JetBrains Mono','Courier New',monospace}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;color:var(--text);font-size:14px}
+body{background:linear-gradient(135deg,#1a0a1f 0%,#2d1b3d 30%,#1f1a3d 60%,#0d0a1f 100%);overflow-y:auto}
+::placeholder{color:var(--muted);opacity:.7}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,105,180,.2);border-radius:4px}
+.layout{display:flex;min-height:100vh}
+.main{flex:1;padding:20px 16px 90px;max-width:780px;margin:0 auto;width:100%}
+@media(min-width:700px){.main{padding:28px 24px 48px}}
+.page-title{font-size:22px;font-weight:800;color:var(--accent);margin-bottom:4px;display:flex;align-items:center;gap:10px}
+.page-sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:16px;backdrop-filter:blur(8px)}
+.card h3{font-size:14px;font-weight:700;color:var(--accent);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600;letter-spacing:.4px}
+input,select{width:100%;background:var(--input);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-size:13px;font-family:inherit;outline:none;transition:border-color .2s}
+input:focus,select:focus{border-color:var(--accent)}
+.form-row{margin-bottom:12px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:500px){.form-grid{grid-template-columns:1fr}}
+.hint{font-size:11px;color:var(--muted);margin-top:4px}
+.btn{width:100%;padding:12px;background:linear-gradient(135deg,var(--accent2),var(--accent));border:none;border-radius:10px;color:#fff;font-weight:800;font-size:14px;cursor:pointer;transition:opacity .2s;margin-top:4px}
+.btn:hover{opacity:.88}.btn:disabled{opacity:.5;cursor:not-allowed}
+.badge{display:inline-block;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;background:rgba(255,105,180,.15);color:var(--accent);border:1px solid rgba(255,105,180,.25)}
+.plan-bar{display:flex;align-items:center;justify-content:space-between;background:rgba(255,105,180,.05);border:1px solid rgba(255,105,180,.12);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px}
+.results-wrap{display:none}
+.results-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.results-header h3{font-size:14px;font-weight:700;color:var(--accent)}
+.summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.stat-box{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center}
+.stat-box .n{font-size:22px;font-weight:800;line-height:1}
+.stat-box .l{font-size:11px;color:var(--muted);margin-top:2px}
+.stat-charged .n{color:var(--green)}
+.stat-live .n{color:var(--blue)}
+.stat-declined .n{color:var(--red)}
+.stat-tds .n{color:var(--yellow)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border)}
+td{padding:7px 8px;border-bottom:1px solid rgba(255,105,180,.06);font-family:var(--mono);font-size:11px;word-break:break-all}
+tr:last-child td{border-bottom:none}
+.tag{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700;font-family:'Nunito',sans-serif}
+.tag-charged{background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3)}
+.tag-live{background:rgba(96,165,250,.15);color:var(--blue);border:1px solid rgba(96,165,250,.3)}
+.tag-declined{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+.tag-3ds{background:rgba(250,204,21,.12);color:var(--yellow);border:1px solid rgba(250,204,21,.2)}
+.tag-error{background:rgba(255,255,255,.07);color:var(--muted);border:1px solid var(--border)}
+.progress-bar{height:4px;background:rgba(255,105,180,.1);border-radius:4px;overflow:hidden;margin-bottom:12px}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent));border-radius:4px;transition:width .3s ease;width:0%}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,105,180,.3);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.alert{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px}
+.alert-error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#fca5a5}
+.alert-info{background:rgba(255,105,180,.07);border:1px solid var(--border);color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="layout">
+{{ sidebar|safe }}
+<div class="main">
+  <div class="page-title">⚡ Bulk Stripe Hitter</div>
+  <div class="page-sub">Generate cards from a BIN and hit them all simultaneously against a Stripe checkout.</div>
+
+  <div class="plan-bar">
+    <span>{{ plan_badge }}</span>
+    <span style="color:var(--muted)">Max cards per batch: <strong style="color:var(--text)">{{ max_cards }}</strong></span>
+  </div>
+
+  <div id="alertBox"></div>
+
+  <div class="card">
+    <h3>🎯 Hit Configuration</h3>
+    <div class="form-row">
+      <label>STRIPE CHECKOUT URL</label>
+      <input type="url" id="urlInput" placeholder="https://buy.stripe.com/xxx  or  https://checkout.stripe.com/...">
+      <div class="hint">buy.stripe.com · checkout.stripe.com links only</div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>BIN / CARD FORMAT</label>
+        <input type="text" id="binInput" placeholder="453201 or 453201|xx|xx|xxx">
+        <div class="hint">Add |mm|yy|cvv masks for custom dates</div>
+      </div>
+      <div class="form-row">
+        <label>CARD COUNT (max {{ max_cards }})</label>
+        <input type="number" id="countInput" value="10" min="1" max="{{ max_cards }}">
+      </div>
+    </div>
+    <button class="btn" id="hitBtn" onclick="startBulkHit()">⚡ Start Bulk Hit</button>
+  </div>
+
+  <div class="results-wrap" id="resultsWrap">
+    <div class="card">
+      <div class="results-header">
+        <h3 id="resultsTitle">Results</h3>
+        <span id="progressLabel" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="summary-row">
+        <div class="stat-box stat-charged"><div class="n" id="cntCharged">0</div><div class="l">✅ Charged</div></div>
+        <div class="stat-box stat-live"><div class="n" id="cntLive">0</div><div class="l">💚 Live</div></div>
+        <div class="stat-box stat-declined"><div class="n" id="cntDeclined">0</div><div class="l">🔴 Declined</div></div>
+        <div class="stat-box stat-tds"><div class="n" id="cnt3ds">0</div><div class="l">🔒 3DS</div></div>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Card</th><th>Status</th><th>Response</th></tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+var totalCards = 0, doneCards = 0;
+var cnt = {charged:0, live:0, declined:0, tds:0, error:0};
+
+function showAlert(msg, type){
+  document.getElementById('alertBox').innerHTML =
+    '<div class="alert alert-' + type + '">' + msg + '</div>';
+}
+
+function clearAlert(){ document.getElementById('alertBox').innerHTML = ''; }
+
+function tagHtml(status){
+  var map = {
+    'CHARGED': ['tag-charged','✅ Charged'],
+    'LIVE':    ['tag-live','💚 Live'],
+    'DECLINED':['tag-declined','🔴 Declined'],
+    '3DS_REQUIRED':['tag-3ds','🔒 3DS'],
+    '3DS':     ['tag-3ds','🔒 3DS'],
+    'ERROR':   ['tag-error','❌ Error']
+  };
+  var v = map[status] || ['tag-error', status];
+  return '<span class="tag ' + v[0] + '">' + v[1] + '</span>';
+}
+
+function startBulkHit(){
+  clearAlert();
+  var url   = document.getElementById('urlInput').value.trim();
+  var bin   = document.getElementById('binInput').value.trim();
+  var count = parseInt(document.getElementById('countInput').value) || 10;
+
+  if(!url){ showAlert('Please enter a Stripe checkout URL.', 'error'); return; }
+  if(!bin){ showAlert('Please enter a BIN.', 'error'); return; }
+  if(count < 1){ count = 1; }
+  if(count > {{ max_cards }}){ count = {{ max_cards }}; }
+
+  // Reset
+  totalCards = count; doneCards = 0;
+  cnt = {charged:0, live:0, declined:0, tds:0, error:0};
+  ['cntCharged','cntLive','cntDeclined','cnt3ds'].forEach(function(id){
+    document.getElementById(id).textContent = '0';
+  });
+  document.getElementById('resultsBody').innerHTML = '';
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressLabel').textContent = '';
+  document.getElementById('resultsWrap').style.display = 'block';
+  document.getElementById('resultsTitle').innerHTML = '<span class="spinner"></span> Running…';
+
+  var btn = document.getElementById('hitBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Hitting…';
+
+  var formData = new FormData();
+  formData.append('url', url);
+  formData.append('bin', bin);
+  formData.append('count', count);
+
+  var es = new EventSource('/api/bulkhit?' + new URLSearchParams({url:url, bin:bin, count:count}));
+
+  es.onmessage = function(e){
+    try{ handleEvent(JSON.parse(e.data)); } catch(ex){ console.error(ex); }
+  };
+  es.onerror = function(){
+    es.close();
+    finishHit();
+    showAlert('Connection error. Results may be incomplete.', 'error');
+  };
+}
+
+function handleEvent(ev){
+  if(ev.type === 'init'){
+    document.getElementById('resultsTitle').innerHTML =
+      '⚡ ' + (ev.merchant || 'Unknown') + ' — ' + (ev.currency||'') + ' ' + (ev.price||'');
+    totalCards = ev.count || totalCards;
+    return;
+  }
+  if(ev.type === 'result'){
+    doneCards++;
+    var status = ev.status || 'ERROR';
+    var normSt = status.toUpperCase();
+
+    if(normSt === 'CHARGED'){ cnt.charged++; document.getElementById('cntCharged').textContent = cnt.charged; }
+    else if(normSt === 'LIVE'){ cnt.live++; document.getElementById('cntLive').textContent = cnt.live; }
+    else if(normSt === '3DS_REQUIRED' || normSt === '3DS'){ cnt.tds++; document.getElementById('cnt3ds').textContent = cnt.tds; }
+    else if(normSt === 'DECLINED'){ cnt.declined++; document.getElementById('cntDeclined').textContent = cnt.declined; }
+    else { cnt.error++; }
+
+    var pct = totalCards > 0 ? Math.round(doneCards/totalCards*100) : 0;
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressLabel').textContent = doneCards + ' / ' + totalCards;
+
+    var tbody = document.getElementById('resultsBody');
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + doneCards + '</td>'
+      + '<td><code>' + (ev.card||'') + '</code></td>'
+      + '<td>' + tagHtml(normSt) + '</td>'
+      + '<td>' + (ev.response||'').substring(0,80) + '</td>';
+    tbody.appendChild(tr);
+    tbody.scrollTop = tbody.scrollHeight;
+    return;
+  }
+  if(ev.type === 'done' || ev.type === 'error'){
+    if(ev.type === 'error') showAlert(ev.message || 'Error occurred.', 'error');
+    finishHit();
+    // Close SSE if still attached
+    return;
+  }
+}
+
+function finishHit(){
+  var btn = document.getElementById('hitBtn');
+  btn.disabled = false; btn.textContent = '⚡ Start Bulk Hit';
+  if(doneCards > 0){
+    document.getElementById('resultsTitle').textContent =
+      '✅ Done — ' + cnt.charged + ' charged, ' + cnt.live + ' live, '
+      + cnt.declined + ' declined, ' + cnt.tds + ' 3DS, ' + cnt.error + ' errors';
+  }
+}
+</script>
+</body>
+</html>
+""", sidebar=sidebar, max_cards=max_cards, plan_badge=plan_badge)
+
+
+@app.route('/api/bulkhit', methods=['GET'])
+@user_required
+def api_bulkhit():
+    """SSE streaming endpoint — generates cards from BIN and hits them concurrently."""
+    from flask import Response, stream_with_context
+    import asyncio, json as _json, threading
+
+    user_id = session.get('user_id')
+    user_info = get_user_info(user_id)
+    is_prem = user_info.get('type') in ('premium', 'owner')
+    max_cards = 50 if is_prem else 10
+
+    url   = request.args.get('url', '').strip()
+    bin_str = request.args.get('bin', '').strip()
+    count_str = request.args.get('count', '10').strip()
+
+    try:
+        count = max(1, min(int(count_str), max_cards))
+    except Exception:
+        count = 10
+
+    def generate():
+        # Validate URL
+        from modules.auto_hitter import (
+            extract_checkout_url, parse_gen_input, generate_cards_from_bin,
+            parse_cards as ah_parse_cards, charge_card,
+            get_currency_symbol as ah_currency_symbol
+        )
+        from modules.stripe_tls import get_checkout_info as tls_checkout_info
+
+        checkout_url = extract_checkout_url(url)
+        if not checkout_url:
+            yield f"data: {_json.dumps({'type':'error','message':'Invalid Stripe checkout URL. Use buy.stripe.com or checkout.stripe.com links.'})}\n\n"
+            return
+
+        gen_result = parse_gen_input(bin_str)
+        if not gen_result:
+            yield f"data: {_json.dumps({'type':'error','message':'Invalid BIN format. Use at least 6 digits, e.g. 453201 or 453201|xx|xx|xxx'})}\n\n"
+            return
+
+        prefix, mm, yy, cvv_pattern = gen_result
+        card_lines = generate_cards_from_bin(prefix, mm, yy, cvv_pattern, count)
+        cards = ah_parse_cards("\n".join(card_lines))
+
+        if not cards:
+            yield f"data: {_json.dumps({'type':'error','message':'Failed to generate cards from BIN.'})}\n\n"
+            return
+
+        # Run async operations in a dedicated event loop
+        loop = asyncio.new_event_loop()
+        try:
+            # Fetch checkout info
+            checkout_data = loop.run_until_complete(tls_checkout_info(checkout_url, None))
+        except Exception as ex:
+            yield f"data: {_json.dumps({'type':'error','message': 'Checkout fetch failed: ' + str(ex)[:120]})}\n\n"
+            loop.close()
+            return
+
+        if not checkout_data.get('pk') or not checkout_data.get('cs'):
+            yield f"data: {_json.dumps({'type':'error','message':'Could not parse checkout URL. Make sure it is a valid active Stripe link.'})}\n\n"
+            loop.close()
+            return
+
+        merchant = str(checkout_data.get('merchant') or 'Unknown')[:40]
+        price = checkout_data.get('price')
+        currency = checkout_data.get('currency', 'USD')
+        sym = ah_currency_symbol(currency)
+        price_str = f"{sym}{price:.2f}" if price else 'N/A'
+        checkout_data['email'] = 'checkout@gmail.com'
+
+        yield f"data: {_json.dumps({'type':'init','merchant':merchant,'price':price_str,'currency':currency,'count':len(cards)})}\n\n"
+
+        # Hit cards concurrently
+        async def _hit_all(cards_list, co_data):
+            async def _one(card):
+                try:
+                    return card, await charge_card(card, co_data, None, None)
+                except Exception as ex:
+                    return card, {'status': 'ERROR', 'response': str(ex)[:60]}
+            tasks = [_one(c) for c in cards_list]
+            return await asyncio.gather(*tasks)
+
+        try:
+            hit_results = loop.run_until_complete(_hit_all(cards, checkout_data))
+        except Exception as ex:
+            yield f"data: {_json.dumps({'type':'error','message':'Hit error: ' + str(ex)[:120]})}\n\n"
+            loop.close()
+            return
+        finally:
+            loop.close()
+
+        for idx, (card, result) in enumerate(hit_results):
+            status = result.get('status', 'ERROR')
+            card_str = f"{card['cc'][:6]}****{card['cc'][-4:]}|{card['month']}|{card['year']}"
+            response_text = str(result.get('response', ''))[:80]
+            yield f"data: {_json.dumps({'type':'result','idx':idx,'card':card_str,'status':status,'response':response_text})}\n\n"
+
+        yield f"data: {_json.dumps({'type':'done','message':'Complete'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive',
+        }
+    )
 
 
 @app.route('/api/check/razorpay', methods=['POST'])
