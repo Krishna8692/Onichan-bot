@@ -2242,3 +2242,88 @@ Bank: CREDIT ONE BANK
 Country: UNITED STATES 
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-19 17:38:34
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355125840310|10|28|4998
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-19 17:38:40
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355127451256|05|29|9686
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-19 17:38:45
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355122868983|12|27|0626
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-19 17:38:50
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355120671918|12|26|1052
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-19 17:38:55
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355129279457|07|25|6111
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+

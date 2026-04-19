@@ -3,7 +3,7 @@ modules = ["nodejs-24", "python-3.11"]
 [deployment]
 router = "application"
 deploymentTarget = "gce"
-run = ["sh", "-c", "bash /home/runner/workspace/scripts/start-bot.sh"]
+run = ["sh", "-c", "pnpm start"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
@@ -49,6 +49,14 @@ externalPort = 8080
 [[ports]]
 localPort = 8081
 externalPort = 80
+
+[[ports]]
+localPort = 8082
+externalPort = 3000
+
+[[ports]]
+localPort = 8083
+externalPort = 3001
 
 [nix]
 channel = "stable-25_05"
