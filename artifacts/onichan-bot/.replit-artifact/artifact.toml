@@ -17,8 +17,5 @@ localPort = 5000
 [services.development]
 run = "cd /home/runner/workspace/src && python bot.py"
 
-[services.production.run]
-args = ["python", "src/bot.py"]
-
-[services.production.run.env]
-PORT = "5000"
+[services.production]
+run = "python src/bot.py"
