@@ -21,3 +21,5 @@
 2025-12-14 15:40:44.384157|8205566918|410621xxxx|sh|error|Shopify API unavailable
 2025-12-14 15:45:26.327338|8205566918|525042xxxx|sh|error|Shopify Gateway Testing - Card Check Complete
 2025-12-14 15:47:10.399721|8205566918|525042xxxx|sh|error|Shopify Gateway Testing - Card Check Complete
+2026-04-19 14:06:02.484630|1857417752|525042xxxx|shopii1|declined|Error: HTTPSConnectionPool(host='cyborxchecker.com
+2026-04-19 14:06:45.167707|1857417752|525042xxxx|stv1|error|Request timeout
