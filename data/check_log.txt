@@ -23,3 +23,6 @@
 2025-12-14 15:47:10.399721|8205566918|525042xxxx|sh|error|Shopify Gateway Testing - Card Check Complete
 2026-04-19 14:06:02.484630|1857417752|525042xxxx|shopii1|declined|Error: HTTPSConnectionPool(host='cyborxchecker.com
 2026-04-19 14:06:45.167707|1857417752|525042xxxx|stv1|error|Request timeout
+2026-04-19 14:42:01.975158|1857417752|525042xxxx|pp2|declined|API Error: 404
+2026-04-19 14:42:24.011594|1857417752|525042xxxx|b31|success|Response - Cannot connect to host chk.vkrm.site:44
+2026-04-19 14:42:37.963487|1857417752|525042xxxx|shopii4|declined|Error: HTTPSConnectionPool(host='cyborxchecker.com
