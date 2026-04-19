@@ -2225,3 +2225,20 @@ Bank: BANK
 Country: UNITED STATES 🇺🇸
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-19 13:58:26
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 379363033742193|01|31|5899
+Gateway: auto_hitter_live
+Response: [incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+BIN: 379363
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: CREDIT ONE BANK
+Country: UNITED STATES 
+================================================================================
+
