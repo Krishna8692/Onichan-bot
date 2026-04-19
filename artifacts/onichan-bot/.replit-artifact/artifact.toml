@@ -18,4 +18,4 @@ localPort = 5000
 run = "cd /home/runner/workspace/src && python bot.py"
 
 [services.production]
-run = "python src/bot.py"
+run = "cd /home/runner/workspace/src && python bot.py"
