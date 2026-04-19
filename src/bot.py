@@ -12402,29 +12402,47 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price_str = f"{sym}{price:.2f}" if price else "N/A"
     checkout_data["email"] = user_email
 
+    # ── shared helper: runs one card and returns (card, result) ──────────────
+    async def _hit_with_card(card, co_data, proxy, email):
+        try:
+            result = await auto_hitter_charge(card, co_data, proxy, email)
+        except Exception as ex:
+            result = {"status": "ERROR", "response": str(ex)[:60], "time": 0}
+        return card, result
+
+    # Tallies and live-status builder
+    charged, live, declined, tds, errors = [], [], [], [], []
+    done_count = 0
+    total_count = len(cards)
+    _last_edit = [0.0]  # mutable reference for throttle
+
+    def _build_running_status():
+        prog = f"{done_count}/{total_count}"
+        return (
+            f"⚡ <b>BULK HITTER RUNNING</b>\n{SEP}\n"
+            f"🏪 Merchant: <b>{merchant}</b>\n"
+            f"💰 Amount: <b>{price_str}</b>\n"
+            f"💳 BIN: <code>{prefix}</code>\n"
+            f"{SEP}\n"
+            f"✅ {len(charged)}  💚 {len(live)}  🔴 {len(declined)}  "
+            f"🔒 {len(tds)}  ❌ {len(errors)}\n"
+            f"⏳ Progress: <b>{prog}</b>"
+        )
+
     await loading_msg.edit_text(
         f"⚡ <b>BULK HITTER RUNNING</b>\n{SEP}\n"
         f"🏪 Merchant: <b>{merchant}</b>\n"
         f"💰 Amount: <b>{price_str}</b>\n"
-        f"💳 BIN: <code>{prefix}</code> → <b>{len(cards)}</b> cards\n"
+        f"💳 BIN: <code>{prefix}</code> → <b>{total_count}</b> cards\n"
         f"{SEP}\n"
-        f"⏳ Hitting all cards simultaneously...",
+        f"⏳ Starting — hitting all cards simultaneously...",
         parse_mode=ParseMode.HTML
     )
 
-    # Hit all cards concurrently
-    async def _hit_single(card):
-        try:
-            return await auto_hitter_charge(card, checkout_data, user_proxy, user_email)
-        except Exception as ex:
-            return {"status": "ERROR", "response": str(ex)[:60], "time": 0}
-
-    tasks = [_hit_single(card) for card in cards]
-    results_list = await asyncio.gather(*tasks)
-
-    # Tally
-    charged, live, declined, tds, errors = [], [], [], [], []
-    for card, result in zip(cards, results_list):
+    # Launch all cards concurrently; process as each completes
+    tasks = [_hit_with_card(card, checkout_data, user_proxy, user_email) for card in cards]
+    for coro in asyncio.as_completed(tasks):
+        card, result = await coro
         status = result.get("status", "ERROR")
         card_str = f"{card['cc'][:6]}****{card['cc'][-4:]}|{card['month']}|{card['year']}"
         resp = html.escape(str(result.get("response", ""))[:60])
@@ -12458,13 +12476,23 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             errors.append(card_str)
 
-    # Build final summary message
+        done_count += 1
+        now = asyncio.get_event_loop().time()
+        # Throttle edits: update on 1st completion, every 3rd, or every 2 s
+        if done_count == 1 or done_count == total_count or done_count % 3 == 0 or (now - _last_edit[0] > 2):
+            try:
+                await _safe_edit(loading_msg, _build_running_status(), parse_mode=ParseMode.HTML)
+                _last_edit[0] = now
+            except Exception:
+                pass
+
+    # Final summary
     lines = [
         f"⚡ <b>BULK HIT COMPLETE</b>",
         SEP,
         f"🏪 Merchant: <b>{merchant}</b>",
         f"💰 Amount: <b>{price_str}</b>",
-        f"💳 BIN: <code>{prefix}</code> | Cards hit: <b>{len(cards)}</b>",
+        f"💳 BIN: <code>{prefix}</code> | Cards hit: <b>{total_count}</b>",
         SEP,
         f"✅ Charged: <b>{len(charged)}</b>   "
         f"💚 Live: <b>{len(live)}</b>   "
@@ -12475,7 +12503,7 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if charged:
         lines.append(SEP)
-        lines.append(f"✅ <b>CHARGED CARDS:</b>")
+        lines.append("✅ <b>CHARGED CARDS:</b>")
         for c, r in charged[:5]:
             lines.append(f"<code>{c}</code> — {r}")
         if len(charged) > 5:
@@ -12483,7 +12511,7 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if live:
         lines.append(SEP)
-        lines.append(f"💚 <b>LIVE CARDS:</b>")
+        lines.append("💚 <b>LIVE CARDS:</b>")
         for c, r in live[:5]:
             lines.append(f"<code>{c}</code> — {r}")
         if len(live) > 5:

