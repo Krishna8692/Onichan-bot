@@ -18,7 +18,5 @@ localPort = 5000
 run = "cd /home/runner/workspace/src && python bot.py"
 
 [services.production]
-run = "bash /home/runner/workspace/scripts/start-bot.sh"
-
-[services.production.health.startup]
-path = "/"
+serve = "static"
+publicDir = "public"
