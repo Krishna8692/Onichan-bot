@@ -135,3 +135,4 @@
 2026-04-19 17:38:45|1857417752|@tu_bkl_hai|374355122868983|12|27|0626|auto_hitter_live|[incorrect_cvc] [Your card&#x27;s security code is incorrect.]
 2026-04-19 17:38:50|1857417752|@tu_bkl_hai|374355120671918|12|26|1052|auto_hitter_live|[incorrect_cvc] [Your card&#x27;s security code is incorrect.]
 2026-04-19 17:38:55|1857417752|@tu_bkl_hai|374355129279457|07|25|6111|auto_hitter_live|[incorrect_cvc] [Your card&#x27;s security code is incorrect.]
+2026-04-20 13:55:25|8481027470|@Pronaihubro|5363470093899495|08|30|868|auto_hitter|Charged INR 387.47

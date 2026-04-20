@@ -2327,3 +2327,20 @@ Bank: USAA SAVINGS BANK
 Country: UNITED STATES 
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-20 13:55:25
+User ID: 8481027470
+Username: @Pronaihubro
+Card: 5363470093899495|08|30|868
+Gateway: auto_hitter
+Response: Charged INR 387.47
+BIN: 536347
+Brand: MASTERCARD
+Type: DEBIT
+Bank: BANK OF THE PHILIPPINE ISLANDS
+Country: PHILIPPINES 
+================================================================================
+

@@ -1,25 +1,26 @@
 kind = "api"
-previewPath = "/api"
-title = "API Server"
-version = "1.0.0"
-id = "3B4_FFSkEVBkAeYMFRJ2e"
+  previewPath = "/api"
+  title = "API Server"
+  version = "1.0.0"
+  id = "3B4_FFSkEVBkAeYMFRJ2e"
 
-[[services]]
-localPort = 8080
-name = "API Server"
-paths = ["/api"]
+  [[services]]
+  localPort = 8080
+  name = "API Server"
+  paths = ["/api"]
 
-[services.development]
-run = "pnpm --filter @workspace/api-server run dev"
+  [services.development]
+  run = "pnpm --filter @workspace/api-server run dev"
 
-[services.production]
-run = "pnpm --filter @workspace/api-server run serve"
+  [services.production]
+  run = "node --enable-source-maps /home/runner/workspace/artifacts/api-server/dist/index.mjs"
 
-[services.production.build]
-args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
+  [services.production.build]
+  args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
 
-[services.production.build.env]
-NODE_ENV = "production"
+  [services.production.build.env]
+  NODE_ENV = "production"
 
-[services.production.health.startup]
-path = "/api/healthz"
+  [services.production.health.startup]
+  path = "/api/healthz"
+  
