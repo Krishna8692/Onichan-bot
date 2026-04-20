@@ -10,25 +10,6 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start Bot"
-
-[[workflows.workflow]]
-name = "Start Bot"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd /home/runner/workspace/src && python bot.py"
-waitForPort = 5000
 
 [agent]
 stack = "PNPM_WORKSPACE"
