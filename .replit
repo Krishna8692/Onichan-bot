@@ -3,7 +3,7 @@ modules = ["nodejs-24", "python-3.11"]
 [deployment]
 router = "application"
 deploymentTarget = "gce"
-run = ["sh", "-c", "bash /home/runner/workspace/scripts/start-all.sh"]
+run = ["sh", "-c", "run = \"cd /home/runner/workspace/src && python bot.py\""]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
