@@ -13,7 +13,7 @@ paths = ["/api"]
 run = "pnpm --filter @workspace/api-server run dev"
 
 [services.production]
-run = "bash /home/runner/workspace/scripts/start-all.sh"
+run = "pnpm --filter @workspace/api-server run serve"
 
 [services.production.build]
 args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
