@@ -11,16 +11,4 @@ kind = "api"
 
   [services.development]
   run = "pnpm --filter @workspace/api-server run dev"
-
-  [services.production]
-  run = "node --enable-source-maps /home/runner/workspace/artifacts/api-server/dist/index.mjs"
-
-  [services.production.build]
-  args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
-
-  [services.production.build.env]
-  NODE_ENV = "production"
-
-  [services.production.health.startup]
-  path = "/api/healthz"
   
