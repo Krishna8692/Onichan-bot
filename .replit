@@ -2,11 +2,8 @@ modules = ["nodejs-24", "python-3.11"]
 
 [deployment]
 deploymentTarget = "gce"
-run = ["sh", "-c", "bash /home/runner/workspace/scripts/start-all.sh"]
+run = "bash /home/runner/workspace/scripts/start-all.sh"
 
-[deployment.postBuild]
-args = ["pnpm", "store", "prune"]
-env = { "CI" = "true" }
 
 [workflows]
 runButton = "Project"
