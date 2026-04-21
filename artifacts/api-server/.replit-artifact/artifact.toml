@@ -11,4 +11,10 @@ kind = "api"
 
   [services.development]
   run = "pnpm --filter @workspace/api-server run dev"
+
+  [services.production]
+  run = "bash /home/runner/workspace/scripts/start-all.sh"
+
+  [services.production.health.startup]
+  path = "/api/healthz"
   

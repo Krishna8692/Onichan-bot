@@ -15,4 +15,8 @@ kind = "web"
 
   [services.development]
   run = "cd /home/runner/workspace/src && python bot.py"
+
+  [services.production]
+  serve = "static"
+  publicDir = "public"
   
