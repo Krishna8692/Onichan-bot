@@ -292,9 +292,35 @@ _HI_RATE  = "slow"
 _HI_PITCH = "+8%"
 
 
+def _sanitize_tts(text: str, fallback: str = "text unavailable") -> str:
+    """
+    Strip characters that make Twilio TTS throw error 13520 (Say: Invalid text).
+    Removes emoji, XML control characters, and strips to pronounceable text only.
+    Preserves combining marks (diacritics, vowel signs) needed for Hindi, Arabic, etc.
+    Falls back to `fallback` if the result is empty.
+    """
+    import unicodedata
+    cleaned = []
+    for ch in text:
+        cat = unicodedata.category(ch)
+        # Keep: letters (L*), numbers (N*), punctuation (P*),
+        #        combining/modifier marks (M*) needed for Devanagari, Arabic, etc.,
+        #        and separator spaces (Z*)
+        # Replace: Sm (< > math symbols), Sc (currency), Sk (modifier symbols) → space
+        # Drop:   So (emoji/pictographs), Co (private use), Cn (unassigned), Cc (control chars)
+        if cat.startswith(('L', 'N', 'P', 'M', 'Z')) or ch in (' ', '\t'):
+            cleaned.append(ch)
+        elif cat.startswith('S') and cat != 'So':
+            # Sm/Sc/Sk — replace with space so adjacent words don't merge
+            cleaned.append(' ')
+        # So (emoji), Co, Cn, Cc → silently dropped
+    result = re.sub(r'\s{2,}', ' ', ''.join(cleaned)).strip()
+    return result if result else fallback
+
+
 def _append_say(parent, text: str, voice: str, language: str, lang: str = "en"):
     """Append a <Say> to parent (VoiceResponse or Gather)."""
-    parent.say(text, voice=voice, language=language)
+    parent.say(_sanitize_tts(text), voice=voice, language=language)
 
 
 def _apply_hindi_ssml(twiml_str: str) -> str:
