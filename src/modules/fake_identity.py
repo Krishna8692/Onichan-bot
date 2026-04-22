@@ -924,3 +924,85 @@ def generate_holder_info(country_name='', country_code=''):
         'zip': zipcode,
         'country_code': code
     }
+
+
+def _gen_ssn_format(country_code: str) -> str:
+    """Generate a synthetic national ID number in the format of the given country."""
+    c = country_code.upper()
+    if c == 'US':
+        area = random.randint(100, 899)
+        group = random.randint(10, 99)
+        serial = random.randint(1000, 9999)
+        return f"{area:03d}-{group:02d}-{serial:04d}"
+    elif c == 'UK':
+        letters = ''.join(random.choices('ABCEGHJKLMNPRSTWXYZ', k=2))
+        nums = ''.join(random.choices(string.digits, k=6))
+        suffix = random.choice('ABCD')
+        return f"{letters} {nums[:2]} {nums[2:4]} {nums[4:6]} {suffix}"
+    elif c == 'CA':
+        nums = ''.join(random.choices(string.digits, k=9))
+        return f"{nums[:3]} {nums[3:6]} {nums[6:]}"
+    elif c == 'AU':
+        return ''.join(random.choices(string.digits, k=9))
+    elif c == 'DE':
+        return ''.join(random.choices(string.digits, k=11))
+    elif c == 'FR':
+        gender_digit = random.choice([1, 2])
+        yy = random.randint(60, 99)
+        mm = random.randint(1, 12)
+        dept = random.randint(1, 95)
+        rest = random.randint(100000, 999999)
+        key = random.randint(10, 97)
+        return f"{gender_digit} {yy:02d} {mm:02d} {dept:02d} {rest} {key:02d}"
+    else:
+        return ''.join(random.choices(string.digits, k=random.randint(9, 12)))
+
+
+def _gen_dob(min_age: int = 18, max_age: int = 65) -> str:
+    """Generate a random date of birth."""
+    import datetime
+    today = datetime.date.today()
+    age = random.randint(min_age, max_age)
+    year = today.year - age
+    month = random.randint(1, 12)
+    day = random.randint(1, 28)
+    return f"{month:02d}/{day:02d}/{year}"
+
+
+def generate_fullz(country_name: str = '', country_code: str = '') -> dict:
+    """
+    Generate a complete synthetic full identity (fullz):
+    name, DOB, SSN/national ID, address, email, phone, card, DL number.
+    """
+    base = generate_holder_info(country_name, country_code)
+    code = base['country_code']
+
+    ssn = _gen_ssn_format(code)
+    dob = _gen_dob()
+
+    dl_number = (
+        ''.join(random.choices(string.ascii_uppercase, k=1)) +
+        ''.join(random.choices(string.digits, k=7))
+    )
+
+    mothers_maiden = random.choice(
+        NAMES_BY_COUNTRY.get(code, NAMES_BY_COUNTRY['US'])['last']
+    )
+
+    cc_prefixes = {'US': '4', 'UK': '5', 'CA': '4', 'AU': '4', 'DE': '4', 'FR': '5'}
+    prefix = cc_prefixes.get(code, '4')
+    cc_number = prefix + ''.join(random.choices(string.digits, k=15))
+    cc_exp_month = random.randint(1, 12)
+    cc_exp_year = random.randint(2026, 2030)
+    cc_cvv = ''.join(random.choices(string.digits, k=3))
+
+    return {
+        **base,
+        'dob': dob,
+        'ssn': ssn,
+        'dl': dl_number,
+        'mothers_maiden': mothers_maiden,
+        'cc': cc_number,
+        'cc_exp': f"{cc_exp_month:02d}/{cc_exp_year}",
+        'cc_cvv': cc_cvv,
+    }

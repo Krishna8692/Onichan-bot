@@ -49,7 +49,8 @@ def clear_call_data(call_sid: str):
 
 def store_pending_call(chat_id: str, user_id: str, name: str, company: str,
                        otp_digits: int, lang: str, phone: str,
-                       custom_script: str = "") -> str:
+                       custom_script: str = "",
+                       caller_id: str = "") -> str:
     import uuid
     token = uuid.uuid4().hex[:12]
     with _lock:
@@ -62,8 +63,25 @@ def store_pending_call(chat_id: str, user_id: str, name: str, company: str,
             "lang": lang,
             "phone": phone,
             "custom_script": custom_script,
+            "caller_id": caller_id,
         }
     return token
+
+
+_user_caller_ids: dict = {}
+_cid_lock = threading.Lock()
+
+
+def set_user_caller_id(user_id: str, caller_id: str) -> None:
+    """Store a custom caller ID for a user (persists in memory for session)."""
+    with _cid_lock:
+        _user_caller_ids[str(user_id)] = caller_id.strip()
+
+
+def get_user_caller_id(user_id: str) -> str:
+    """Retrieve the custom caller ID for a user, or empty string if not set."""
+    with _cid_lock:
+        return _user_caller_ids.get(str(user_id), "")
 
 
 def get_pending_call(token: str) -> dict:
@@ -73,9 +91,12 @@ def get_pending_call(token: str) -> dict:
 
 def initiate_call(phone: str, chat_id: str, user_id: str, name: str,
                   company: str, otp_digits: int = 6, lang: str = "en",
-                  custom_script: str = "") -> dict:
+                  custom_script: str = "",
+                  caller_id: str = "") -> dict:
     client = get_twilio_client()
     base = get_webhook_base()
+
+    effective_caller_id = caller_id.strip() if caller_id and caller_id.strip() else TWILIO_PHONE
 
     token = store_pending_call(
         chat_id=str(chat_id),
@@ -86,6 +107,7 @@ def initiate_call(phone: str, chat_id: str, user_id: str, name: str,
         lang=lang,
         phone=phone,
         custom_script=custom_script,
+        caller_id=effective_caller_id,
     )
 
     voice_url    = f"{base}/voice/otp?token={token}"
@@ -93,7 +115,7 @@ def initiate_call(phone: str, chat_id: str, user_id: str, name: str,
 
     call = client.calls.create(
         to=phone,
-        from_=TWILIO_PHONE,
+        from_=effective_caller_id,
         url=voice_url,
         status_callback=status_url,
         status_callback_event=["initiated", "ringing", "answered", "completed"],

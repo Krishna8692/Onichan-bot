@@ -526,7 +526,35 @@ async def init_database():
     return init_database_sync()
 
 def _execute_with_retry(query, params=None, fetch=False, fetch_one=False, return_rowcount=False):
-    """Execute a query with retry logic using the pooled per-thread connection."""
+    """Execute a query with retry logic using the pooled per-thread connection.
+
+    Supports two calling conventions:
+    1. SQL string:   _execute_with_retry("SELECT ...", (params,), fetch=True)
+    2. Callable op:  _execute_with_retry(lambda conn: ...)  — used by newer modules
+    """
+    if callable(query):
+        _op_func = query
+        for attempt in range(3):
+            try:
+                conn = get_connection_with_retry()
+                if not conn:
+                    time.sleep(0.3)
+                    continue
+                if not conn.autocommit:
+                    conn.autocommit = True
+                return _op_func(conn)
+            except (psycopg2.InterfaceError, psycopg2.OperationalError) as e:
+                print(f"[DB] Connection error (op), reconnecting: {e}")
+                _drop_thread_conn()
+                time.sleep(0.3)
+            except Exception as e:
+                print(f"[DB] Op error attempt {attempt + 1}/3: {type(e).__name__}: {e}")
+                msg = str(e).lower()
+                if "closed" in msg or "ssl" in msg or "connection" in msg:
+                    _drop_thread_conn()
+                time.sleep(0.2)
+        return None
+
     for attempt in range(3):
         try:
             conn = get_connection_with_retry()

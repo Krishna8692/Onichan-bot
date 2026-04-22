@@ -316,6 +316,35 @@ from modules.b3_gate import check_b3, mass_check_b3
 from modules.ast_gate import check_ast, mass_check_ast
 from modules.bin_lookup import lookup_bin, format_mass_card_result, format_mass_header
 from modules.chatgpt import ask_ai
+
+from modules.credits import (
+    init_credits_tables, get_balance, add_credits, deduct_credits,
+    transfer_credits, generate_credit_voucher, redeem_voucher,
+    get_gate_cost, get_transaction_history, get_all_vouchers,
+)
+from modules.reseller import (
+    init_reseller_tables, is_reseller, add_reseller, remove_reseller,
+    get_reseller_info, add_client, get_clients, get_all_resellers,
+)
+from modules.escrow import (
+    init_escrow_tables, create_deal, get_deal, join_deal,
+    confirm_deal, dispute_deal, admin_resolve_deal, get_user_deals,
+    get_disputed_deals,
+)
+from modules.gate_monitor import (
+    init_monitor_tables, record_check_result, get_gate_stats,
+    run_gate_health_check, start_monitor,
+)
+from modules.channel_scraper import (
+    init_scraper_tables, add_channel, remove_channel,
+    get_active_channels, get_scraper_stats, process_channel_message,
+)
+from modules.hibp_watcher import (
+    init_hibp_tables, add_watch, remove_watch,
+    get_user_watches, start_watcher as start_hibp_watcher,
+)
+from modules.fingerprint_spoofer import get_spoofed_headers, get_random_proxy
+from modules.fake_identity import generate_fullz
 from modules.wormgpt import ask_wormgpt
 from modules.database import (
     init_database,
@@ -14605,6 +14634,774 @@ async def mypurchases_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
+def _mdb():
+    """Return a synchronous _execute_with_retry callable from database module."""
+    from modules.database import _execute_with_retry as _er
+    return _er
+
+
+def _ensure_marketplace_table():
+    """Create marketplace_listings table if not exists."""
+    _mdb()("""
+        CREATE TABLE IF NOT EXISTS marketplace_listings (
+            listing_id TEXT PRIMARY KEY,
+            seller_id INTEGER NOT NULL,
+            buyer_id INTEGER,
+            price INTEGER NOT NULL,
+            description TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
+async def cmd_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate a synthetic billing address (/address [country])."""
+    from modules.fake_identity import generate_holder_info
+    country = " ".join(context.args) if context.args else ""
+    info = generate_holder_info(country_name=country)
+    await update.message.reply_text(
+        ae("🏠 <b>Billing Address</b>") + "\n\n"
+        f"👤 <b>Name:</b> <code>{info['name']}</code>\n"
+        f"📧 <b>Email:</b> <code>{info['email']}</code>\n"
+        f"📞 <b>Phone:</b> <code>{info['phone']}</code>\n"
+        f"📍 <b>Address:</b> <code>{info['address']}</code>\n"
+        f"🏙 <b>City:</b> <code>{info['city']}</code>\n"
+        f"🗺 <b>State:</b> <code>{info['state']}</code>\n"
+        f"📮 <b>Zip:</b> <code>{info['zip']}</code>\n"
+        f"🌍 <b>Country:</b> <code>{info['country_code']}</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_fullz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate a complete synthetic fullz identity (/fullz [country])."""
+    @require_approval
+    async def _inner(update, context):
+        country = " ".join(context.args) if context.args else ""
+        info = generate_fullz(country_name=country)
+        await update.message.reply_text(
+            ae("🗂 <b>FULLZ — Full Synthetic Identity</b>") + "\n\n"
+            f"👤 <b>Name:</b> <code>{info['name']}</code>\n"
+            f"🎂 <b>DOB:</b> <code>{info['dob']}</code>\n"
+            f"🪪 <b>SSN/ID:</b> <code>{info['ssn']}</code>\n"
+            f"🚗 <b>DL:</b> <code>{info['dl']}</code>\n"
+            f"👩 <b>Mother's Maiden:</b> <code>{info['mothers_maiden']}</code>\n\n"
+            f"📧 <b>Email:</b> <code>{info['email']}</code>\n"
+            f"📞 <b>Phone:</b> <code>{info['phone']}</code>\n"
+            f"📍 <b>Address:</b> <code>{info['address']}</code>\n"
+            f"🏙 <b>City:</b> <code>{info['city']}</code>\n"
+            f"🗺 <b>State:</b> <code>{info['state']}</code>\n"
+            f"📮 <b>Zip:</b> <code>{info['zip']}</code>\n"
+            f"🌍 <b>Country:</b> <code>{info['country_code']}</code>\n\n"
+            f"💳 <b>CC:</b> <code>{info['cc']}</code>\n"
+            f"📅 <b>Exp:</b> <code>{info['cc_exp']}</code>\n"
+            f"🔐 <b>CVV:</b> <code>{info['cc_cvv']}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+    await _inner(update, context)
+
+
+async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's credit balance (/balance)."""
+    user_id = update.effective_user.id
+    bal = get_balance(user_id)
+    hist = get_transaction_history(user_id, limit=5)
+    lines = []
+    for row in hist:
+        sign = "+" if row.get('amount', 0) > 0 else ""
+        lines.append(f"  {sign}{row.get('amount', 0)} — {row.get('description', row.get('reason', ''))[:40]}")
+    hist_text = "\n".join(lines) if lines else "  No recent transactions"
+    await update.message.reply_text(
+        ae("💰 <b>Credit Balance</b>") + "\n\n"
+        f"💵 Balance: <b>{bal}</b> credits\n\n"
+        f"📋 <b>Recent Transactions:</b>\n{hist_text}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Redeem a credit voucher (/redeem <code>)."""
+    if not context.args:
+        await update.message.reply_text("Usage: <code>/redeem CODE</code>", parse_mode=ParseMode.HTML)
+        return
+    code = context.args[0].strip()
+    user_id = update.effective_user.id
+    result = redeem_voucher(user_id, code)
+    ok = result.get('success', False) if isinstance(result, dict) else False
+    credits_added = result.get('credits', 0) if isinstance(result, dict) else 0
+    err_msg = result.get('message', 'Failed') if isinstance(result, dict) else str(result)
+    if ok:
+        if credits_added:
+            add_credits(user_id, credits_added, tx_type="voucher", description=f"Voucher: {code}")
+        bal = get_balance(user_id)
+        await update.message.reply_text(
+            ae("✅ <b>Voucher Redeemed!</b>") + "\n\n"
+            f"🎁 Credits added: <b>+{credits_added}</b>\n"
+            f"💰 New balance: <b>{bal}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(f"❌ {err_msg}", parse_mode=ParseMode.HTML)
+
+
+async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gift credits to another user (/gift @username amount or /gift user_id amount)."""
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Usage: <code>/gift @username 50</code>\n"
+            "or <code>/gift user_id 50</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    target_raw = context.args[0].lstrip("@")
+    try:
+        amount = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ Amount must be a number.", parse_mode=ParseMode.HTML)
+        return
+    if amount <= 0:
+        await update.message.reply_text("❌ Amount must be positive.", parse_mode=ParseMode.HTML)
+        return
+
+    sender_id = update.effective_user.id
+    try:
+        target_id = int(target_raw)
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Please provide the numeric user ID.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    sender_bal = get_balance(sender_id)
+    if sender_bal < amount:
+        await update.message.reply_text(
+            f"❌ Insufficient credits. You have <b>{sender_bal}</b> credits.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    ok, msg = transfer_credits(sender_id, target_id, amount)
+    if ok:
+        await update.message.reply_text(
+            ae("🎁 <b>Gift Sent!</b>") + "\n\n"
+            f"💸 Sent <b>{amount}</b> credits → <code>{target_id}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(f"❌ {msg}", parse_mode=ParseMode.HTML)
+
+
+async def cmd_voucher(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: create or list credit vouchers (/voucher create <credits> [max_uses] | /voucher list)."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+    sub = context.args[0].lower() if context.args else ""
+    if sub == "create":
+        try:
+            credits_val = int(context.args[1]) if len(context.args) > 1 else 100
+            max_uses = int(context.args[2]) if len(context.args) > 2 else 1
+        except (ValueError, IndexError):
+            await update.message.reply_text(
+                "Usage: <code>/voucher create &lt;credits&gt; [max_uses]</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        code = generate_credit_voucher(credits_val, max_uses=max_uses)
+        await update.message.reply_text(
+            ae("🎟 <b>Voucher Created</b>") + "\n\n"
+            f"🔑 Code: <code>{code}</code>\n"
+            f"💰 Credits: <b>{credits_val}</b>\n"
+            f"🔄 Max Uses: <b>{max_uses}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+    elif sub == "list":
+        vouchers = get_all_vouchers()
+        if not vouchers:
+            await update.message.reply_text("No vouchers found.", parse_mode=ParseMode.HTML)
+            return
+        lines = []
+        for v in vouchers[:20]:
+            lines.append(
+                f"• <code>{v['code']}</code> — {v['credits']} cr, "
+                f"{v.get('uses_left', '?')}/{v.get('max_uses', '?')} uses"
+            )
+        await update.message.reply_text(
+            ae("🎟 <b>Vouchers</b>") + "\n\n" + "\n".join(lines),
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(
+            "Usage:\n<code>/voucher create &lt;credits&gt; [max_uses]</code>\n"
+            "<code>/voucher list</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def cmd_addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: add credits to user (/addcredits user_id amount)."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: <code>/addcredits &lt;user_id&gt; &lt;amount&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+    try:
+        target = int(context.args[0])
+        amount = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid arguments.", parse_mode=ParseMode.HTML)
+        return
+    add_credits(target, amount, tx_type="add", description="Admin grant")
+    await update.message.reply_text(
+        f"✅ Added <b>{amount}</b> credits to <code>{target}</code>.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_setcallerid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set custom caller ID for OTP calls (/setcallerid +12025551234)."""
+    @require_approval
+    async def _inner(update, context):
+        from modules.twilio_call import set_user_caller_id
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/setcallerid +12025551234</code>\n"
+                "Use <code>/setcallerid off</code> to clear.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        number = context.args[0].strip()
+        user_id = update.effective_user.id
+        if number.lower() == "off":
+            set_user_caller_id(str(user_id), "")
+            await update.message.reply_text("✅ Caller ID cleared. Using default Twilio number.", parse_mode=ParseMode.HTML)
+        else:
+            set_user_caller_id(str(user_id), number)
+            await update.message.reply_text(
+                ae("📞 <b>Caller ID Set</b>") + f"\n\n"
+                f"Your calls will appear from: <code>{number}</code>\n"
+                "⚠️ Number must be a verified Twilio caller ID or Twilio phone number.",
+                parse_mode=ParseMode.HTML,
+            )
+    await _inner(update, context)
+
+
+async def cmd_callerid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show current caller ID setting (/callerid)."""
+    from modules.twilio_call import get_user_caller_id
+    user_id = update.effective_user.id
+    cid = get_user_caller_id(str(user_id))
+    if cid:
+        msg = f"📞 Your caller ID: <code>{cid}</code>"
+    else:
+        msg = "📞 Using default Twilio number."
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
+
+async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show gate hit rate analytics (/analytics)."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+    stats = get_gate_stats()
+    if not stats:
+        await update.message.reply_text("No analytics data yet. Run some checks first.", parse_mode=ParseMode.HTML)
+        return
+    lines = []
+    for s in stats[:15]:
+        gate = s.get('gate', '?')
+        total = s.get('total', 0)
+        live = s.get('live', 0)
+        rate = s.get('live_pct', 0.0)
+        lines.append(f"• <b>{gate}</b>: {live}/{total} ({rate:.1f}% live)")
+    await update.message.reply_text(
+        ae("📊 <b>Gate Analytics (24h)</b>") + "\n\n" + "\n".join(lines),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_gatetest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: ping all gates for health status (/gatetest)."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+    msg = await update.message.reply_text("🔎 Testing all gates...", parse_mode=ParseMode.HTML)
+    results = run_gate_health_check()
+    lines = []
+    for r in sorted(results, key=lambda x: x.get('gate', '')):
+        icon = "✅" if r.get('up') else "❌"
+        latency = r.get('latency_ms', 0)
+        lines.append(f"{icon} <b>{r.get('gate', '?')}</b> — {latency}ms")
+    await msg.edit_text(
+        ae("🏥 <b>Gate Health Report</b>") + "\n\n" + "\n".join(lines),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: find user by ID or username (/find <user_id|@username>)."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: <code>/find &lt;user_id&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+    query_val = context.args[0].lstrip("@")
+    try:
+        target_id = int(query_val)
+    except ValueError:
+        await update.message.reply_text("❌ Provide numeric user ID.", parse_mode=ParseMode.HTML)
+        return
+
+    try:
+        chat = await context.bot.get_chat(target_id)
+        username = f"@{chat.username}" if chat.username else "none"
+        name = chat.full_name or "Unknown"
+        is_prem = is_user_premium_sync(target_id)
+        bal = get_balance(target_id)
+        await update.message.reply_text(
+            ae("🔍 <b>User Found</b>") + "\n\n"
+            f"🆔 ID: <code>{target_id}</code>\n"
+            f"👤 Name: {html_escape(name)}\n"
+            f"🔗 Username: {username}\n"
+            f"⭐ Premium: {'Yes' if is_prem else 'No'}\n"
+            f"💰 Credits: {bal}",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Could not find user: {html_escape(str(e))}", parse_mode=ParseMode.HTML)
+
+
+async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: restart the bot process (/restart)."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+    await update.message.reply_text("🔄 Restarting bot...", parse_mode=ParseMode.HTML)
+    import os, sys
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show reseller dashboard or add/remove resellers (/reseller)."""
+    user_id = update.effective_user.id
+    if is_owner(user_id):
+        sub = context.args[0].lower() if context.args else "list"
+        if sub == "add" and len(context.args) >= 3:
+            try:
+                rid = int(context.args[1])
+                limit = int(context.args[2])
+                commission = int(context.args[3]) if len(context.args) > 3 else 10
+            except ValueError:
+                await update.message.reply_text("Usage: <code>/reseller add &lt;user_id&gt; &lt;client_limit&gt; [commission%]</code>", parse_mode=ParseMode.HTML)
+                return
+            add_reseller(rid, username=f"user_{rid}", credit_limit=limit, commission_pct=commission, created_by=user_id)
+            await update.message.reply_text(f"✅ Added reseller <code>{rid}</code> | Limit: {limit} | Commission: {commission}%", parse_mode=ParseMode.HTML)
+        elif sub == "remove" and len(context.args) >= 2:
+            try:
+                rid = int(context.args[1])
+            except ValueError:
+                await update.message.reply_text("Usage: <code>/reseller remove &lt;user_id&gt;</code>", parse_mode=ParseMode.HTML)
+                return
+            remove_reseller(rid)
+            await update.message.reply_text(f"✅ Removed reseller <code>{rid}</code>", parse_mode=ParseMode.HTML)
+        elif sub == "list":
+            all_r = get_all_resellers()
+            if not all_r:
+                await update.message.reply_text("No resellers found.", parse_mode=ParseMode.HTML)
+                return
+            lines = [f"• <code>{r.get('user_id','?')}</code> — {r.get('client_count',0)}/{r.get('credit_limit',0)} limit | {r.get('commission_pct',0)}% commission" for r in all_r]
+            await update.message.reply_text(ae("👥 <b>Resellers</b>") + "\n\n" + "\n".join(lines), parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(
+                "Admin commands:\n"
+                "<code>/reseller list</code>\n"
+                "<code>/reseller add &lt;id&gt; &lt;limit&gt; [commission%]</code>\n"
+                "<code>/reseller remove &lt;id&gt;</code>",
+                parse_mode=ParseMode.HTML,
+            )
+    else:
+        info = get_reseller_info(user_id)
+        if not info:
+            await update.message.reply_text("❌ You are not a reseller.", parse_mode=ParseMode.HTML)
+            return
+        clients = get_clients(user_id)
+        await update.message.reply_text(
+            ae("🏪 <b>Reseller Dashboard</b>") + "\n\n"
+            f"🆔 Your ID: <code>{user_id}</code>\n"
+            f"👥 Clients: <b>{len(clients)}</b> / {info.get('credit_limit', 0)}\n"
+            f"💰 Commission: <b>{info.get('commission_pct', 0)}%</b>\n\n"
+            "Use <code>/addclient &lt;user_id&gt; &lt;credit_limit&gt;</code> to add clients.",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def cmd_addclient(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reseller: add a client (/addclient user_id credit_limit)."""
+    user_id = update.effective_user.id
+    reseller = get_reseller_info(user_id)
+    if not reseller and not is_owner(user_id):
+        await update.message.reply_text("❌ Only resellers can add clients.", parse_mode=ParseMode.HTML)
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: <code>/addclient &lt;user_id&gt; &lt;credit_limit&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+    try:
+        client_id = int(context.args[0])
+        credit_limit = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid arguments.", parse_mode=ParseMode.HTML)
+        return
+    ok = add_client(user_id, client_id, credit_limit)
+    if ok:
+        await update.message.reply_text(f"✅ Client <code>{client_id}</code> added with {credit_limit} credit limit.", parse_mode=ParseMode.HTML)
+    else:
+        await update.message.reply_text("❌ Failed to add client. Check your client limit.", parse_mode=ParseMode.HTML)
+
+
+async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Escrow: create or manage escrow deals (/escrow create <amount> <description>)."""
+    user_id = update.effective_user.id
+    sub = context.args[0].lower() if context.args else "menu"
+
+    if sub == "create":
+        if len(context.args) < 3:
+            await update.message.reply_text(
+                "Usage: <code>/escrow create &lt;amount&gt; &lt;description&gt;</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        try:
+            amount = int(context.args[1])
+        except ValueError:
+            await update.message.reply_text("❌ Amount must be a number.", parse_mode=ParseMode.HTML)
+            return
+        desc = " ".join(context.args[2:])
+        deal_id = create_deal(user_id, amount, desc)
+        await update.message.reply_text(
+            ae("🤝 <b>Escrow Deal Created</b>") + "\n\n"
+            f"🆔 Deal ID: <code>{deal_id}</code>\n"
+            f"💰 Amount: <b>{amount}</b> credits\n"
+            f"📋 Description: {html_escape(desc)}\n\n"
+            "Share the deal ID with the seller. They use:\n"
+            f"<code>/escrow join {deal_id}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif sub == "join":
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: <code>/escrow join &lt;deal_id&gt;</code>", parse_mode=ParseMode.HTML)
+            return
+        deal_id = context.args[1]
+        ok, msg_txt = join_deal(deal_id, user_id)
+        await update.message.reply_text(
+            ("✅ " if ok else "❌ ") + html_escape(msg_txt),
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif sub == "confirm":
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: <code>/escrow confirm &lt;deal_id&gt;</code>", parse_mode=ParseMode.HTML)
+            return
+        deal_id = context.args[1]
+        ok, msg_txt = confirm_deal(deal_id, user_id)
+        await update.message.reply_text(
+            ("✅ " if ok else "❌ ") + html_escape(msg_txt),
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif sub == "dispute":
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: <code>/escrow dispute &lt;deal_id&gt;</code>", parse_mode=ParseMode.HTML)
+            return
+        deal_id = context.args[1]
+        ok, msg_txt = dispute_deal(deal_id, user_id)
+        await update.message.reply_text(
+            ("⚠️ " if ok else "❌ ") + html_escape(msg_txt),
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif sub == "resolve" and is_owner(user_id):
+        if len(context.args) < 3:
+            await update.message.reply_text("Usage: <code>/escrow resolve &lt;deal_id&gt; seller|buyer</code>", parse_mode=ParseMode.HTML)
+            return
+        deal_id = context.args[1]
+        winner = context.args[2].lower()
+        if winner not in ("seller", "buyer"):
+            await update.message.reply_text("❌ Winner must be 'seller' or 'buyer'.", parse_mode=ParseMode.HTML)
+            return
+        ok, msg_txt = admin_resolve_deal(deal_id, winner)
+        await update.message.reply_text(
+            ("✅ " if ok else "❌ ") + html_escape(msg_txt),
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif sub == "list":
+        deals = get_user_deals(user_id)
+        if not deals:
+            await update.message.reply_text("No escrow deals found.", parse_mode=ParseMode.HTML)
+            return
+        lines = [
+            f"• <code>{d['deal_id']}</code> — {d.get('credits', 0)} cr | {d.get('status', '?')} | {html_escape(d.get('description', '')[:40])}"
+            for d in deals[:10]
+        ]
+        await update.message.reply_text(
+            ae("🤝 <b>Your Escrow Deals</b>") + "\n\n" + "\n".join(lines),
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif sub == "disputes" and is_owner(user_id):
+        deals = get_disputed_deals()
+        if not deals:
+            await update.message.reply_text("No disputed deals.", parse_mode=ParseMode.HTML)
+            return
+        lines = [
+            f"• <code>{d['deal_id']}</code> — {d.get('credits', 0)} cr | {html_escape(d.get('description', '')[:40])}"
+            for d in deals[:10]
+        ]
+        await update.message.reply_text(
+            ae("⚠️ <b>Disputed Deals</b>") + "\n\n" + "\n".join(lines),
+            parse_mode=ParseMode.HTML,
+        )
+
+    else:
+        await update.message.reply_text(
+            ae("🤝 <b>Escrow Commands</b>") + "\n\n"
+            "<code>/escrow create &lt;amount&gt; &lt;description&gt;</code>\n"
+            "<code>/escrow join &lt;deal_id&gt;</code>\n"
+            "<code>/escrow confirm &lt;deal_id&gt;</code>\n"
+            "<code>/escrow dispute &lt;deal_id&gt;</code>\n"
+            "<code>/escrow list</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def cmd_hibpwatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """HIBP breach watcher: watch/unwatch emails (/hibpwatch add|remove|list <email>)."""
+    @require_approval
+    async def _inner(update, context):
+        user_id = update.effective_user.id
+        sub = context.args[0].lower() if context.args else "list"
+
+        if sub == "add":
+            if len(context.args) < 2:
+                await update.message.reply_text("Usage: <code>/hibpwatch add &lt;email&gt;</code>", parse_mode=ParseMode.HTML)
+                return
+            email = context.args[1]
+            result = add_watch(user_id, email)
+            if isinstance(result, tuple):
+                ok, msg_txt = result
+            else:
+                ok, msg_txt = bool(result), "Added" if result else "Failed"
+            await update.message.reply_text(("✅ " if ok else "❌ ") + html_escape(msg_txt), parse_mode=ParseMode.HTML)
+
+        elif sub == "remove":
+            if len(context.args) < 2:
+                await update.message.reply_text("Usage: <code>/hibpwatch remove &lt;email&gt;</code>", parse_mode=ParseMode.HTML)
+                return
+            email = context.args[1]
+            ok = remove_watch(user_id, email)
+            await update.message.reply_text("✅ Watch removed." if ok else "❌ Not found.", parse_mode=ParseMode.HTML)
+
+        elif sub == "list":
+            watches = get_user_watches(user_id)
+            if not watches:
+                await update.message.reply_text("You have no email watches. Use <code>/hibpwatch add &lt;email&gt;</code>", parse_mode=ParseMode.HTML)
+                return
+            lines = [f"• <code>{w.get('email', w) if isinstance(w, dict) else w}</code>" for w in watches]
+            await update.message.reply_text(
+                ae("👁 <b>HIBP Email Watches</b>") + "\n\n" + "\n".join(lines),
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await update.message.reply_text(
+                "<code>/hibpwatch add &lt;email&gt;</code>\n"
+                "<code>/hibpwatch remove &lt;email&gt;</code>\n"
+                "<code>/hibpwatch list</code>",
+                parse_mode=ParseMode.HTML,
+            )
+    await _inner(update, context)
+
+
+async def cmd_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Channel card scraper: add/remove/list channels (/scraper add|remove|list|stats)."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+    sub = context.args[0].lower() if context.args else "list"
+
+    admin_id = update.effective_user.id
+    if sub == "add":
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: <code>/scraper add @channel</code>", parse_mode=ParseMode.HTML)
+            return
+        channel = context.args[1].lstrip("@")
+        ok = add_channel(channel, added_by=admin_id)
+        await update.message.reply_text(f"✅ Channel @{channel} added." if ok else f"❌ Could not add @{channel}.", parse_mode=ParseMode.HTML)
+
+    elif sub == "remove":
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: <code>/scraper remove @channel</code>", parse_mode=ParseMode.HTML)
+            return
+        channel = context.args[1].lstrip("@")
+        ok = remove_channel(channel)
+        await update.message.reply_text(f"✅ Channel @{channel} removed." if ok else f"❌ Not found.", parse_mode=ParseMode.HTML)
+
+    elif sub == "list":
+        channels = get_active_channels()
+        if not channels:
+            await update.message.reply_text("No channels in scraper.", parse_mode=ParseMode.HTML)
+            return
+        lines = [f"• @{c}" if isinstance(c, str) else f"• @{c.get('channel', '?')}" for c in channels]
+        await update.message.reply_text(ae("📡 <b>Scraper Channels</b>") + "\n\n" + "\n".join(lines), parse_mode=ParseMode.HTML)
+
+    elif sub == "stats":
+        stats_list = get_scraper_stats()
+        total = sum(s.get('total_found', 0) for s in stats_list) if stats_list else 0
+        cards = sum(s.get('cards_found', 0) for s in stats_list) if stats_list else 0
+        await update.message.reply_text(
+            ae("📊 <b>Scraper Stats</b>") + "\n\n"
+            f"📡 Active channels: <b>{len(get_active_channels())}</b>\n"
+            f"📥 Total messages scraped: <b>{total}</b>\n"
+            f"💳 Cards found: <b>{cards}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(
+            "<code>/scraper add @channel</code>\n"
+            "<code>/scraper remove @channel</code>\n"
+            "<code>/scraper list</code>\n"
+            "<code>/scraper stats</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def cmd_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show marketplace info (/marketplace)."""
+    await update.message.reply_text(
+        ae("🛍 <b>Marketplace</b>") + "\n\n"
+        "List and browse items for sale using credits.\n\n"
+        "<b>Commands:</b>\n"
+        "/market list — Browse listings\n"
+        "/market sell &lt;price&gt; &lt;item&gt; — Create listing\n"
+        "/market buy &lt;listing_id&gt; — Purchase item\n"
+        "/market mylistings — Your active listings",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Marketplace: list/sell/buy/mylistings (/market <sub> ...)."""
+    user_id = update.effective_user.id
+    sub = context.args[0].lower() if context.args else "list"
+
+    er = _mdb()
+    _ensure_marketplace_table()
+    import uuid as _uuid
+
+    if sub == "sell":
+        if len(context.args) < 3:
+            await update.message.reply_text("Usage: <code>/market sell &lt;price_credits&gt; &lt;item description&gt;</code>", parse_mode=ParseMode.HTML)
+            return
+        try:
+            price = int(context.args[1])
+        except ValueError:
+            await update.message.reply_text("❌ Price must be a number.", parse_mode=ParseMode.HTML)
+            return
+        item_desc = " ".join(context.args[2:])
+        listing_id = _uuid.uuid4().hex[:8].upper()
+        er(
+            "INSERT INTO marketplace_listings(listing_id, seller_id, price, description, status) VALUES(%s,%s,%s,%s,'active')",
+            (listing_id, user_id, price, item_desc),
+        )
+        await update.message.reply_text(
+            ae("🏷 <b>Listing Created</b>") + "\n\n"
+            f"📋 Item: {html_escape(item_desc)}\n"
+            f"💰 Price: <b>{price}</b> credits\n"
+            f"🆔 Listing ID: <code>{listing_id}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif sub == "list":
+        rows = er("SELECT listing_id, seller_id, price, description FROM marketplace_listings WHERE status='active' LIMIT 20", fetch=True)
+        if not rows:
+            await update.message.reply_text("No active listings.", parse_mode=ParseMode.HTML)
+            return
+        lines = [f"• <code>{r[0]}</code> — {str(r[3])[:40]} | {r[2]} cr (by <code>{r[1]}</code>)" for r in (rows or [])]
+        await update.message.reply_text(ae("🛍 <b>Marketplace Listings</b>") + "\n\n" + "\n".join(lines), parse_mode=ParseMode.HTML)
+
+    elif sub == "buy":
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: <code>/market buy &lt;listing_id&gt;</code>", parse_mode=ParseMode.HTML)
+            return
+        listing_id = context.args[1].upper()
+        row = er("SELECT seller_id, price, description FROM marketplace_listings WHERE listing_id=%s AND status='active'", (listing_id,), fetch=True, fetch_one=True)
+        if not row:
+            await update.message.reply_text("❌ Listing not found or sold.", parse_mode=ParseMode.HTML)
+            return
+        seller_id, price, desc = row
+        if seller_id == user_id:
+            await update.message.reply_text("❌ Cannot buy your own listing.", parse_mode=ParseMode.HTML)
+            return
+        bal = get_balance(user_id)
+        if bal < price:
+            await update.message.reply_text(f"❌ Insufficient credits. You have {bal}, need {price}.", parse_mode=ParseMode.HTML)
+            return
+        ok, msg_txt = transfer_credits(user_id, seller_id, price)
+        if ok:
+            er("UPDATE marketplace_listings SET status='sold', buyer_id=%s WHERE listing_id=%s", (user_id, listing_id))
+            await update.message.reply_text(
+                ae("✅ <b>Purchase Successful!</b>") + "\n\n"
+                f"📋 Item: {html_escape(str(desc))}\n"
+                f"💰 Paid: {price} credits",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await update.message.reply_text(f"❌ Purchase failed: {msg_txt}", parse_mode=ParseMode.HTML)
+
+    elif sub == "mylistings":
+        rows = er("SELECT listing_id, price, description, status FROM marketplace_listings WHERE seller_id=%s LIMIT 10", (user_id,), fetch=True)
+        if not rows:
+            await update.message.reply_text("You have no listings.", parse_mode=ParseMode.HTML)
+            return
+        lines = [f"• <code>{r[0]}</code> — {str(r[2])[:35]} | {r[1]} cr | {r[3]}" for r in (rows or [])]
+        await update.message.reply_text(ae("📦 <b>My Listings</b>") + "\n\n" + "\n".join(lines), parse_mode=ParseMode.HTML)
+
+    else:
+        await update.message.reply_text(
+            "<code>/market list</code>\n"
+            "<code>/market sell &lt;price&gt; &lt;item&gt;</code>\n"
+            "<code>/market buy &lt;listing_id&gt;</code>\n"
+            "<code>/market mylistings</code>",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def cmd_proxy_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show residential proxy pool info (/proxyinfo)."""
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+    proxy = get_random_proxy()
+    if proxy:
+        await update.message.reply_text(
+            ae("🌐 <b>Residential Proxy Pool</b>") + "\n\n"
+            f"✅ Pool active\n"
+            f"🔁 Sample proxy: <code>{proxy.split('@')[-1] if '@' in proxy else proxy}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(
+            ae("🌐 <b>Residential Proxy Pool</b>") + "\n\n"
+            "❌ No residential proxies available.\n"
+            "Add proxies via the admin panel or /addproxy command.",
+            parse_mode=ParseMode.HTML,
+        )
+
+
 def _deposit_checker_loop():
     import time as _time
     while True:
@@ -14686,7 +15483,39 @@ def main():
     
     # Ensure database files exist (fallback)
     ensure_database_files()
-    
+
+    # Initialize new module tables
+    try:
+        init_credits_tables()
+        print("💰 Credits tables initialized")
+    except Exception as _e:
+        print(f"⚠️ Credits tables: {_e}")
+    try:
+        init_reseller_tables()
+        print("👥 Reseller tables initialized")
+    except Exception as _e:
+        print(f"⚠️ Reseller tables: {_e}")
+    try:
+        init_escrow_tables()
+        print("🤝 Escrow tables initialized")
+    except Exception as _e:
+        print(f"⚠️ Escrow tables: {_e}")
+    try:
+        init_monitor_tables()
+        print("📊 Gate monitor tables initialized")
+    except Exception as _e:
+        print(f"⚠️ Gate monitor tables: {_e}")
+    try:
+        init_scraper_tables()
+        print("📡 Scraper tables initialized")
+    except Exception as _e:
+        print(f"⚠️ Scraper tables: {_e}")
+    try:
+        init_hibp_tables()
+        print("👁 HIBP tables initialized")
+    except Exception as _e:
+        print(f"⚠️ HIBP tables: {_e}")
+
     if OWNER_ID == 0:
         print("⚠️  WARNING: OWNER_ID not set in config.py!")
         print("   Get your ID from @userinfobot and update config.py")
@@ -15025,6 +15854,30 @@ def main():
     application.add_handler(CallbackQueryHandler(regenerate_cards_callback, pattern="^regen"))
     application.add_handler(CallbackQueryHandler(button_callback))
     
+    application.add_handler(CommandHandler("address", cmd_address))
+    application.add_handler(CommandHandler("fullz", cmd_fullz))
+    application.add_handler(CommandHandler("credits", cmd_balance))
+    application.add_handler(CommandHandler("mybalance", cmd_balance))
+    application.add_handler(CommandHandler("redeem_voucher", cmd_redeem))
+    application.add_handler(CommandHandler("voucher", cmd_voucher))
+    application.add_handler(CommandHandler("addcredits", cmd_addcredits))
+    application.add_handler(CommandHandler("gift", cmd_gift))
+    application.add_handler(CommandHandler("setcallerid", cmd_setcallerid))
+    application.add_handler(CommandHandler("callerid", cmd_callerid))
+    application.add_handler(CommandHandler("analytics", cmd_analytics))
+    application.add_handler(CommandHandler("gatetest", cmd_gatetest))
+    application.add_handler(CommandHandler("find", cmd_find))
+    application.add_handler(CommandHandler("restart", cmd_restart))
+    application.add_handler(CommandHandler("reseller", cmd_reseller))
+    application.add_handler(CommandHandler("addclient", cmd_addclient))
+    application.add_handler(CommandHandler("escrow", cmd_escrow))
+    application.add_handler(CommandHandler("hibpwatch", cmd_hibpwatch))
+    application.add_handler(CommandHandler("watchemail", cmd_hibpwatch))
+    application.add_handler(CommandHandler("scraper", cmd_scraper))
+    application.add_handler(CommandHandler("marketplace", cmd_marketplace))
+    application.add_handler(CommandHandler("market", cmd_market))
+    application.add_handler(CommandHandler("proxyinfo", cmd_proxy_info))
+
     # Robust error handler - catches all errors without crashing
     conflict_count = [0]
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -15102,6 +15955,18 @@ def main():
     expiry_thread = threading.Thread(target=_premium_expiry_checker, daemon=True)
     expiry_thread.start()
     print("⏰ Premium expiry checker started (checks every 5 minutes)")
+
+    try:
+        start_monitor(bot=None, admin_chat_id=OWNER_ID if OWNER_ID else None)
+        print("📊 Gate uptime monitor started")
+    except Exception as _me:
+        print(f"⚠️ Gate monitor: {_me}")
+
+    try:
+        start_hibp_watcher(bot=None)
+        print("👁 HIBP breach watcher started")
+    except Exception as _he:
+        print(f"⚠️ HIBP watcher: {_he}")
 
     def _crypto_deposit_notifier():
         import time as _time
