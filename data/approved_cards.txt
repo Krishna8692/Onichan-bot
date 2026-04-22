@@ -136,3 +136,69 @@
 2026-04-19 17:38:50|1857417752|@tu_bkl_hai|374355120671918|12|26|1052|auto_hitter_live|[incorrect_cvc] [Your card&#x27;s security code is incorrect.]
 2026-04-19 17:38:55|1857417752|@tu_bkl_hai|374355129279457|07|25|6111|auto_hitter_live|[incorrect_cvc] [Your card&#x27;s security code is incorrect.]
 2026-04-20 13:55:25|8481027470|@Pronaihubro|5363470093899495|08|30|868|auto_hitter|Charged INR 387.47
+2026-04-22 22:10:39|2092939350|@Sunydop|5178059844387036|05|28|393|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://prescribedforlife.com/checkouts/sessions/checkout-completion/redirect?_t=AQAB7f4f7FaXVcqQPXYijSI96Rf18mP5dV1aVROGtX4QokClRJWJQ3Y5fY4_A_FBnAEs5OLNy8wIwrAXHeTgETCsnp40FqDc8branzSvX6xQrWvsZ3mwsi11hJnWkNq-_F5sUVvwxVCR-Hl8J6THklOPLVXQ5aElIN0TsSyZ7MTyPzI8gTUXfc2C2Yjp-ZKuAXhmYQkWi-Hk3_9sQwTtNsA4gZ7xgZrKLarQYBEnuG9RK3bm4qqXYJuc5wZaCA",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "17.70s"
+  }
+}
+2026-04-22 22:16:01|2092939350|@Sunydop|5178059831739934|12|27|073|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://rushcharge.com/checkouts/sessions/checkout-completion/redirect?_t=AQABzwH-32elxvxe1Y4ZlpU6XccJuxIM0wHCkzopCazUVeFGoe9Qn0m2pCm8BK47R0hRQRDJdufVMaT0MMIQZNQ1lBoDj3m8fL2sA9L9aAniy5gblCL9S7799TK2NY1Nm2BDV4QAWjovXU9np21Py8K5nYnNwNd8xjgUFt_GCWycP-k-DS7S5IZPC-7A-00Vl401Tp_U7UE60NIw4uLHWVIIFxWch2jSAP2Qzx7Le3XSaizdFScF",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "24.93s"
+  }
+}
+2026-04-22 22:16:22|2092939350|@Sunydop|5178059701843923|10|26|573|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://getboldify.com/checkouts/sessions/checkout-completion/redirect?_t=AQABBXPIV1Ld8diNqGBG2g81ONQzLovp6V6Dppfqos1iiw1R3_Oyw65o1anfQ86ZWPbUiwlHPoeepsS8cD4aK0rduQXuIkaAvscE37p83anVRou70Ta_7rBfbJNv-7ZeDoUbWaDyE4TLEfryckWJJZvMJl3pdeLg6hl2DHqjoSVv-pOsZdfTMHc8FMCG5iSixMjQcCy6PQum98VFENSYy8yO1jBPSEC_44INq8DKL0zlNg",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "22.81s"
+  }
+}
+2026-04-22 22:16:46|2092939350|@Sunydop|5178059971483954|01|29|369|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://prescribedforlife.com/checkouts/sessions/checkout-completion/redirect?_t=AQABn4LvqOEg6zhCn7JmBcZ34XymebxqTjtARbE_PFUfp8DogAft5qpoZc4ZgnfrfeeLjgywH3JJBm-fQixdZkF56-gC63HV3yausAbbAypfClTu-YrUWJQlzD0qwEZUd1D4TZ7FmQu_NH1uYyq-TAbEYlz1SCy6EDcgoDjLlTJYTGXyXbd4iVsfNW-odU85ycKOiOwWtxiCd9Qpu40zo-29aq3GrL217AXW-wZn0BIoECSd0pLFjaTCo9RaNA",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "16.18s"
+  }
+}
+2026-04-22 22:19:20|2092939350|@Sunydop|5178059719269111|04|29|136|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://getboldify.com/checkouts/sessions/checkout-completion/redirect?_t=AQABp9etPiQZiBGd_C1NcZgD_qV6FRJcKKbsNenQFSD4lc-xI-B5zQSsCk_SVDG-sITlYjQY7Z8axwJnQ85L3uGzgO7UC3PxsjqJb5LjXl0zVgoIypdR8Y-k32J_UuCR5aUzmH6KafNGZStsTGc0LrSbjDvoXzBk0Jl8JwW6fYqR-p7bFrzplzIsIuZovqcduh40HBypHUcdmbPHc5FjoILhBvd92ZC-tRW-BHzTdUWB0qpL",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "22.84s"
+  }
+}
+2026-04-22 22:24:13|2092939350|@Sunydop|5178059886237545|06|28|327|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://rushcharge.com/checkouts/sessions/checkout-completion/redirect?_t=AQABi9pU6bOszHo9T7ECcCxaWJSv0dtZqeEnDeYLdK9fdAaQzknBCJNeJxlOsClcynC77o4aeFehfQdhG5fJfihqZuj0MljRlpAnSBZyq9d5mz2J2U2tFD2OqE98Vj0CblTgurk3UrhIW-dFtGpTD6n5YUAosZLU6lNZtd69Qac7Tly_pOsZje-KyEqcKXI9GisI4oeW4zwuId7-Oppi3nvjsMvEvvclYtl4mDWzabRHxRPCrQMWBV0",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "21.22s"
+  }
+}

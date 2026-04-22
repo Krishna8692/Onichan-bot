@@ -112,17 +112,17 @@ def get_random_proxy(proxy_type: str = "http") -> Optional[str]:
         def _op(conn):
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT host, port, username, password, protocol
+                    SELECT host, port, username, password, proxy_type
                     FROM proxy_pool
-                    WHERE is_alive = TRUE
+                    WHERE alive = TRUE
                       AND (classification = 'residential' OR classification IS NULL)
                     ORDER BY RANDOM() LIMIT 1
                 """)
                 row = cur.fetchone()
                 if not row:
                     cur.execute("""
-                        SELECT host, port, username, password, protocol
-                        FROM proxy_pool WHERE is_alive = TRUE
+                        SELECT host, port, username, password, proxy_type
+                        FROM proxy_pool WHERE alive = TRUE
                         ORDER BY RANDOM() LIMIT 1
                     """)
                     row = cur.fetchone()

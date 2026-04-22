@@ -14824,9 +14824,13 @@ async def cmd_voucher(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         lines = []
         for v in vouchers[:20]:
+            uses = v.get('uses', 0)
+            max_uses = v.get('max_uses', 1)
+            uses_left = max_uses - uses
+            active = "✅" if v.get('active', True) else "❌"
             lines.append(
-                f"• <code>{v['code']}</code> — {v['credits']} cr, "
-                f"{v.get('uses_left', '?')}/{v.get('max_uses', '?')} uses"
+                f"• <code>{v['code']}</code> — {v.get('credits', 0)} cr | "
+                f"{uses}/{max_uses} used | {active}"
             )
         await update.message.reply_text(
             ae("🎟 <b>Vouchers</b>") + "\n\n" + "\n".join(lines),
@@ -15013,7 +15017,7 @@ async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not all_r:
                 await update.message.reply_text("No resellers found.", parse_mode=ParseMode.HTML)
                 return
-            lines = [f"• <code>{r.get('user_id','?')}</code> — {r.get('client_count',0)}/{r.get('credit_limit',0)} limit | {r.get('commission_pct',0)}% commission" for r in all_r]
+            lines = [f"• <code>{r.get('user_id','?')}</code> @{r.get('username','?')} — {r.get('clients',0)} clients/{r.get('limit',0)} limit | {r.get('commission',0)}% commission" for r in all_r]
             await update.message.reply_text(ae("👥 <b>Resellers</b>") + "\n\n" + "\n".join(lines), parse_mode=ParseMode.HTML)
         else:
             await update.message.reply_text(
@@ -15080,11 +15084,16 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Amount must be a number.", parse_mode=ParseMode.HTML)
             return
         desc = " ".join(context.args[2:])
-        deal_id = create_deal(user_id, amount, desc)
+        result = create_deal(user_id, amount, desc)
+        if not result or "error" in result:
+            err = result.get("error", "Unknown error") if result else "Database error"
+            await update.message.reply_text(f"❌ {html_escape(err)}", parse_mode=ParseMode.HTML)
+            return
+        deal_id = result["deal_id"]
         await update.message.reply_text(
             ae("🤝 <b>Escrow Deal Created</b>") + "\n\n"
             f"🆔 Deal ID: <code>{deal_id}</code>\n"
-            f"💰 Amount: <b>{amount}</b> credits\n"
+            f"💰 Amount: <b>{amount}</b> credits (locked)\n"
             f"📋 Description: {html_escape(desc)}\n\n"
             "Share the deal ID with the seller. They use:\n"
             f"<code>/escrow join {deal_id}</code>",
@@ -15145,7 +15154,7 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("No escrow deals found.", parse_mode=ParseMode.HTML)
             return
         lines = [
-            f"• <code>{d['deal_id']}</code> — {d.get('credits', 0)} cr | {d.get('status', '?')} | {html_escape(d.get('description', '')[:40])}"
+            f"• <code>{d.get('id','?')}</code> — {d.get('credits', 0)} cr | {d.get('status', '?')} | {html_escape(str(d.get('desc', ''))[:40])}"
             for d in deals[:10]
         ]
         await update.message.reply_text(
@@ -15159,7 +15168,7 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("No disputed deals.", parse_mode=ParseMode.HTML)
             return
         lines = [
-            f"• <code>{d['deal_id']}</code> — {d.get('credits', 0)} cr | {html_escape(d.get('description', '')[:40])}"
+            f"• <code>{d.get('id','?')}</code> — {d.get('credits', 0)} cr | {html_escape(str(d.get('desc', ''))[:40])}"
             for d in deals[:10]
         ]
         await update.message.reply_text(
@@ -15260,13 +15269,17 @@ async def cmd_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif sub == "stats":
         stats_list = get_scraper_stats()
-        total = sum(s.get('total_found', 0) for s in stats_list) if stats_list else 0
-        cards = sum(s.get('cards_found', 0) for s in stats_list) if stats_list else 0
+        cards = sum(s.get('found', 0) for s in stats_list) if stats_list else 0
+        active_count = sum(1 for s in stats_list if s.get('active')) if stats_list else 0
+        per_channel = "\n".join(
+            f"  • @{s.get('channel','?')}: {s.get('found',0)} cards {'✅' if s.get('active') else '❌'}"
+            for s in (stats_list or [])[:8]
+        ) or "  No channels"
         await update.message.reply_text(
             ae("📊 <b>Scraper Stats</b>") + "\n\n"
-            f"📡 Active channels: <b>{len(get_active_channels())}</b>\n"
-            f"📥 Total messages scraped: <b>{total}</b>\n"
-            f"💳 Cards found: <b>{cards}</b>",
+            f"📡 Active channels: <b>{active_count}</b>\n"
+            f"💳 Total cards found: <b>{cards}</b>\n\n"
+            f"{per_channel}",
             parse_mode=ParseMode.HTML,
         )
     else:
