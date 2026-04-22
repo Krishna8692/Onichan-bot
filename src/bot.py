@@ -13,6 +13,42 @@ import json
 import requests
 import random
 import time
+import logging
+import sys
+from logging.handlers import RotatingFileHandler
+
+# ── Error log file (read by /geterror) ───────────────────────────────────────
+ERROR_LOG_FILE = "/tmp/bot_errors.log"
+
+class _TeeStream:
+    """Write to both the original stream and the error log file."""
+    def __init__(self, original, log_path):
+        self._orig = original
+        self._path = log_path
+    def write(self, data):
+        self._orig.write(data)
+        if data.strip():
+            try:
+                with open(self._path, "a", encoding="utf-8") as f:
+                    f.write(data)
+            except Exception:
+                pass
+    def flush(self):
+        self._orig.flush()
+    def fileno(self):
+        return self._orig.fileno()
+
+# Redirect stderr so all Python exceptions/tracebacks land in the log file
+sys.stderr = _TeeStream(sys.__stderr__, ERROR_LOG_FILE)
+
+# Also wire up the logging module to append WARNING+ to the same file
+_log_handler = RotatingFileHandler(ERROR_LOG_FILE, maxBytes=2 * 1024 * 1024,
+                                    backupCount=1, encoding="utf-8")
+_log_handler.setLevel(logging.WARNING)
+_log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+logging.getLogger().addHandler(_log_handler)
+# ─────────────────────────────────────────────────────────────────────────────
 import asyncio
 import aiohttp
 from datetime import datetime
@@ -15653,6 +15689,86 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_geterror(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send the error log file to the owner (/geterror)."""
+    user = update.effective_user
+    if not is_owner(user.id):
+        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        return
+
+    import io, datetime
+
+    log_path = ERROR_LOG_FILE
+    subcommand = (context.args[0].lower() if context.args else "").strip()
+
+    # /geterror clear — wipe the log
+    if subcommand == "clear":
+        try:
+            open(log_path, "w").close()
+            await update.message.reply_text("🗑 <b>Error log cleared.</b>", parse_mode=ParseMode.HTML)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Could not clear log: {e}")
+        return
+
+    # Read log file
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except FileNotFoundError:
+        await update.message.reply_text(
+            "📭 <b>No errors logged yet.</b>\n\nThe error log is empty — great sign! 🎉",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    except Exception as e:
+        await update.message.reply_text(f"❌ Could not read log: {e}")
+        return
+
+    if not content.strip():
+        await update.message.reply_text(
+            "📭 <b>Error log is empty.</b>\n\nNo errors recorded since last clear. 🎉",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # Keep only the last 500 lines to stay within Telegram's 50 MB document limit
+    lines = content.splitlines()
+    total_lines = len(lines)
+    MAX_LINES = 500
+    if total_lines > MAX_LINES:
+        lines = lines[-MAX_LINES:]
+        truncated = True
+    else:
+        truncated = False
+
+    output = "\n".join(lines)
+    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"bot_errors_{now}.txt"
+
+    header = (
+        f"📋 Error Log — {now}\n"
+        f"Total lines: {total_lines}"
+        + (f" (showing last {MAX_LINES})" if truncated else "")
+        + "\n" + "=" * 60 + "\n\n"
+    )
+    file_bytes = (header + output).encode("utf-8")
+
+    caption = (
+        f"📋 <b>Error Log</b>\n"
+        f"Lines: <code>{total_lines}</code>"
+        + (f" (last {MAX_LINES} shown)" if truncated else "")
+        + f"\nSize: <code>{len(file_bytes) // 1024} KB</code>\n\n"
+        f"<i>Use</i> <code>/geterror clear</code> <i>to wipe the log.</i>"
+    )
+
+    await update.message.reply_document(
+        document=io.BytesIO(file_bytes),
+        filename=filename,
+        caption=caption,
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def cmd_proxy_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show residential proxy pool info (/proxyinfo)."""
     if not is_owner(update.effective_user.id):
@@ -16166,6 +16282,7 @@ def main():
     application.add_handler(CommandHandler("marketplace", cmd_marketplace))
     application.add_handler(CommandHandler("market", cmd_market))
     application.add_handler(CommandHandler("proxyinfo", cmd_proxy_info))
+    application.add_handler(CommandHandler("geterror", cmd_geterror))
 
     # Robust error handler - catches all errors without crashing
     conflict_count = [0]
