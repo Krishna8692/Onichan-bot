@@ -14435,6 +14435,10 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     saved_script  = context.user_data.get('call_script', '')
     custom_script = custom_script_inline if custom_script_inline else saved_script
 
+    # Resolve saved caller ID for this user
+    from modules.twilio_call import get_user_caller_id
+    caller_id = get_user_caller_id(str(user_id))
+
     # If no lang given, show the language picker keyboard
     if not explicit_lang or explicit_lang not in LANGUAGES:
         context.user_data['pending_call'] = {
@@ -14443,6 +14447,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "otp_digits": otp_digits,
             "company": company,
             "custom_script": custom_script,
+            "caller_id": caller_id,
             "chat_id": str(chat_id),
             "user_id": str(user_id),
         }
@@ -14468,7 +14473,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lang = explicit_lang
     await _place_call(update, context, phone, name, otp_digits, company, lang,
-                      custom_script, chat_id, user_id)
+                      custom_script, chat_id, user_id, caller_id=caller_id)
 
 
 async def call_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -14491,15 +14496,16 @@ async def call_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     context.user_data.pop('pending_call', None)
 
-    phone      = pending['phone']
-    name       = pending['name']
-    otp_digits = pending['otp_digits']
-    company    = pending['company']
+    phone         = pending['phone']
+    name          = pending['name']
+    otp_digits    = pending['otp_digits']
+    company       = pending['company']
     custom_script = pending.get('custom_script', '')
-    chat_id    = pending['chat_id']
-    user_id    = pending['user_id']
+    caller_id     = pending.get('caller_id', '')
+    chat_id       = pending['chat_id']
+    user_id       = pending['user_id']
 
-    from modules.twilio_call import LANGUAGES, initiate_call
+    from modules.twilio_call import LANGUAGES, initiate_call, TWILIO_PHONE
 
     flag_map = {
         "hi": "🇮🇳", "en": "🇬🇧", "es": "🇪🇸",
@@ -14507,6 +14513,7 @@ async def call_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     }
     flag = flag_map.get(lang, "🌐")
     lang_name = LANGUAGES.get(lang, "English")
+    cid_display = caller_id.strip() if caller_id.strip() else TWILIO_PHONE
 
     script_preview = (
         f"\n📝 Script: <i>{html_escape(custom_script[:60])}{'…' if len(custom_script) > 60 else ''}</i>"
@@ -14516,6 +14523,7 @@ async def call_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(
         f"📡 <b>Initiating call...</b>\n\n"
         f"📞 Target: <code>{phone}</code>\n"
+        f"📲 Caller ID: <code>{cid_display}</code>\n"
         f"👤 Name: {name}\n"
         f"🏢 Company: {company}\n"
         f"🔢 OTP Digits: {otp_digits}\n"
@@ -14533,10 +14541,12 @@ async def call_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             otp_digits=otp_digits,
             lang=lang,
             custom_script=custom_script,
+            caller_id=caller_id,
         )
         await query.edit_message_text(
             f"✅ <b>Call placed!</b>\n\n"
             f"📞 Target: <code>{phone}</code>\n"
+            f"📲 Caller ID: <code>{cid_display}</code>\n"
             f"👤 Name: {name}\n"
             f"🏢 Company: {company}\n"
             f"🔢 OTP Digits: {otp_digits}\n"
@@ -14562,18 +14572,20 @@ async def call_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def _place_call(update, context, phone, name, otp_digits, company, lang,
-                      custom_script, chat_id, user_id):
+                      custom_script, chat_id, user_id, caller_id: str = ""):
     """Shared helper: place the call and report success/failure."""
-    from modules.twilio_call import LANGUAGES, initiate_call
+    from modules.twilio_call import LANGUAGES, initiate_call, TWILIO_PHONE
 
     script_preview = (
         f"\n📝 Script: <i>{html_escape(custom_script[:60])}{'…' if len(custom_script) > 60 else ''}</i>"
         if custom_script else ""
     )
+    cid_display = caller_id.strip() if caller_id.strip() else TWILIO_PHONE
 
     status_msg = await update.message.reply_text(
         f"📡 <b>Initiating call...</b>\n\n"
         f"📞 Target: <code>{phone}</code>\n"
+        f"📲 Caller ID: <code>{cid_display}</code>\n"
         f"👤 Name: {name}\n"
         f"🏢 Company: {company}\n"
         f"🔢 OTP Digits: {otp_digits}\n"
@@ -14591,10 +14603,12 @@ async def _place_call(update, context, phone, name, otp_digits, company, lang,
             otp_digits=otp_digits,
             lang=lang,
             custom_script=custom_script,
+            caller_id=caller_id,
         )
         await status_msg.edit_text(
             f"✅ <b>Call placed!</b>\n\n"
             f"📞 Target: <code>{phone}</code>\n"
+            f"📲 Caller ID: <code>{cid_display}</code>\n"
             f"👤 Name: {name}\n"
             f"🏢 Company: {company}\n"
             f"🔢 OTP Digits: {otp_digits}\n"
