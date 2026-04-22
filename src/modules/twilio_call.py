@@ -19,17 +19,93 @@ def get_twilio_client():
 
 
 def get_webhook_base() -> str:
-    domains = os.environ.get("REPLIT_DOMAINS", "")
-    dev_domain = os.environ.get("REPLIT_DEV_DOMAIN", "")
-    if domains:
-        domain = domains.split(",")[0].strip()
-    elif dev_domain:
-        domain = dev_domain
-    else:
-        domain = "localhost:8080"
-    if not domain.startswith("http"):
-        return f"https://{domain}"
-    return domain
+    # 1. Explicit override (highest priority)
+    override = os.environ.get("WEBHOOK_BASE_URL", "").strip()
+    if override:
+        return override.rstrip("/")
+
+    # 2. Localtunnel URL written by start_tunnel() at bot startup
+    _tunnel_file = "/tmp/webhook_tunnel_url"
+    try:
+        with open(_tunnel_file) as _f:
+            _url = _f.read().strip()
+            if _url.startswith("http"):
+                return _url.rstrip("/")
+    except Exception:
+        pass
+
+    # 3. Replit deployed domain (only set in production deployments)
+    deployed = os.environ.get("REPLIT_DEPLOYMENT", "")
+    if deployed:
+        domains = os.environ.get("REPLIT_DOMAINS", "")
+        if domains:
+            domain = domains.split(",")[0].strip()
+            return f"https://{domain}" if not domain.startswith("http") else domain
+
+    # 4. Fallback — will NOT work for Twilio (dev-only loopback)
+    return "http://localhost:5000"
+
+
+def start_tunnel(port: int = 5000) -> str:
+    """
+    Launch a localtunnel process for the given port and write the public URL
+    to /tmp/webhook_tunnel_url.  Returns the URL string, or "" on failure.
+    Silently skips if the tunnel is already running (file exists and is fresh).
+    """
+    import subprocess, time, json
+
+    _tunnel_file = "/tmp/webhook_tunnel_url"
+
+    # If we already have a recent URL, reuse it
+    try:
+        if os.path.getmtime(_tunnel_file) > (time.time() - 3600):
+            with open(_tunnel_file) as f:
+                url = f.read().strip()
+                if url.startswith("https://"):
+                    print(f"[Tunnel] Reusing existing tunnel: {url}")
+                    return url
+    except Exception:
+        pass
+
+    def _run():
+        try:
+            proc = subprocess.Popen(
+                ["npx", "localtunnel", "--port", str(port)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            for line in proc.stdout:
+                line = line.strip()
+                if "loca.lt" in line or "localtunnel" in line.lower():
+                    # Extract the HTTPS URL
+                    import re as _re
+                    m = _re.search(r'(https://[^\s]+loca\.lt[^\s]*)', line)
+                    if m:
+                        url = m.group(1).rstrip("/")
+                        with open(_tunnel_file, "w") as f:
+                            f.write(url)
+                        print(f"[Tunnel] Public URL ready: {url}")
+                        return
+        except Exception as e:
+            print(f"[Tunnel] Error starting tunnel: {e}")
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    # Wait up to 15 seconds for tunnel to appear
+    import time
+    for _ in range(30):
+        time.sleep(0.5)
+        try:
+            with open(_tunnel_file) as f:
+                url = f.read().strip()
+                if url.startswith("https://"):
+                    return url
+        except Exception:
+            pass
+
+    print("[Tunnel] Warning: tunnel URL not ready within 15s")
+    return ""
 
 
 def store_call_data(call_sid: str, data: dict):

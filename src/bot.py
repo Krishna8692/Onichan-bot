@@ -15704,6 +15704,22 @@ def main():
         keep_alive()
         print("✅ Keep_alive server started!")
 
+        # Start public tunnel so Twilio webhooks can reach us from the internet.
+        # The riker.replit.dev dev domain resolves to 127.0.0.2 (Replit-internal
+        # only), so Twilio's servers cannot reach it. localtunnel gives us a real
+        # public HTTPS URL stored in /tmp/webhook_tunnel_url.
+        try:
+            import time as _t
+            _t.sleep(1)  # give Flask a moment to bind
+            from modules.twilio_call import start_tunnel
+            _tunnel_url = start_tunnel(port=5000)
+            if _tunnel_url:
+                print(f"🌍 Twilio webhook tunnel: {_tunnel_url}")
+            else:
+                print("⚠️ Tunnel not ready — Twilio voice calls may fail")
+        except Exception as _te:
+            print(f"⚠️ Tunnel start error: {_te}")
+
     deposit_thread = threading.Thread(target=_deposit_checker_loop, daemon=True)
     deposit_thread.start()
     print("💰 Deposit checker background thread started")
