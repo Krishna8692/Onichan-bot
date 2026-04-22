@@ -292,35 +292,56 @@ _HI_RATE  = "slow"
 _HI_PITCH = "+8%"
 
 
-def _sanitize_tts(text: str, fallback: str = "text unavailable") -> str:
+def _sanitize_tts(text: str, fallback: str = "text unavailable", latin_only: bool = False) -> str:
     """
     Strip characters that make Twilio TTS throw error 13520 (Say: Invalid text).
-    Removes emoji, XML control characters, and strips to pronounceable text only.
-    Preserves combining marks (diacritics, vowel signs) needed for Hindi, Arabic, etc.
-    Falls back to `fallback` if the result is empty.
+
+    latin_only=True  → alice/standard voices: keep only Latin script + common punctuation.
+                        Strips Devanagari, CJK, Arabic, etc. that alice cannot pronounce.
+    latin_only=False → Polly voices: allow all Unicode scripts, strip only
+                        emoji/pictographs/control characters.
+
+    Falls back to `fallback` if the result is empty after stripping.
     """
     import unicodedata
     cleaned = []
     for ch in text:
+        cp  = ord(ch)
         cat = unicodedata.category(ch)
-        # Keep: letters (L*), numbers (N*), punctuation (P*),
-        #        combining/modifier marks (M*) needed for Devanagari, Arabic, etc.,
-        #        and separator spaces (Z*)
-        # Replace: Sm (< > math symbols), Sc (currency), Sk (modifier symbols) → space
-        # Drop:   So (emoji/pictographs), Co (private use), Cn (unassigned), Cc (control chars)
-        if cat.startswith(('L', 'N', 'P', 'M', 'Z')) or ch in (' ', '\t'):
-            cleaned.append(ch)
-        elif cat.startswith('S') and cat != 'So':
-            # Sm/Sc/Sk — replace with space so adjacent words don't merge
-            cleaned.append(' ')
-        # So (emoji), Co, Cn, Cc → silently dropped
+
+        if latin_only:
+            # Allow: printable Latin (0x20-0x7E ASCII) + Latin-1 Supplement (0xA0-0xFF)
+            #        + Latin Extended-A/B (0x0100-0x024F) + IPA (0x0250-0x02AF).
+            # Also allow Arabic block (0x0600-0x06FF) for ar-language alice.
+            # Explicitly exclude control characters (0x00-0x1F, 0x7F, 0x80-0x9F).
+            is_printable_ascii = 0x20 <= cp <= 0x7E   # space through tilde
+            is_latin_ext       = 0x00A0 <= cp <= 0x02AF  # Latin-1 + Extended + IPA (no C0/C1 controls)
+            in_arabic          = 0x0600 <= cp <= 0x06FF
+            is_symbol          = cat.startswith('S') and cat != 'So'  # Sm/Sc/Sk → space
+
+            if is_printable_ascii or is_latin_ext or in_arabic:
+                cleaned.append(ch)
+            elif is_symbol:
+                cleaned.append(' ')   # replace math/currency symbols with space
+            # Everything else (control chars, Devanagari, CJK, emoji, etc.) → dropped
+        else:
+            # Polly voices: keep all scripts, just strip emoji/control chars
+            if cat.startswith(('L', 'N', 'P', 'M', 'Z')) or ch in (' ', '\t'):
+                cleaned.append(ch)
+            elif cat.startswith('S') and cat != 'So':
+                cleaned.append(' ')
+            # So (emoji), Co, Cn, Cc → dropped
+
     result = re.sub(r'\s{2,}', ' ', ''.join(cleaned)).strip()
     return result if result else fallback
 
 
 def _append_say(parent, text: str, voice: str, language: str, lang: str = "en"):
     """Append a <Say> to parent (VoiceResponse or Gather)."""
-    parent.say(_sanitize_tts(text), voice=voice, language=language)
+    # alice and other standard voices only handle Latin (+ Arabic) scripts.
+    # Polly voices support their full native script.
+    latin_only = not voice.startswith("Polly.")
+    parent.say(_sanitize_tts(text, latin_only=latin_only), voice=voice, language=language)
 
 
 def _apply_hindi_ssml(twiml_str: str) -> str:

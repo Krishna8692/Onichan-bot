@@ -12735,8 +12735,14 @@ def voice_otp():
         data  = get_pending_call(token) or {}
         print(f"[VOICE/OTP] Call data found: {bool(data)} keys={list(data.keys())}")
         base  = get_webhook_base()
+        name   = data.get("name", "")
+        company= data.get("company", "")
+        lang   = data.get("lang", "en")
+        script = data.get("custom_script", "")
+        print(f"[VOICE/OTP] name={name!r} company={company!r} lang={lang!r} script={script[:40]!r}")
         twiml = build_voice_twiml_main(token, base, data)
         print(f"[VOICE/OTP] Returning TwiML length={len(twiml)}")
+        print(f"[VOICE/OTP] TwiML content: {twiml}")
         return twiml, 200, {'Content-Type': 'text/xml'}
     except Exception as e:
         import traceback
