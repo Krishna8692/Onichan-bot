@@ -14626,12 +14626,21 @@ def main():
     print("=" * 80)
 
     import threading
+
+    # ── Start Flask/keep_alive FIRST so the health-check probe always gets a
+    #    200 response within ~1 second, regardless of how long other init takes.
+    if REPLIT_MODE:
+        print("🌐 Starting keep_alive server for Replit...")
+        keep_alive()
+        print("✅ Keep_alive server started!")
+
     deposit_thread = threading.Thread(target=_deposit_checker_loop, daemon=True)
     deposit_thread.start()
     print("💰 Deposit checker background thread started")
 
-    # Warm the GIF cache so menus render instantly for the first user
-    _preload_gif_cache()
+    # Warm the GIF cache in a background thread so it never blocks startup
+    gif_cache_thread = threading.Thread(target=_preload_gif_cache, daemon=True)
+    gif_cache_thread.start()
 
     try:
         from modules.proxy_scraper_engine import start_scraper_thread
@@ -14662,12 +14671,6 @@ def main():
             print("🔄 Cleared webhook and pending updates")
     except:
         pass
-    
-    # Start keep_alive server for Replit
-    if REPLIT_MODE:
-        print("🌐 Starting keep_alive server for Replit...")
-        keep_alive()
-        print("✅ Keep_alive server started!")
     
     # Initialize Supabase (async)
     try:

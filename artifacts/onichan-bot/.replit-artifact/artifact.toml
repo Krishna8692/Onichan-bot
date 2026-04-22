@@ -18,4 +18,3 @@ kind = "web"
 
   [services.production]
   run = "PORT=8080 python /home/runner/workspace/src/bot.py"
-  
