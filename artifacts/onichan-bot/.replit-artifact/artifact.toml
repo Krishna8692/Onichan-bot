@@ -14,9 +14,8 @@ kind = "web"
   localPort = 5000
 
   [services.development]
-  run = "cd /home/runner/workspace/src && python bot.py"
+  run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
 
   [services.production]
-  serve = "static"
-  publicDir = "public"
+  run = "PORT=8080 python /home/runner/workspace/src/bot.py"
   

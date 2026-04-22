@@ -12717,9 +12717,9 @@ def api_bypasser_validate():
 def run():
     try:
         from waitress import serve
-        serve(app, host='0.0.0.0', port=5000, threads=16, channel_timeout=60, connection_limit=500)
+        serve(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), threads=16, channel_timeout=60, connection_limit=500)
     except ImportError:
-        app.run(host='0.0.0.0', port=5000, threaded=True)
+        app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), threaded=True)
 
 def keep_alive():
     t = Thread(target=run)

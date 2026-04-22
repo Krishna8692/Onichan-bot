@@ -14,7 +14,4 @@ kind = "api"
 
   [services.production]
   run = "bash /home/runner/workspace/scripts/start-all.sh"
-
-  [services.production.health.startup]
-  path = "/api/healthz"
   
