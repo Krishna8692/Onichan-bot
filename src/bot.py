@@ -14361,17 +14361,20 @@ async def call_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     Handles language picker button presses from /call flow.
     callback_data format: calllang_<code>  e.g. calllang_hi
+    Only the user who ran /call may press the buttons.
     """
     query = update.callback_query
-    await query.answer()
 
     lang = query.data.split("_", 1)[1]
+    presser_id = str(query.from_user.id)
 
+    # Ownership guard — only the invoker can select a language
     pending = context.user_data.get('pending_call')
-    if not pending:
-        await query.edit_message_text("❌ No pending call found. Please run /call again.")
+    if not pending or pending.get('user_id') != presser_id:
+        await query.answer("❌ This language picker is not for you.", show_alert=True)
         return
 
+    await query.answer()
     context.user_data.pop('pending_call', None)
 
     phone      = pending['phone']
