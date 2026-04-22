@@ -103,6 +103,10 @@ def initiate_call(phone: str, chat_id: str, user_id: str, name: str,
         async_amd=True,
         async_amd_status_callback=f"{base}/voice/amd?token={token}",
         async_amd_status_callback_method="POST",
+        record=True,
+        recording_status_callback=f"{base}/voice/recording?token={token}",
+        recording_status_callback_method="POST",
+        recording_status_callback_event=["completed"],
     )
 
     store_call_data(call.sid, {

