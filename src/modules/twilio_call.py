@@ -48,53 +48,70 @@ def get_webhook_base() -> str:
 
 def start_tunnel(port: int = 5000) -> str:
     """
-    Launch a localtunnel process for the given port and write the public URL
+    Launch a cloudflared tunnel for the given port and write the public URL
     to /tmp/webhook_tunnel_url.  Returns the URL string, or "" on failure.
-    Silently skips if the tunnel is already running (file exists and is fresh).
+    A watchdog thread automatically restarts the tunnel if it dies.
     """
-    import subprocess, time, json
+    import subprocess, time, re as _re
 
     _tunnel_file = "/tmp/webhook_tunnel_url"
+    _cf_bin = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cloudflared")
+    if not os.path.isfile(_cf_bin):
+        _cf_bin = "/tmp/cloudflared"
 
-    # If we already have a recent URL, reuse it
-    try:
-        if os.path.getmtime(_tunnel_file) > (time.time() - 3600):
-            with open(_tunnel_file) as f:
-                url = f.read().strip()
-                if url.startswith("https://"):
-                    print(f"[Tunnel] Reusing existing tunnel: {url}")
-                    return url
-    except Exception:
-        pass
-
-    def _run():
+    def _launch_cf():
+        """Start cloudflared and return (process, url) or (None, '')."""
         try:
             proc = subprocess.Popen(
-                ["npx", "localtunnel", "--port", str(port)],
+                [_cf_bin, "tunnel", "--url", f"localhost:{port}",
+                 "--no-autoupdate", "--protocol", "http2"],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
                 text=True,
             )
             for line in proc.stdout:
-                line = line.strip()
-                if "loca.lt" in line or "localtunnel" in line.lower():
-                    # Extract the HTTPS URL
-                    import re as _re
-                    m = _re.search(r'(https://[^\s]+loca\.lt[^\s]*)', line)
-                    if m:
-                        url = m.group(1).rstrip("/")
-                        with open(_tunnel_file, "w") as f:
-                            f.write(url)
-                        print(f"[Tunnel] Public URL ready: {url}")
-                        return
+                m = _re.search(r'https://[a-z0-9\-]+\.trycloudflare\.com', line)
+                if m:
+                    url = m.group(0).rstrip("/")
+                    with open(_tunnel_file, "w") as f:
+                        f.write(url)
+                    print(f"[Tunnel] Public URL ready: {url}")
+                    return proc, url
+                # Also check for "Registered tunnel connection" — URL already saved
+                if "Registered tunnel connection" in line:
+                    try:
+                        with open(_tunnel_file) as f:
+                            saved = f.read().strip()
+                        if saved.startswith("https://"):
+                            return proc, saved
+                    except Exception:
+                        pass
         except Exception as e:
-            print(f"[Tunnel] Error starting tunnel: {e}")
+            print(f"[Tunnel] Launch error: {e}")
+        return None, ""
 
-    t = threading.Thread(target=_run, daemon=True)
+    def _watchdog():
+        """Keep the tunnel alive; restart on death."""
+        while True:
+            proc, url = _launch_cf()
+            if proc:
+                proc.wait()  # blocks until tunnel process dies
+                print("[Tunnel] Tunnel process died — restarting in 3s…")
+                # Clear the stale URL so get_webhook_base() doesn't use it
+                try:
+                    os.remove(_tunnel_file)
+                except Exception:
+                    pass
+                time.sleep(3)
+            else:
+                print("[Tunnel] Failed to start tunnel — retrying in 10s…")
+                time.sleep(10)
+
+    t = threading.Thread(target=_watchdog, daemon=True)
     t.start()
-    # Wait up to 15 seconds for tunnel to appear
-    import time
-    for _ in range(30):
+
+    # Wait up to 20 seconds for the URL to appear
+    for _ in range(40):
         time.sleep(0.5)
         try:
             with open(_tunnel_file) as f:
@@ -104,7 +121,7 @@ def start_tunnel(port: int = 5000) -> str:
         except Exception:
             pass
 
-    print("[Tunnel] Warning: tunnel URL not ready within 15s")
+    print("[Tunnel] Warning: tunnel URL not ready within 20s")
     return ""
 
 
@@ -172,7 +189,10 @@ def initiate_call(phone: str, chat_id: str, user_id: str, name: str,
     client = get_twilio_client()
     base = get_webhook_base()
 
+    print(f"[CALL] Webhook base URL: {base}")
+
     effective_caller_id = caller_id.strip() if caller_id and caller_id.strip() else TWILIO_PHONE
+    print(f"[CALL] From: {effective_caller_id} → To: {phone}")
 
     token = store_pending_call(
         chat_id=str(chat_id),
@@ -188,6 +208,7 @@ def initiate_call(phone: str, chat_id: str, user_id: str, name: str,
 
     voice_url    = f"{base}/voice/otp?token={token}"
     status_url   = f"{base}/voice/status?token={token}"
+    print(f"[CALL] Voice URL → {voice_url}")
 
     call = client.calls.create(
         to=phone,

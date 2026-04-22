@@ -12729,12 +12729,18 @@ def voice_otp():
     try:
         from modules.twilio_call import get_pending_call, build_voice_twiml_main, get_webhook_base
         token = request.args.get('token', '')
+        caller = request.values.get('From', 'unknown')
+        sid    = request.values.get('CallSid', 'unknown')
+        print(f"[VOICE/OTP] Request received — token={token} From={caller} CallSid={sid} method={request.method}")
         data  = get_pending_call(token) or {}
+        print(f"[VOICE/OTP] Call data found: {bool(data)} keys={list(data.keys())}")
         base  = get_webhook_base()
         twiml = build_voice_twiml_main(token, base, data)
+        print(f"[VOICE/OTP] Returning TwiML length={len(twiml)}")
         return twiml, 200, {'Content-Type': 'text/xml'}
     except Exception as e:
-        print(f"[VOICE/OTP ERROR] {e}")
+        import traceback
+        print(f"[VOICE/OTP ERROR] {e}\n{traceback.format_exc()}")
         return _twiml_error_response("Hello, please hold while we connect your call.")
 
 
