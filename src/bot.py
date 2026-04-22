@@ -1234,7 +1234,14 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /approve [user_id]")
+        await update.message.reply_text(
+            "✅ <b>Approve User</b>\n\n"
+            "<b>Usage:</b> <code>/approve &lt;user_id&gt;</code>\n\n"
+            "<b>Example:</b> <code>/approve 123456789</code>\n\n"
+            "Grants the user access to use the bot.\n"
+            "👑 Owner only.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     
     try:
@@ -1314,8 +1321,14 @@ async def give_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if len(context.args) < 2:
         await update.message.reply_text(
-            "Usage: /premium [user_id] [plan]\n\n"
-            "Plans: 1_week, 2_weeks, 1_month, 3_months"
+            "⭐ <b>Give Premium</b>\n\n"
+            "<b>Usage:</b> <code>/premium &lt;user_id&gt; &lt;plan&gt;</code>\n\n"
+            "<b>Arguments:</b>\n"
+            "• <code>user_id</code> — Telegram ID of the user\n"
+            "• <code>plan</code> — One of: 1_week, 2_weeks, 1_month, 3_months\n\n"
+            "<b>Example:</b>\n"
+            "<code>/premium 123456789 1_month</code>\n\n"
+            "👑 Owner only."
         )
         return
     
@@ -1395,7 +1408,14 @@ async def remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /rmpremium [user_id]")
+        await update.message.reply_text(
+            "⭐ <b>Remove Premium</b>\n\n"
+            "<b>Usage:</b> <code>/rmpremium &lt;user_id&gt;</code>\n\n"
+            "<b>Example:</b> <code>/rmpremium 123456789</code>\n\n"
+            "Revokes premium access from the user immediately.\n"
+            "👑 Owner only.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     
     try:
@@ -1936,7 +1956,15 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /ban [user_id]")
+        await update.message.reply_text(
+            "🚫 <b>Ban User</b>\n\n"
+            "<b>Usage:</b> <code>/ban &lt;user_id&gt;</code>\n\n"
+            "<b>Example:</b> <code>/ban 123456789</code>\n\n"
+            "Permanently blocks the user from using the bot.\n"
+            "Use <code>/unban &lt;user_id&gt;</code> to reverse.\n"
+            "👑 Owner only.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     
     try:
@@ -1961,13 +1989,27 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /broadcast [message]")
+        await update.message.reply_text(
+            "📢 <b>Broadcast</b>\n\n"
+            "<b>Usage:</b> <code>/broadcast &lt;message&gt;</code>\n\n"
+            "<b>Example:</b>\n"
+            "<code>/broadcast Bot will be down for maintenance in 10 minutes.</code>\n\n"
+            "Sends your message to ALL bot users.\n"
+            "👑 Owner only.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     
     raw_text = update.message.text
     prefix = raw_text.split(None, 1)
     if len(prefix) < 2:
-        await update.message.reply_text("Usage: /broadcast [message]")
+        await update.message.reply_text(
+            "📢 <b>Broadcast</b>\n\n"
+            "<b>Usage:</b> <code>/broadcast &lt;message&gt;</code>\n\n"
+            "<b>Example:</b>\n"
+            "<code>/broadcast Bot will be down for maintenance in 10 minutes.</code>",
+            parse_mode=ParseMode.HTML,
+        )
         return
     message = prefix[1]
     
@@ -2015,7 +2057,14 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if not context.args:
-        await update.message.reply_text("Usage: /unban [user_id]")
+        await update.message.reply_text(
+            "🔓 <b>Unban User</b>\n\n"
+            "<b>Usage:</b> <code>/unban &lt;user_id&gt;</code>\n\n"
+            "<b>Example:</b> <code>/unban 123456789</code>\n\n"
+            "Lifts the ban and restores access for the user.\n"
+            "👑 Owner only.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     
     try:
@@ -14723,7 +14772,17 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Redeem a credit voucher (/redeem <code>)."""
     if not context.args:
-        await update.message.reply_text("Usage: <code>/redeem CODE</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            "🎟 <b>Redeem Voucher</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/redeem &lt;code&gt;</code>\n\n"
+            "<b>Arguments:</b>\n"
+            "• <code>code</code> — Your voucher code (case-sensitive)\n\n"
+            "<b>Example:</b>\n"
+            "<code>/redeem SAVE100</code>\n\n"
+            "💡 Get voucher codes from the owner or marketplace.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     code = context.args[0].strip()
     user_id = update.effective_user.id
@@ -14749,8 +14808,17 @@ async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Gift credits to another user (/gift @username amount or /gift user_id amount)."""
     if len(context.args) < 2:
         await update.message.reply_text(
-            "Usage: <code>/gift @username 50</code>\n"
-            "or <code>/gift user_id 50</code>",
+            "💸 <b>Gift Credits</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/gift &lt;user_id&gt; &lt;amount&gt;</code>\n\n"
+            "<b>Arguments:</b>\n"
+            "• <code>user_id</code> — Telegram user ID of the recipient\n"
+            "• <code>amount</code> — Number of credits to send (must be positive)\n\n"
+            "<b>Examples:</b>\n"
+            "<code>/gift 123456789 100</code>\n"
+            "<code>/gift 987654321 50</code>\n\n"
+            "💡 Credits are deducted from your balance instantly.\n"
+            "Use <code>/balance</code> to check how many you have first.",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -14805,7 +14873,15 @@ async def cmd_voucher(update: Update, context: ContextTypes.DEFAULT_TYPE):
             max_uses = int(context.args[2]) if len(context.args) > 2 else 1
         except (ValueError, IndexError):
             await update.message.reply_text(
-                "Usage: <code>/voucher create &lt;credits&gt; [max_uses]</code>",
+                "🎟 <b>Create Voucher</b>\n\n"
+                "<b>Usage:</b>\n"
+                "<code>/voucher create &lt;credits&gt; [max_uses]</code>\n\n"
+                "<b>Arguments:</b>\n"
+                "• <code>credits</code> — How many credits the voucher grants\n"
+                "• <code>max_uses</code> — How many times it can be redeemed (default: 1)\n\n"
+                "<b>Examples:</b>\n"
+                "<code>/voucher create 100</code>  ← single-use\n"
+                "<code>/voucher create 50 10</code>  ← 10-use code",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -14838,8 +14914,18 @@ async def cmd_voucher(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            "Usage:\n<code>/voucher create &lt;credits&gt; [max_uses]</code>\n"
-            "<code>/voucher list</code>",
+            "🎟 <b>Voucher Manager</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/voucher create &lt;credits&gt; [max_uses]</code>\n"
+            "<code>/voucher list</code>\n\n"
+            "<b>Subcommands:</b>\n"
+            "• <code>create</code> — Generate a new redeemable voucher code\n"
+            "• <code>list</code> — Show all vouchers with usage stats\n\n"
+            "<b>Examples:</b>\n"
+            "<code>/voucher create 100</code>  ← single-use, 100 credits\n"
+            "<code>/voucher create 50 5</code>  ← 5 uses, 50 credits each\n"
+            "<code>/voucher list</code>\n\n"
+            "👑 Owner only.",
             parse_mode=ParseMode.HTML,
         )
 
@@ -14850,7 +14936,18 @@ async def cmd_addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
         return
     if len(context.args) < 2:
-        await update.message.reply_text("Usage: <code>/addcredits &lt;user_id&gt; &lt;amount&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            "💰 <b>Add Credits</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/addcredits &lt;user_id&gt; &lt;amount&gt;</code>\n\n"
+            "<b>Arguments:</b>\n"
+            "• <code>user_id</code> — Telegram user ID to credit\n"
+            "• <code>amount</code> — Number of credits to add\n\n"
+            "<b>Example:</b>\n"
+            "<code>/addcredits 123456789 500</code>\n\n"
+            "👑 Owner only.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     try:
         target = int(context.args[0])
@@ -14872,7 +14969,17 @@ async def cmd_setcallerid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from modules.twilio_call import set_user_caller_id
         if not context.args:
             await update.message.reply_text(
-                "Usage: <code>/setcallerid +12025551234</code>\n"
+                "📞 <b>Set Caller ID</b>\n\n"
+                "<b>Usage:</b>\n"
+                "<code>/setcallerid &lt;number&gt;</code>\n\n"
+                "<b>Arguments:</b>\n"
+                "• <code>number</code> — Phone number with country code (e.g. +12025551234)\n"
+                "  Use <code>off</code> to reset to the default Twilio number\n\n"
+                "<b>Examples:</b>\n"
+                "<code>/setcallerid +12025551234</code>  ← spoof this number\n"
+                "<code>/setcallerid off</code>  ← revert to default\n\n"
+                "⚠️ Number must be verified in your Twilio account to work.\n"
+                "Check your saved ID with <code>/callerid</code>.\n"
                 "Use <code>/setcallerid off</code> to clear.",
                 parse_mode=ParseMode.HTML,
             )
@@ -14951,7 +15058,18 @@ async def cmd_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
         return
     if not context.args:
-        await update.message.reply_text("Usage: <code>/find &lt;user_id&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            "🔍 <b>Find Listing</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/find &lt;keyword&gt;</code>\n\n"
+            "<b>Arguments:</b>\n"
+            "• <code>keyword</code> — Search term (matches title or description)\n\n"
+            "<b>Examples:</b>\n"
+            "<code>/find fullz usa</code>\n"
+            "<code>/find amazon account</code>\n\n"
+            "💡 Searches all active marketplace listings.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     query_val = context.args[0].lstrip("@")
     try:
@@ -15000,7 +15118,18 @@ async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 limit = int(context.args[2])
                 commission = int(context.args[3]) if len(context.args) > 3 else 10
             except ValueError:
-                await update.message.reply_text("Usage: <code>/reseller add &lt;user_id&gt; &lt;client_limit&gt; [commission%]</code>", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(
+                    "👥 <b>Add Reseller</b>\n\n"
+                    "<b>Usage:</b>\n"
+                    "<code>/reseller add &lt;user_id&gt; &lt;client_limit&gt; [commission%]</code>\n\n"
+                    "<b>Arguments:</b>\n"
+                    "• <code>user_id</code> — Telegram ID of the reseller\n"
+                    "• <code>client_limit</code> — Max clients they can manage\n"
+                    "• <code>commission%</code> — Their commission rate (default: 10%)\n\n"
+                    "<b>Example:</b>\n"
+                    "<code>/reseller add 123456789 50 15</code>",
+                    parse_mode=ParseMode.HTML,
+                )
                 return
             add_reseller(rid, username=f"user_{rid}", credit_limit=limit, commission_pct=commission, created_by=user_id)
             await update.message.reply_text(f"✅ Added reseller <code>{rid}</code> | Limit: {limit} | Commission: {commission}%", parse_mode=ParseMode.HTML)
@@ -15008,7 +15137,14 @@ async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 rid = int(context.args[1])
             except ValueError:
-                await update.message.reply_text("Usage: <code>/reseller remove &lt;user_id&gt;</code>", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(
+                    "👥 <b>Remove Reseller</b>\n\n"
+                    "<b>Usage:</b>\n"
+                    "<code>/reseller remove &lt;user_id&gt;</code>\n\n"
+                    "<b>Example:</b>\n"
+                    "<code>/reseller remove 123456789</code>",
+                    parse_mode=ParseMode.HTML,
+                )
                 return
             remove_reseller(rid)
             await update.message.reply_text(f"✅ Removed reseller <code>{rid}</code>", parse_mode=ParseMode.HTML)
@@ -15021,7 +15157,17 @@ async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(ae("👥 <b>Resellers</b>") + "\n\n" + "\n".join(lines), parse_mode=ParseMode.HTML)
         else:
             await update.message.reply_text(
-                "Admin commands:\n"
+                "👥 <b>Reseller System</b>\n\n"
+                "<b>Usage:</b>\n"
+                "<code>/reseller</code>  ← your dashboard\n"
+                "<code>/reseller list</code>  ← all resellers (owner)\n"
+                "<code>/reseller add &lt;uid&gt; &lt;limit&gt; [commission%]</code>  ← add\n"
+                "<code>/reseller remove &lt;uid&gt;</code>  ← remove\n\n"
+                "<b>Dashboard shows:</b>\n"
+                "• Your client list and limits\n"
+                "• Commission rate and balance\n\n"
+                "Use <code>/addclient &lt;uid&gt; &lt;limit&gt;</code> to add clients under you.\n"
+                "👑 Admin commands require owner access.\n"
                 "<code>/reseller list</code>\n"
                 "<code>/reseller add &lt;id&gt; &lt;limit&gt; [commission%]</code>\n"
                 "<code>/reseller remove &lt;id&gt;</code>",
@@ -15051,7 +15197,18 @@ async def cmd_addclient(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Only resellers can add clients.", parse_mode=ParseMode.HTML)
         return
     if len(context.args) < 2:
-        await update.message.reply_text("Usage: <code>/addclient &lt;user_id&gt; &lt;credit_limit&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            "👤 <b>Add Client</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/addclient &lt;user_id&gt; &lt;credit_limit&gt;</code>\n\n"
+            "<b>Arguments:</b>\n"
+            "• <code>user_id</code> — Telegram ID of the client to add\n"
+            "• <code>credit_limit</code> — Max credits this client can use\n\n"
+            "<b>Example:</b>\n"
+            "<code>/addclient 123456789 200</code>\n\n"
+            "💡 You must be a registered reseller to use this.",
+            parse_mode=ParseMode.HTML,
+        )
         return
     try:
         client_id = int(context.args[0])
@@ -15102,7 +15259,13 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif sub == "join":
         if len(context.args) < 2:
-            await update.message.reply_text("Usage: <code>/escrow join &lt;deal_id&gt;</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(
+                "🤝 <b>Join Escrow Deal</b>\n\n"
+                "<b>Usage:</b> <code>/escrow join &lt;deal_id&gt;</code>\n\n"
+                "<b>Example:</b> <code>/escrow join 42</code>\n\n"
+                "The buyer shares the deal ID with you.",
+                parse_mode=ParseMode.HTML,
+            )
             return
         deal_id = context.args[1]
         ok, msg_txt = join_deal(deal_id, user_id)
@@ -15113,7 +15276,14 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif sub == "confirm":
         if len(context.args) < 2:
-            await update.message.reply_text("Usage: <code>/escrow confirm &lt;deal_id&gt;</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(
+                "✅ <b>Confirm Escrow Deal</b>\n\n"
+                "<b>Usage:</b> <code>/escrow confirm &lt;deal_id&gt;</code>\n\n"
+                "<b>Example:</b> <code>/escrow confirm 42</code>\n\n"
+                "⚠️ Only confirm when you have received the goods.\n"
+                "This releases the locked credits to the seller.",
+                parse_mode=ParseMode.HTML,
+            )
             return
         deal_id = context.args[1]
         ok, msg_txt = confirm_deal(deal_id, user_id)
@@ -15124,7 +15294,13 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif sub == "dispute":
         if len(context.args) < 2:
-            await update.message.reply_text("Usage: <code>/escrow dispute &lt;deal_id&gt;</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(
+                "⚠️ <b>Open Escrow Dispute</b>\n\n"
+                "<b>Usage:</b> <code>/escrow dispute &lt;deal_id&gt;</code>\n\n"
+                "<b>Example:</b> <code>/escrow dispute 42</code>\n\n"
+                "The owner will review and resolve the dispute.",
+                parse_mode=ParseMode.HTML,
+            )
             return
         deal_id = context.args[1]
         ok, msg_txt = dispute_deal(deal_id, user_id)
@@ -15135,7 +15311,16 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif sub == "resolve" and is_owner(user_id):
         if len(context.args) < 3:
-            await update.message.reply_text("Usage: <code>/escrow resolve &lt;deal_id&gt; seller|buyer</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(
+                "⚖️ <b>Resolve Escrow Dispute</b>\n\n"
+                "<b>Usage:</b> <code>/escrow resolve &lt;deal_id&gt; &lt;buyer|seller&gt;</code>\n\n"
+                "<b>Arguments:</b>\n"
+                "• <code>deal_id</code> — The deal ID in dispute\n"
+                "• <code>buyer|seller</code> — Who wins the dispute\n\n"
+                "<b>Example:</b> <code>/escrow resolve 42 seller</code>\n\n"
+                "👑 Owner only.",
+                parse_mode=ParseMode.HTML,
+            )
             return
         deal_id = context.args[1]
         winner = context.args[2].lower()
@@ -15178,12 +15363,21 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
         await update.message.reply_text(
-            ae("🤝 <b>Escrow Commands</b>") + "\n\n"
+            "🤝 <b>Escrow — Secure Credit Trades</b>\n\n"
+            "<b>Usage:</b>\n"
             "<code>/escrow create &lt;amount&gt; &lt;description&gt;</code>\n"
             "<code>/escrow join &lt;deal_id&gt;</code>\n"
             "<code>/escrow confirm &lt;deal_id&gt;</code>\n"
             "<code>/escrow dispute &lt;deal_id&gt;</code>\n"
-            "<code>/escrow list</code>",
+            "<code>/escrow list</code>\n"
+            "<code>/escrow resolve &lt;deal_id&gt; buyer|seller</code>  ← owner\n\n"
+            "<b>How it works:</b>\n"
+            "1️⃣ Buyer creates a deal — credits are locked\n"
+            "2️⃣ Seller joins the deal with the deal ID\n"
+            "3️⃣ Buyer confirms delivery — credits released\n"
+            "4️⃣ Either party can open a dispute if needed\n\n"
+            "<b>Example:</b>\n"
+            "<code>/escrow create 500 Fullz pack x10</code>",
             parse_mode=ParseMode.HTML,
         )
 
@@ -15197,7 +15391,12 @@ async def cmd_hibpwatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if sub == "add":
             if len(context.args) < 2:
-                await update.message.reply_text("Usage: <code>/hibpwatch add &lt;email&gt;</code>", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(
+                    "👁 <b>Watch Email for Breaches</b>\n\n"
+                    "<b>Usage:</b> <code>/hibpwatch add &lt;email&gt;</code>\n\n"
+                    "<b>Example:</b> <code>/hibpwatch add victim@gmail.com</code>",
+                    parse_mode=ParseMode.HTML,
+                )
                 return
             email = context.args[1]
             result = add_watch(user_id, email)
@@ -15209,7 +15408,12 @@ async def cmd_hibpwatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif sub == "remove":
             if len(context.args) < 2:
-                await update.message.reply_text("Usage: <code>/hibpwatch remove &lt;email&gt;</code>", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(
+                    "👁 <b>Remove Email Watch</b>\n\n"
+                    "<b>Usage:</b> <code>/hibpwatch remove &lt;email&gt;</code>\n\n"
+                    "<b>Example:</b> <code>/hibpwatch remove victim@gmail.com</code>",
+                    parse_mode=ParseMode.HTML,
+                )
                 return
             email = context.args[1]
             ok = remove_watch(user_id, email)
@@ -15227,9 +15431,20 @@ async def cmd_hibpwatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text(
+                "👁 <b>HIBP Breach Watcher</b>\n\n"
+                "<b>Usage:</b>\n"
                 "<code>/hibpwatch add &lt;email&gt;</code>\n"
                 "<code>/hibpwatch remove &lt;email&gt;</code>\n"
-                "<code>/hibpwatch list</code>",
+                "<code>/hibpwatch list</code>\n\n"
+                "<b>Subcommands:</b>\n"
+                "• <code>add</code> — Start watching an email for breaches\n"
+                "• <code>remove</code> — Stop watching an email\n"
+                "• <code>list</code> — Show all your watched emails\n\n"
+                "<b>Examples:</b>\n"
+                "<code>/hibpwatch add victim@gmail.com</code>\n"
+                "<code>/hibpwatch remove victim@gmail.com</code>\n\n"
+                "⚠️ Max 5 emails per user.\n"
+                "You will be alerted automatically when a new breach is detected.",
                 parse_mode=ParseMode.HTML,
             )
     await _inner(update, context)
@@ -15245,7 +15460,13 @@ async def cmd_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_id = update.effective_user.id
     if sub == "add":
         if len(context.args) < 2:
-            await update.message.reply_text("Usage: <code>/scraper add @channel</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(
+                "📡 <b>Add Scraper Channel</b>\n\n"
+                "<b>Usage:</b> <code>/scraper add @channel</code>\n\n"
+                "<b>Example:</b> <code>/scraper add @cardingchannel</code>\n\n"
+                "⚠️ The bot must be an admin in the channel to see messages.",
+                parse_mode=ParseMode.HTML,
+            )
             return
         channel = context.args[1].lstrip("@")
         ok = add_channel(channel, added_by=admin_id)
@@ -15253,7 +15474,12 @@ async def cmd_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif sub == "remove":
         if len(context.args) < 2:
-            await update.message.reply_text("Usage: <code>/scraper remove @channel</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(
+                "📡 <b>Remove Scraper Channel</b>\n\n"
+                "<b>Usage:</b> <code>/scraper remove @channel</code>\n\n"
+                "<b>Example:</b> <code>/scraper remove @cardingchannel</code>",
+                parse_mode=ParseMode.HTML,
+            )
             return
         channel = context.args[1].lstrip("@")
         ok = remove_channel(channel)
@@ -15284,10 +15510,21 @@ async def cmd_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
+            "📡 <b>Channel Card Scraper</b>\n\n"
+            "<b>Usage:</b>\n"
             "<code>/scraper add @channel</code>\n"
             "<code>/scraper remove @channel</code>\n"
             "<code>/scraper list</code>\n"
-            "<code>/scraper stats</code>",
+            "<code>/scraper stats</code>\n\n"
+            "<b>Subcommands:</b>\n"
+            "• <code>add</code> — Monitor a channel for card dumps\n"
+            "• <code>remove</code> — Stop monitoring a channel\n"
+            "• <code>list</code> — Show all monitored channels\n"
+            "• <code>stats</code> — Cards found per channel\n\n"
+            "<b>Example:</b>\n"
+            "<code>/scraper add @cardingchannel</code>\n\n"
+            "⚠️ Bot must be admin in the channel.\n"
+            "👑 Owner only.",
             parse_mode=ParseMode.HTML,
         )
 
@@ -15317,7 +15554,17 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if sub == "sell":
         if len(context.args) < 3:
-            await update.message.reply_text("Usage: <code>/market sell &lt;price_credits&gt; &lt;item description&gt;</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(
+                "🏷 <b>Create Marketplace Listing</b>\n\n"
+                "<b>Usage:</b>\n"
+                "<code>/market sell &lt;price_credits&gt; &lt;description&gt;</code>\n\n"
+                "<b>Arguments:</b>\n"
+                "• <code>price_credits</code> — How many credits to charge\n"
+                "• <code>description</code> — What you're selling\n\n"
+                "<b>Example:</b>\n"
+                "<code>/market sell 200 Fresh USA fullz x10</code>",
+                parse_mode=ParseMode.HTML,
+            )
             return
         try:
             price = int(context.args[1])
@@ -15348,7 +15595,15 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif sub == "buy":
         if len(context.args) < 2:
-            await update.message.reply_text("Usage: <code>/market buy &lt;listing_id&gt;</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(
+                "🛍 <b>Buy Listing</b>\n\n"
+                "<b>Usage:</b> <code>/market buy &lt;listing_id&gt;</code>\n\n"
+                "<b>Arguments:</b>\n"
+                "• <code>listing_id</code> — The 8-character code from the listing\n\n"
+                "<b>Example:</b> <code>/market buy A1B2C3D4</code>\n\n"
+                "💡 Use <code>/market list</code> to see available listings.",
+                parse_mode=ParseMode.HTML,
+            )
             return
         listing_id = context.args[1].upper()
         row = er("SELECT seller_id, price, description FROM marketplace_listings WHERE listing_id=%s AND status='active'", (listing_id,), fetch=True, fetch_one=True)
@@ -15385,10 +15640,15 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
         await update.message.reply_text(
-            "<code>/market list</code>\n"
-            "<code>/market sell &lt;price&gt; &lt;item&gt;</code>\n"
-            "<code>/market buy &lt;listing_id&gt;</code>\n"
-            "<code>/market mylistings</code>",
+            "🛒 <b>Marketplace</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/market list</code>  ← browse all listings\n"
+            "<code>/market sell &lt;price&gt; &lt;description&gt;</code>  ← create listing\n"
+            "<code>/market buy &lt;listing_id&gt;</code>  ← purchase a listing\n"
+            "<code>/market mylistings</code>  ← your active listings\n\n"
+            "<b>Example:</b>\n"
+            "<code>/market sell 200 Fresh USA fullz x10</code>\n"
+            "<code>/market buy A1B2C3D4</code>",
             parse_mode=ParseMode.HTML,
         )
 
