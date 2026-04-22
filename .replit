@@ -1,7 +1,7 @@
 modules = ["nodejs-24", "python-3.11"]
 
   [deployment]
-  deploymentTarget = "gce"
+  deploymentTarget = "vm"
   run = "PORT=8080 python /home/runner/workspace/src/bot.py"
 
 
@@ -30,7 +30,7 @@ modules = ["nodejs-24", "python-3.11"]
   waitForPort = 8080
 
   [agent]
-  expertMode = true
+expertMode = true
 
   [postMerge]
   path = "scripts/post-merge.sh"
