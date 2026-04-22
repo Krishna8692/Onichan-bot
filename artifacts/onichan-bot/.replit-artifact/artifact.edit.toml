@@ -1,0 +1,17 @@
+kind = "web"
+  previewPath = "/"
+  title = "Onichan Bot"
+  version = "1.0.0"
+  id = "artifacts/onichan-bot"
+
+  [[services]]
+  name = "web"
+  paths = ["/"]
+  localPort = 5000
+
+  [services.development]
+  run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
+
+  [services.production]
+  run = "PORT=8080 python /home/runner/workspace/src/bot.py"
+  

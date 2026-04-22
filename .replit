@@ -1,70 +1,70 @@
 modules = ["nodejs-24", "python-3.11"]
 
-[deployment]
-deploymentTarget = "gce"
-run = "bash /home/runner/workspace/scripts/start-all.sh"
+  [deployment]
+  deploymentTarget = "gce"
+  run = "PORT=8080 python /home/runner/workspace/src/bot.py"
 
 
-[workflows]
-runButton = "Project"
+  [workflows]
+  runButton = "Project"
 
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
+  [[workflows.workflow]]
+  name = "Project"
+  mode = "parallel"
+  author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start Application"
+  [[workflows.workflow.tasks]]
+  task = "workflow.run"
+  args = "Start Application"
 
-[[workflows.workflow]]
-name = "Start Application"
-author = "agent"
+  [[workflows.workflow]]
+  name = "Start Application"
+  author = "agent"
 
-[workflows.workflow.metadata]
-outputType = "webview"
+  [workflows.workflow.metadata]
+  outputType = "webview"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash /home/runner/workspace/scripts/start-all.sh"
-waitForPort = 8080
+  [[workflows.workflow.tasks]]
+  task = "shell.exec"
+  args = "bash /home/runner/workspace/scripts/start-all.sh"
+  waitForPort = 8080
 
-[agent]
-stack = "PNPM_WORKSPACE"
-expertMode = true
+  [agent]
+  expertMode = true
 
-[postMerge]
-path = "scripts/post-merge.sh"
-timeoutMs = 20000
+  [postMerge]
+  path = "scripts/post-merge.sh"
+  timeoutMs = 20000
 
-[[ports]]
-localPort = 5000
-externalPort = 5000
+  [[ports]]
+  localPort = 5000
+  externalPort = 5000
 
-[[ports]]
-localPort = 8080
-externalPort = 8080
+  [[ports]]
+  localPort = 8080
+  externalPort = 8080
 
-[[ports]]
-localPort = 8081
-externalPort = 80
+  [[ports]]
+  localPort = 8081
+  externalPort = 80
 
-[[ports]]
-localPort = 8082
-externalPort = 3000
+  [[ports]]
+  localPort = 8082
+  externalPort = 3000
 
-[[ports]]
-localPort = 8083
-externalPort = 3001
+  [[ports]]
+  localPort = 8083
+  externalPort = 3001
 
-[nix]
-channel = "stable-25_05"
-packages = ["cargo", "freetype", "lcms2", "libiconv", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib"]
+  [nix]
+  channel = "stable-25_05"
+  packages = ["cargo", "freetype", "lcms2", "libiconv", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib"]
 
-[userenv]
+  [userenv]
 
-[userenv.shared]
-BOT_TOKEN = "8247559527:AAFv5TZwfTJe3UZjs1_Kf05pkbuq0hvjOyM"
-OWNER_ID = "1857417752"
-ADMIN_PASSWORD = "onichan2024"
-TON_WALLET = "UQDkmtGV9yrcSjR4zstKvmaTfuIl0-WnqoXwMPdzeuv5obCU"
+  [userenv.shared]
+  BOT_TOKEN = "8247559527:AAFv5TZwfTJe3UZjs1_Kf05pkbuq0hvjOyM"
+  OWNER_ID = "1857417752"
+  ADMIN_PASSWORD = "onichan2024"
+  TON_WALLET = "UQDkmtGV9yrcSjR4zstKvmaTfuIl0-WnqoXwMPdzeuv5obCU"
+  
