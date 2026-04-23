@@ -17,4 +17,4 @@ kind = "web"
   run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
 
   [services.production]
-  run = "PORT=8080 python /home/runner/workspace/src/bot.py"
+  run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
