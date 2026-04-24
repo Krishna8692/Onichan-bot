@@ -17,4 +17,7 @@ kind = "web"
   run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
 
   [services.production]
-  run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
+  run = "bash /home/runner/workspace/scripts/start-bot.sh"
+
+  [services.production.health.startup]
+  path = "/ping"

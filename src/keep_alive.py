@@ -802,6 +802,10 @@ function closeSidebar() {
 </script>
 """
 
+@app.route('/ping')
+def ping():
+    return 'OK', 200
+
 @app.route('/')
 def home():
     return """
