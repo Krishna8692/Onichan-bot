@@ -57,6 +57,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters, PreCheckoutQueryHandler
 from telegram import LabeledPrice
 from telegram.constants import ParseMode
+from telegram.error import RetryAfter, TimedOut, NetworkError, BadRequest, Forbidden, TelegramError
 import html
 from html import escape as html_escape
 from config import *
@@ -763,6 +764,7 @@ def add_to_pending(user_id, username, first_name):
 # ============================================================================
 
 _gif_cache = {}
+_gif_cache_lock = _threading.Lock()
 
 def search_tenor_gif(query, limit=10):
     try:
@@ -805,7 +807,8 @@ def _refresh_gif_cache_bg(query):
         try:
             gifs = search_tenor_gif(query, 8)
             if gifs:
-                _gif_cache[query] = gifs
+                with _gif_cache_lock:
+                    _gif_cache[query] = gifs
         finally:
             _gif_pending.discard(query)
     threading.Thread(target=_w, daemon=True).start()
@@ -850,7 +853,8 @@ def _preload_gif_cache():
                     try:
                         gifs = search_tenor_gif(q, 8)
                         if gifs:
-                            _gif_cache[q] = gifs
+                            with _gif_cache_lock:
+                                _gif_cache[q] = gifs
                     except Exception:
                         pass
         print(f"🎬 GIF cache preloaded — {len(_gif_cache)} queries cached")
@@ -2396,23 +2400,50 @@ def _strip_tg_emoji(text: str) -> str:
     return _re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text, flags=_re.DOTALL)
 
 async def _safe_edit(msg, text, parse_mode=None, reply_markup=None):
-    """Edit a Telegram message. Falls back to stripped text if HTML parse fails."""
+    """Edit a Telegram message. Handles all common Telegram errors gracefully."""
     kwargs = {"reply_markup": reply_markup} if reply_markup else {}
+    _SILENT_EDIT_ERRS = (
+        "message is not modified",
+        "message to edit not found",
+        "message can't be edited",
+        "message_id_invalid",
+        "chat not found",
+        "bot was blocked by the user",
+        "user is deactivated",
+    )
     try:
         await msg.edit_text(text, parse_mode=parse_mode, **kwargs)
         return
-    except Exception as e:
-        err = str(e)
-        # Silently skip "Message is not modified"
-        if "not modified" in err.lower():
+    except RetryAfter as e:
+        await asyncio.sleep(e.retry_after + 0.5)
+        try:
+            await msg.edit_text(text, parse_mode=parse_mode, **kwargs)
             return
-        print(f"[EDIT_ERR] {err[:120]}")
-    # Fallback: strip tg-emoji tags and retry without parse_mode for safety
+        except Exception:
+            pass
+    except (TimedOut, NetworkError):
+        return
+    except BadRequest as e:
+        err = str(e).lower()
+        if any(x in err for x in _SILENT_EDIT_ERRS):
+            return
+        print(f"[EDIT_ERR] {str(e)[:120]}")
+    except (Forbidden, TelegramError) as e:
+        err = str(e).lower()
+        if any(x in err for x in _SILENT_EDIT_ERRS):
+            return
+        print(f"[EDIT_ERR] {str(e)[:120]}")
+    except Exception as e:
+        err = str(e).lower()
+        if any(x in err for x in _SILENT_EDIT_ERRS):
+            return
+        print(f"[EDIT_ERR] {str(e)[:120]}")
+    # Fallback: strip tg-emoji tags and retry plain
     try:
         plain = _strip_tg_emoji(text)
         await msg.edit_text(plain, parse_mode=parse_mode, **kwargs)
-    except Exception as e2:
-        print(f"[EDIT_ERR_FALLBACK] {str(e2)[:120]}")
+    except Exception:
+        pass
 
 async def _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, progress_done, email=None, trial_info=None):
     """Build the card-by-card status message"""
@@ -12584,7 +12615,7 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             errors.append(raw_str)
 
         done_count += 1
-        now = asyncio.get_event_loop().time()
+        now = asyncio.get_running_loop().time()
         if done_count == 1 or done_count == total_count or done_count % 3 == 0 or (now - _last_edit[0] > 2):
             try:
                 txt = await _build_hit_status_text(
@@ -13479,7 +13510,6 @@ async def stripe_invoice_hitter(update: Update, context: ContextTypes.DEFAULT_TY
         # Don't trigger on checkout.stripe.com or other URLs - those use /co command
         return
     
-    print(f"DEBUG: Cleaned Text: {full_text}")
     
     # Extract invoice URL - Very broad match for anything stripe.com
     url_pattern = r'(https?://\S*stripe\.com\S*)'
@@ -13497,13 +13527,11 @@ async def stripe_invoice_hitter(update: Update, context: ContextTypes.DEFAULT_TY
             else:
                 invoice_url += "?s=ap"
     
-    print(f"DEBUG: Final URL: {invoice_url}")
 
     # Extract all cards (format: cc|mm|yy|cvv)
     card_pattern = r'(\d{13,19})[|/](\d{1,2})[|/](\d{2,4})[|/](\d{3,4})'
     card_matches = re.findall(card_pattern, full_text)
     
-    print(f"DEBUG: Extracted Cards: {len(card_matches)}")
 
     # If we have cards but no URL, and it's not a /inv command, it might be a regular CC check - let other handlers handle it
     if not invoice_url and not message.text.startswith("/inv"):
@@ -13693,9 +13721,6 @@ async def stripe_invoice_hitter(update: Update, context: ContextTypes.DEFAULT_TY
             res_data = data
             
         response_msg = str(res_data.get('message', res_data.get('response', res_data.get('Message', res_data.get('Response', res_data.get('error', str(data)))))))
-        
-        # Log the raw data for debugging
-        print(f"DEBUG API RESPONSE: {data}")
         
         if status == 'APPROVED' or status == 'TRUE' or status == 'SUCCESS' or res_data.get('status') == 'Approved' or 'approved' in response_msg.lower() or 'success' in response_msg.lower() or 'charged' in response_msg.lower():
             log_approved_card(user.id, username, cc, mm, yy, cvv, "inv", response_msg, bin_info)
@@ -16302,30 +16327,46 @@ def main():
     conflict_count = [0]
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
-            error_msg = str(context.error) if context.error else "Unknown error"
-            
-            # Handle bot conflict (multiple instances running) - just log, don't stop
-            if "Conflict" in error_msg and "getUpdates" in error_msg:
+            err = context.error
+            if err is None:
+                return
+
+            # Rate-limited by Telegram — sleep then let PTB retry
+            if isinstance(err, RetryAfter):
+                wait = err.retry_after + 1
+                print(f"⚠️ Rate limited by Telegram — sleeping {wait}s")
+                await asyncio.sleep(wait)
+                return
+
+            # Transient network issues — PTB will retry automatically
+            if isinstance(err, (TimedOut, NetworkError)):
+                return
+
+            # Bot blocked / user deactivated / chat gone — nothing we can do
+            if isinstance(err, Forbidden):
+                return
+
+            # Bad request from our side — log but don't crash
+            if isinstance(err, BadRequest):
+                msg = str(err).lower()
+                # Suppress noisy but harmless errors
+                if any(x in msg for x in ("message is not modified", "message to edit not found",
+                                           "message can't be edited", "query is too old",
+                                           "message to delete not found")):
+                    return
+                print(f"⚠️ BadRequest: {err}")
+                return
+
+            # Bot conflict (two instances) — just count and ignore
+            if isinstance(err, TelegramError) and "conflict" in str(err).lower():
                 conflict_count[0] += 1
                 if conflict_count[0] <= 3:
-                    print(f"⚠️ Bot conflict detected ({conflict_count[0]}/3) - Another instance may be running")
-                # Don't stop - let it keep running
+                    print(f"⚠️ Bot conflict ({conflict_count[0]}/3) — another instance may be running")
                 return
-            
-            # Handle network/timeout errors gracefully (don't crash)
-            if any(x in error_msg.lower() for x in ['timeout', 'timed out', 'connection', 'network']):
-                print(f"⚠️ Network issue (will retry): {error_msg[:100]}")
-                return
-            
-            # Handle Telegram API errors gracefully
-            if "telegram" in error_msg.lower() or "bad request" in error_msg.lower():
-                print(f"⚠️ Telegram API error: {error_msg[:100]}")
-                return
-            
-            # Log other errors but don't crash
-            print(f"⚠️ Exception while handling update: {error_msg[:200]}")
+
+            # All other errors — log with context
+            print(f"⚠️ Unhandled error ({type(err).__name__}): {str(err)[:200]}")
         except Exception as e:
-            # Even the error handler should never crash
             print(f"⚠️ Error in error handler: {e}")
     
     application.add_error_handler(error_handler)
