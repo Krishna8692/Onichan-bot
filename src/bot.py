@@ -15960,9 +15960,9 @@ def main():
     async def _on_startup(app):
         import concurrent.futures
         loop = asyncio.get_running_loop()
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=200)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=50)
         loop.set_default_executor(executor)
-        print("🔧 Thread pool set to 200 workers for concurrent card checking")
+        print("🔧 Thread pool set to 50 workers for concurrent card checking")
         from config import TON_WALLET
         await _ton_monitor.start_monitor(TON_WALLET, app.bot, set_premium_sync)
 

@@ -10,9 +10,6 @@ if [ ! -f "$DIST" ]; then
 fi
 
 echo "[Deploy] Starting API server on port 8080..."
-PORT=8080 NODE_ENV=production node --enable-source-maps "$DIST" &
-
-echo "[Deploy] Starting bot on port 5000..."
-export PORT=5000
-cd /home/runner/workspace/src
-exec python bot.py
+export PORT=8080
+export NODE_ENV=production
+exec node --enable-source-maps "$DIST"
