@@ -202,3 +202,14 @@
     "time": "21.22s"
   }
 }
+2026-04-23 12:24:30|2092939350|@Sunydop|5178059110735702|07|26|535|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://miamilinks.com/checkouts/sessions/checkout-completion/redirect?_t=AQAB-sG4JkwPzMuzjGL37PtxGQ405QwUEWwyMAxnFrF9wr2onZ653ML_tmGSB6Pn3MiGLa70GkGvIZnQP44gpikNUDubMjjT-GYciV8Gz50FKENxcDjkRd5dstXHZFRKaa055gZaCMp0L461U3biHjzsoD91VdcPVRfp016sXmvw5L6_jmgSI_huDJxl-fQ0YvJpQUX7I0dln_MWEIzSkUrJhH9JKuluNkWSmC1MOCmQq8OIC2Pu",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "13.16s"
+  }
+}
