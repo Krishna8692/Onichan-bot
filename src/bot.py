@@ -2445,6 +2445,21 @@ async def _safe_edit(msg, text, parse_mode=None, reply_markup=None):
     except Exception:
         pass
 
+async def _reply_with_gif(message, category: str, text: str, parse_mode=ParseMode.HTML, reply_markup=None):
+    """Send an anime GIF with text as caption. Falls back to plain text if no GIF or caption too long."""
+    gif_url = get_sexy_anime_gif(category)
+    if gif_url:
+        try:
+            if len(text) <= 1020:
+                await message.reply_animation(animation=gif_url, caption=text, parse_mode=parse_mode, reply_markup=reply_markup)
+            else:
+                await message.reply_animation(animation=gif_url)
+                await message.reply_text(text=text, parse_mode=parse_mode, reply_markup=reply_markup)
+            return
+        except Exception:
+            pass
+    await message.reply_text(text=text, parse_mode=parse_mode, reply_markup=reply_markup)
+
 async def _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, progress_done, email=None, trial_info=None):
     """Build the card-by-card status message"""
     done_icon = "✅ Done" if progress_done >= len(cards) else "⚡ Running..."
@@ -3478,7 +3493,7 @@ async def card_generator(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'year': custom_year, 'cvv': custom_cvv, 'count': count
     }
 
-    await update.message.reply_text(text=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+    await _reply_with_gif(update.message, "success", text, reply_markup=reply_markup)
 
 
 async def regenerate_cards_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3893,8 +3908,9 @@ async def bin_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🏦 <b>Bank</b>    : {data.get('bank', 'Unknown')}
 🌍 <b>Country</b> : {data.get('emoji', '')} {data.get('country', 'Unknown')} ({data.get('country_code', 'XX')})
 {sep}""")
-            
-            await loading_msg.edit_text(text, parse_mode=ParseMode.HTML)
+            try: await loading_msg.delete()
+            except Exception: pass
+            await _reply_with_gif(update.message, "welcome", text)
         else:
             await loading_msg.edit_text(ae("❌ BIN not found in database."))
             
@@ -4047,7 +4063,9 @@ async def fake_address_generator(update: Update, context: ContextTypes.DEFAULT_T
 
 𝗚𝗲𝗻𝗲𝗿𝗮𝘁𝗲𝗱 𝗯𝘆 @{user.username or user.first_name}"""
 
-        await loading_msg.edit_text(message, parse_mode=ParseMode.HTML)
+        try: await loading_msg.delete()
+        except Exception: pass
+        await _reply_with_gif(update.message, "welcome", message)
         
     except Exception as e:
         await loading_msg.edit_text(ae(f"❌ Error: {str(e)}"))
@@ -4204,11 +4222,9 @@ async def ip_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         results = await full_ip_check(ip)
         report = format_ip_report(results)
-        
-        await loading_msg.edit_text(
-            report,
-            parse_mode=ParseMode.HTML
-        )
+        try: await loading_msg.delete()
+        except Exception: pass
+        await _reply_with_gif(update.message, "welcome", report)
         
     except Exception as e:
         await loading_msg.edit_text(
@@ -4729,7 +4745,9 @@ async def ipcheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"\n{EMOJI['danger']} <b>High fraud score — likely blocked</b>"
 
         text += "\n\n<i>Fraud data by proxycheck.io</i>"
-        await status_msg.edit_text(text, parse_mode=ParseMode.HTML)
+        try: await status_msg.delete()
+        except Exception: pass
+        await _reply_with_gif(update.message, "welcome", text)
 
     except Exception as e:
         await status_msg.edit_text(f"{EMOJI['declined']} Error: {str(e)[:60]}", parse_mode=ParseMode.HTML)
@@ -4842,7 +4860,9 @@ async def sk_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<b>Checked By:</b> <a href='tg://user?id={user.id}'>{html.escape(user.first_name)}</a>"
         )
 
-        await loading_msg.edit_text(resp, parse_mode=ParseMode.HTML)
+        try: await loading_msg.delete()
+        except Exception: pass
+        await _reply_with_gif(update.message, "success", resp)
 
     except Exception as e:
         await loading_msg.edit_text(
@@ -5079,11 +5099,18 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ae("❌ Question too long. Max 2000 characters."))
         return
     
-    loading_msg = await update.message.reply_text(
-        "🤖 <b>AI is thinking...</b>\n\n"
-        "⏳ Please wait...",
-        parse_mode=ParseMode.HTML
-    )
+    _loading_gif = get_sexy_anime_gif("loading")
+    if _loading_gif:
+        loading_msg = await update.message.reply_animation(
+            animation=_loading_gif,
+            caption="🤖 <b>AI is thinking...</b>\n\n⏳ Please wait...",
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        loading_msg = await update.message.reply_text(
+            "🤖 <b>AI is thinking...</b>\n\n⏳ Please wait...",
+            parse_mode=ParseMode.HTML
+        )
     
     try:
         result = await ask_ai(question, user.id)
@@ -5105,10 +5132,9 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 <i>Powered by {model}</i>"""
             
-            await loading_msg.edit_text(
-                response_text,
-                parse_mode=ParseMode.HTML
-            )
+            try: await loading_msg.delete()
+            except Exception: pass
+            await update.message.reply_text(response_text, parse_mode=ParseMode.HTML)
         else:
             error = result.get("error", "Unknown error")
             await loading_msg.edit_text(
@@ -5146,11 +5172,18 @@ async def askill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ae("❌ Question too long. Max 2000 characters."))
         return
     
-    loading_msg = await update.message.reply_text(
-        "🔥 <b>WormGPT is thinking...</b>\n\n"
-        "⏳ Please wait...",
-        parse_mode=ParseMode.HTML
-    )
+    _loading_gif = get_sexy_anime_gif("loading")
+    if _loading_gif:
+        loading_msg = await update.message.reply_animation(
+            animation=_loading_gif,
+            caption="🔥 <b>WormGPT is thinking...</b>\n\n⏳ Please wait...",
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        loading_msg = await update.message.reply_text(
+            "🔥 <b>WormGPT is thinking...</b>\n\n⏳ Please wait...",
+            parse_mode=ParseMode.HTML
+        )
     
     try:
         result = await ask_wormgpt(question, user.id)
@@ -5172,10 +5205,9 @@ async def askill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 <i>Powered by {model} - No Limits</i>"""
             
-            await loading_msg.edit_text(
-                response_text,
-                parse_mode=ParseMode.HTML
-            )
+            try: await loading_msg.delete()
+            except Exception: pass
+            await update.message.reply_text(response_text, parse_mode=ParseMode.HTML)
         else:
             error = result.get("error", "Unknown error")
             await loading_msg.edit_text(
@@ -5531,12 +5563,20 @@ async def randi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ae("❌ Prompt too long. Max 1000 characters."))
         return
     
-    loading_msg = await update.message.reply_text(
-        "🖤 <b>Generating image...</b>\n\n"
-        f"📝 <b>Prompt:</b> {html_escape(prompt[:100])}{'...' if len(prompt) > 100 else ''}\n\n"
-        "⏳ Please wait (10-30 seconds)...",
-        parse_mode=ParseMode.HTML
-    )
+    _loading_gif = get_sexy_anime_gif("loading")
+    if _loading_gif:
+        loading_msg = await update.message.reply_animation(
+            animation=_loading_gif,
+            caption=f"🖤 <b>Generating image...</b>\n\n📝 <b>Prompt:</b> {html_escape(prompt[:100])}{'...' if len(prompt) > 100 else ''}\n\n⏳ Please wait (10-30 seconds)...",
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        loading_msg = await update.message.reply_text(
+            "🖤 <b>Generating image...</b>\n\n"
+            f"📝 <b>Prompt:</b> {html_escape(prompt[:100])}{'...' if len(prompt) > 100 else ''}\n\n"
+            "⏳ Please wait (10-30 seconds)...",
+            parse_mode=ParseMode.HTML
+        )
     
     try:
         import io
@@ -5637,14 +5677,22 @@ async def music_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ae("❌ Prompt too long. Max 500 characters."))
         return
     
-    loading_msg = await update.message.reply_text(
-        "🎵 <b>Generating music...</b>\n\n"
-        f"📝 <b>Prompt:</b> {html_escape(prompt[:100])}{'...' if len(prompt) > 100 else ''}\n\n"
-        "⏳ Please wait 1-3 minutes...\n"
-        "🎧 Loading AI model and composing...\n\n"
-        "<i>Free AI is slow. First request may take longer.</i>",
-        parse_mode=ParseMode.HTML
-    )
+    _loading_gif = get_sexy_anime_gif("loading")
+    if _loading_gif:
+        loading_msg = await update.message.reply_animation(
+            animation=_loading_gif,
+            caption=f"🎵 <b>Generating music...</b>\n\n📝 <b>Prompt:</b> {html_escape(prompt[:100])}{'...' if len(prompt) > 100 else ''}\n\n⏳ Please wait 1-3 minutes...\n🎧 Loading AI model and composing...\n\n<i>Free AI is slow. First request may take longer.</i>",
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        loading_msg = await update.message.reply_text(
+            "🎵 <b>Generating music...</b>\n\n"
+            f"📝 <b>Prompt:</b> {html_escape(prompt[:100])}{'...' if len(prompt) > 100 else ''}\n\n"
+            "⏳ Please wait 1-3 minutes...\n"
+            "🎧 Loading AI model and composing...\n\n"
+            "<i>Free AI is slow. First request may take longer.</i>",
+            parse_mode=ParseMode.HTML
+        )
     
     try:
         import io
@@ -6327,8 +6375,9 @@ async def tempmail_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output += f"   📖 /rmail_{msg_id[:20]}\n\n"
         
         output += "━━━━━━━━━━━━━━━━━━\nClick /rmail_[id] to read message"
-        
-        await loading_msg.edit_text(output, parse_mode=ParseMode.HTML)
+        try: await loading_msg.delete()
+        except Exception: pass
+        await _reply_with_gif(update.message, "welcome", output)
         
     except Exception as e:
         await loading_msg.edit_text(ae(f"❌ Error: {str(e)}"))
@@ -6398,7 +6447,9 @@ async def tempmail_read(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 {content}"""
         
-        await loading_msg.edit_text(output, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        try: await loading_msg.delete()
+        except Exception: pass
+        await _reply_with_gif(update.message, "welcome", output)
         
     except Exception as e:
         await loading_msg.edit_text(ae(f"❌ Error: {str(e)}"))
@@ -6444,7 +6495,9 @@ async def web_analyzer_command(update: Update, context: ContextTypes.DEFAULT_TYP
             timeout=30.0
         )
         
-        await status_msg.edit_text(result, parse_mode=ParseMode.HTML)
+        try: await status_msg.delete()
+        except Exception: pass
+        await _reply_with_gif(update.message, "welcome", result)
         
     except asyncio.TimeoutError:
         await status_msg.edit_text(ae("❌ Timeout! Website took too long to respond."))
@@ -14784,7 +14837,7 @@ async def cmd_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from modules.fake_identity import generate_holder_info
     country = " ".join(context.args) if context.args else ""
     info = generate_holder_info(country_name=country)
-    await update.message.reply_text(
+    await _reply_with_gif(update.message, "welcome",
         ae("🏠 <b>Billing Address</b>") + "\n\n"
         f"👤 <b>Name:</b> <code>{info['name']}</code>\n"
         f"📧 <b>Email:</b> <code>{info['email']}</code>\n"
@@ -14793,8 +14846,7 @@ async def cmd_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏙 <b>City:</b> <code>{info['city']}</code>\n"
         f"🗺 <b>State:</b> <code>{info['state']}</code>\n"
         f"📮 <b>Zip:</b> <code>{info['zip']}</code>\n"
-        f"🌍 <b>Country:</b> <code>{info['country_code']}</code>",
-        parse_mode=ParseMode.HTML,
+        f"🌍 <b>Country:</b> <code>{info['country_code']}</code>"
     )
 
 
@@ -14804,7 +14856,7 @@ async def cmd_fullz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async def _inner(update, context):
         country = " ".join(context.args) if context.args else ""
         info = generate_fullz(country_name=country)
-        await update.message.reply_text(
+        await _reply_with_gif(update.message, "welcome",
             ae("🗂 <b>FULLZ — Full Synthetic Identity</b>") + "\n\n"
             f"👤 <b>Name:</b> <code>{info['name']}</code>\n"
             f"🎂 <b>DOB:</b> <code>{info['dob']}</code>\n"
@@ -14820,8 +14872,7 @@ async def cmd_fullz(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🌍 <b>Country:</b> <code>{info['country_code']}</code>\n\n"
             f"💳 <b>CC:</b> <code>{info['cc']}</code>\n"
             f"📅 <b>Exp:</b> <code>{info['cc_exp']}</code>\n"
-            f"🔐 <b>CVV:</b> <code>{info['cc_cvv']}</code>",
-            parse_mode=ParseMode.HTML,
+            f"🔐 <b>CVV:</b> <code>{info['cc_cvv']}</code>"
         )
     await _inner(update, context)
 
@@ -14836,11 +14887,10 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sign = "+" if row.get('amount', 0) > 0 else ""
         lines.append(f"  {sign}{row.get('amount', 0)} — {row.get('description', row.get('reason', ''))[:40]}")
     hist_text = "\n".join(lines) if lines else "  No recent transactions"
-    await update.message.reply_text(
+    await _reply_with_gif(update.message, "premium",
         ae("💰 <b>Credit Balance</b>") + "\n\n"
         f"💵 Balance: <b>{bal}</b> credits\n\n"
-        f"📋 <b>Recent Transactions:</b>\n{hist_text}",
-        parse_mode=ParseMode.HTML,
+        f"📋 <b>Recent Transactions:</b>\n{hist_text}"
     )
 
 
@@ -14869,14 +14919,13 @@ async def cmd_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if credits_added:
             add_credits(user_id, credits_added, tx_type="voucher", description=f"Voucher: {code}")
         bal = get_balance(user_id)
-        await update.message.reply_text(
+        await _reply_with_gif(update.message, "success",
             ae("✅ <b>Voucher Redeemed!</b>") + "\n\n"
             f"🎁 Credits added: <b>+{credits_added}</b>\n"
-            f"💰 New balance: <b>{bal}</b>",
-            parse_mode=ParseMode.HTML,
+            f"💰 New balance: <b>{bal}</b>"
         )
     else:
-        await update.message.reply_text(f"❌ {err_msg}", parse_mode=ParseMode.HTML)
+        await _reply_with_gif(update.message, "failed", f"❌ {err_msg}")
 
 
 async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -14927,13 +14976,12 @@ async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ok, msg = transfer_credits(sender_id, target_id, amount)
     if ok:
-        await update.message.reply_text(
+        await _reply_with_gif(update.message, "success",
             ae("🎁 <b>Gift Sent!</b>") + "\n\n"
-            f"💸 Sent <b>{amount}</b> credits → <code>{target_id}</code>",
-            parse_mode=ParseMode.HTML,
+            f"💸 Sent <b>{amount}</b> credits → <code>{target_id}</code>"
         )
     else:
-        await update.message.reply_text(f"❌ {msg}", parse_mode=ParseMode.HTML)
+        await _reply_with_gif(update.message, "failed", f"❌ {msg}")
 
 
 async def cmd_voucher(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -14961,12 +15009,11 @@ async def cmd_voucher(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         code = generate_credit_voucher(credits_val, max_uses=max_uses)
-        await update.message.reply_text(
+        await _reply_with_gif(update.message, "success",
             ae("🎟 <b>Voucher Created</b>") + "\n\n"
             f"🔑 Code: <code>{code}</code>\n"
             f"💰 Credits: <b>{credits_val}</b>\n"
-            f"🔄 Max Uses: <b>{max_uses}</b>",
-            parse_mode=ParseMode.HTML,
+            f"🔄 Max Uses: <b>{max_uses}</b>"
         )
     elif sub == "list":
         vouchers = get_all_vouchers()
@@ -15031,9 +15078,8 @@ async def cmd_addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid arguments.", parse_mode=ParseMode.HTML)
         return
     add_credits(target, amount, tx_type="add", description="Admin grant")
-    await update.message.reply_text(
-        f"✅ Added <b>{amount}</b> credits to <code>{target}</code>.",
-        parse_mode=ParseMode.HTML,
+    await _reply_with_gif(update.message, "success",
+        f"✅ Added <b>{amount}</b> credits to <code>{target}</code>."
     )
 
 
@@ -15063,14 +15109,13 @@ async def cmd_setcallerid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         if number.lower() == "off":
             set_user_caller_id(str(user_id), "")
-            await update.message.reply_text("✅ Caller ID cleared. Using default Twilio number.", parse_mode=ParseMode.HTML)
+            await _reply_with_gif(update.message, "success", "✅ Caller ID cleared. Using default Twilio number.")
         else:
             set_user_caller_id(str(user_id), number)
-            await update.message.reply_text(
+            await _reply_with_gif(update.message, "success",
                 ae("📞 <b>Caller ID Set</b>") + f"\n\n"
                 f"Your calls will appear from: <code>{number}</code>\n"
-                "⚠️ Number must be a verified Twilio caller ID or Twilio phone number.",
-                parse_mode=ParseMode.HTML,
+                "⚠️ Number must be a verified Twilio caller ID or Twilio phone number."
             )
     await _inner(update, context)
 
@@ -15084,7 +15129,7 @@ async def cmd_callerid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = f"📞 Your caller ID: <code>{cid}</code>"
     else:
         msg = "📞 Using default Twilio number."
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    await _reply_with_gif(update.message, "welcome", msg)
 
 
 async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -15103,9 +15148,8 @@ async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         live = s.get('live', 0)
         rate = s.get('live_pct', 0.0)
         lines.append(f"• <b>{gate}</b>: {live}/{total} ({rate:.1f}% live)")
-    await update.message.reply_text(
-        ae("📊 <b>Gate Analytics (24h)</b>") + "\n\n" + "\n".join(lines),
-        parse_mode=ParseMode.HTML,
+    await _reply_with_gif(update.message, "admin",
+        ae("📊 <b>Gate Analytics (24h)</b>") + "\n\n" + "\n".join(lines)
     )
 
 
@@ -15121,10 +15165,10 @@ async def cmd_gatetest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         icon = "✅" if r.get('up') else "❌"
         latency = r.get('latency_ms', 0)
         lines.append(f"{icon} <b>{r.get('gate', '?')}</b> — {latency}ms")
-    await msg.edit_text(
-        ae("🏥 <b>Gate Health Report</b>") + "\n\n" + "\n".join(lines),
-        parse_mode=ParseMode.HTML,
-    )
+    result_text = ae("🏥 <b>Gate Health Report</b>") + "\n\n" + "\n".join(lines)
+    try: await msg.delete()
+    except Exception: pass
+    await _reply_with_gif(update.message, "admin", result_text)
 
 
 async def cmd_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -15159,17 +15203,16 @@ async def cmd_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = chat.full_name or "Unknown"
         is_prem = is_user_premium_sync(target_id)
         bal = get_balance(target_id)
-        await update.message.reply_text(
+        await _reply_with_gif(update.message, "welcome",
             ae("🔍 <b>User Found</b>") + "\n\n"
             f"🆔 ID: <code>{target_id}</code>\n"
             f"👤 Name: {html_escape(name)}\n"
             f"🔗 Username: {username}\n"
             f"⭐ Premium: {'Yes' if is_prem else 'No'}\n"
-            f"💰 Credits: {bal}",
-            parse_mode=ParseMode.HTML,
+            f"💰 Credits: {bal}"
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Could not find user: {html_escape(str(e))}", parse_mode=ParseMode.HTML)
+        await _reply_with_gif(update.message, "failed", f"❌ Could not find user: {html_escape(str(e))}")
 
 
 async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -15207,7 +15250,7 @@ async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             add_reseller(rid, username=f"user_{rid}", credit_limit=limit, commission_pct=commission, created_by=user_id)
-            await update.message.reply_text(f"✅ Added reseller <code>{rid}</code> | Limit: {limit} | Commission: {commission}%", parse_mode=ParseMode.HTML)
+            await _reply_with_gif(update.message, "success", f"✅ Added reseller <code>{rid}</code> | Limit: {limit} | Commission: {commission}%")
         elif sub == "remove" and len(context.args) >= 2:
             try:
                 rid = int(context.args[1])
@@ -15254,13 +15297,12 @@ async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ You are not a reseller.", parse_mode=ParseMode.HTML)
             return
         clients = get_clients(user_id)
-        await update.message.reply_text(
+        await _reply_with_gif(update.message, "admin",
             ae("🏪 <b>Reseller Dashboard</b>") + "\n\n"
             f"🆔 Your ID: <code>{user_id}</code>\n"
             f"👥 Clients: <b>{len(clients)}</b> / {info.get('credit_limit', 0)}\n"
             f"💰 Commission: <b>{info.get('commission_pct', 0)}%</b>\n\n"
-            "Use <code>/addclient &lt;user_id&gt; &lt;credit_limit&gt;</code> to add clients.",
-            parse_mode=ParseMode.HTML,
+            "Use <code>/addclient &lt;user_id&gt; &lt;credit_limit&gt;</code> to add clients."
         )
 
 
@@ -15293,9 +15335,9 @@ async def cmd_addclient(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     ok = add_client(user_id, client_id, credit_limit)
     if ok:
-        await update.message.reply_text(f"✅ Client <code>{client_id}</code> added with {credit_limit} credit limit.", parse_mode=ParseMode.HTML)
+        await _reply_with_gif(update.message, "success", f"✅ Client <code>{client_id}</code> added with {credit_limit} credit limit.")
     else:
-        await update.message.reply_text("❌ Failed to add client. Check your client limit.", parse_mode=ParseMode.HTML)
+        await _reply_with_gif(update.message, "failed", "❌ Failed to add client. Check your client limit.")
 
 
 async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
