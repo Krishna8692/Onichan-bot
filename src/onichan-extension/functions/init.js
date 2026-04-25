@@ -1,3 +1,12 @@
+// Tab panel ID map — matches the required element IDs popup.js checks for
+var TAB_PANEL = {
+  bypass:   'bypassSection',
+  bins:     'binSection',
+  gateways: 'gatewaysSection',
+  history:  'history-tab',
+  settings: 'settings-tab'
+};
+
 // Tab switching
 document.querySelectorAll('.tab-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
@@ -5,7 +14,8 @@ document.querySelectorAll('.tab-btn').forEach(function(btn) {
     document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
     document.querySelectorAll('.t-panel').forEach(function(p) { p.classList.add('hidden'); });
     btn.classList.add('active');
-    var panel = document.getElementById(t + '-tab');
+    var panelId = TAB_PANEL[t] || (t + '-tab');
+    var panel = document.getElementById(panelId);
     if (panel) { panel.classList.remove('hidden'); panel.classList.add('active'); }
   });
 });

@@ -54,12 +54,12 @@ async function validateKeyRemote(key, apiUrl) {
 }
 
 function showLock() {
-  document.getElementById("lockScreen").style.display = "flex";
+  document.getElementById("landingPage").style.display = "flex";
   document.getElementById("mainApp").style.display = "none";
 }
 
 function showApp(isPremium) {
-  document.getElementById("lockScreen").style.display = "none";
+  document.getElementById("landingPage").style.display = "none";
   document.getElementById("mainApp").style.display   = "flex";
   const badge = document.getElementById("statusBadge");
   if (badge) {

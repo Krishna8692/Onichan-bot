@@ -11,7 +11,7 @@
 <body>
 
 <!-- ═══════════════════════════════════════ LOCK SCREEN ═══ -->
-<div id="lockScreen" class="lock-overlay">
+<div id="landingPage" class="lock-overlay">
   <div class="lock-blobs">
     <div class="lb lb1"></div>
     <div class="lb lb2"></div>
@@ -360,7 +360,7 @@
   <div class="tab-area">
 
     <!-- ══ BYPASS TAB ══ -->
-    <div id="bypass-tab" class="t-panel active">
+    <div id="bypassSection" class="t-panel active">
 
       <!-- 1. BIN -->
       <div class="section">
@@ -547,7 +547,7 @@
     </div>
 
     <!-- ══ BINS TAB ══ -->
-    <div id="bins-tab" class="t-panel hidden">
+    <div id="binSection" class="t-panel hidden">
 
       <!-- Onichan BIN Library -->
       <div class="section">
@@ -645,7 +645,7 @@
     </div>
 
     <!-- ══ GATEWAYS TAB ══ -->
-    <div id="gateways-tab" class="t-panel hidden">
+    <div id="gatewaysSection" class="t-panel hidden">
 
       <div class="section">
         <div class="sec-hdr" data-toggle="gwlist-body">
@@ -952,6 +952,7 @@
   </div>
 </div>
 
+<input type="checkbox" id="cyber-toggle" hidden>
 <script src="functions/auth.js"></script>
 <script src="functions/popup.js"></script>
 <script src="functions/shell.js"></script>
