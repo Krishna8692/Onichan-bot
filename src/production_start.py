@@ -6,15 +6,16 @@ Starts the Flask web server IMMEDIATELY so Replit's health-check probe always
 gets a 200 response within the first second, regardless of how long bot.py
 takes to import and start.
 
-Replit's Reserved-VM health check uses port 5000 (from the .replit [[ports]]
-table) while the main app runs on port 8080 (artifact.toml localPort).
-This script therefore binds the full Flask app to whichever port $PORT
-specifies (default 8080) and also starts a minimal health-check responder on
-port 5000 — so the deployment probe always succeeds.
+Replit's Reserved-VM health check probes ALL ports listed in .replit's
+[[ports]] section (localPort 5000 and localPort 8080).  This script:
+  1. Binds the full keep_alive Flask app on MAIN_PORT ($PORT, default 5000)
+  2. Binds minimal health-check mirrors on every other known port
+  3. Runs bot.py in a supervised restart loop
 
 Architecture:
   Thread 1 – keep_alive.py web server (all routes, admin panel, etc.)
-  Thread 2 – minimal Flask on port 5000 (health-check mirror)
+  Thread 2 – minimal Flask mirror on port 8080 (second .replit [[ports]] entry)
+  Thread 3 – minimal Flask mirror on port 5000 if MAIN_PORT≠5000
   Main loop – bot.py subprocess restart supervisor (Telegram polling)
 """
 import os
@@ -23,18 +24,19 @@ import subprocess
 import threading
 import time
 
-MAIN_PORT   = int(os.environ.get("PORT", 5000))
-HEALTH_PORT = 5000          # .replit's first [[ports]] entry; deployment probe
-DIR         = os.path.dirname(os.path.abspath(__file__))
-PY          = sys.executable
+MAIN_PORT = int(os.environ.get("PORT", 5000))
+# All localPorts declared in .replit [[ports]] – health-check probes them all
+ALL_PORTS  = [5000, 8080]
+DIR        = os.path.dirname(os.path.abspath(__file__))
+PY         = sys.executable
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _make_minimal_app():
+def _make_minimal_app(port_label):
     """Return a tiny Flask app that answers /ping and / with 200."""
     from flask import Flask
-    _app = Flask("health")
+    _app = Flask(f"health_{port_label}")
 
     @_app.route("/ping")
     def _ping():
@@ -42,7 +44,7 @@ def _make_minimal_app():
 
     @_app.route("/")
     def _home():
-        return "<h1>Onichan Bot</h1><p>Online</p>", 200
+        return f"<h1>Onichan Bot</h1><p>Online (:{port_label})</p>", 200
 
     return _app
 
@@ -64,32 +66,35 @@ def _run_main_flask():
         run()                                   # blocks until killed
     except Exception as exc:
         print(f"[prod] Main Flask: fallback ({exc})", flush=True)
-        _serve(_make_minimal_app(), MAIN_PORT)
+        _serve(_make_minimal_app(MAIN_PORT), MAIN_PORT)
 
 
 main_thread = threading.Thread(target=_run_main_flask, daemon=False)
 main_thread.start()
 
 
-# ── 2. Start health-check mirror on port 5000 (if different from MAIN_PORT) ──
-# Replit's deployment VM probes port 5000 regardless of artifact.toml localPort.
+# ── 2. Start health-check mirrors on every other known port ──────────────────
+# Replit probes ALL [[ports]] entries – each must return 200.
 
-def _run_health_flask():
-    if HEALTH_PORT == MAIN_PORT:
-        return                          # already covered by main thread
-    print(f"[prod] Health mirror: :{HEALTH_PORT}", flush=True)
-    try:
-        _serve(_make_minimal_app(), HEALTH_PORT)
-    except Exception as exc:
-        print(f"[prod] Health mirror failed ({exc})", flush=True)
+def _mirror_thread(port):
+    def _run():
+        print(f"[prod] Health mirror: :{port}", flush=True)
+        try:
+            _serve(_make_minimal_app(port), port)
+        except Exception as exc:
+            print(f"[prod] Health mirror :{port} failed ({exc})", flush=True)
+    return threading.Thread(target=_run, daemon=False)
 
 
-health_thread = threading.Thread(target=_run_health_flask, daemon=False)
-health_thread.start()
+for _p in ALL_PORTS:
+    if _p != MAIN_PORT:
+        _mirror_thread(_p).start()
 
-# Give both servers 2 s to bind before launching the bot subprocess
+
+# Give all servers 2 s to bind before launching the bot subprocess
 time.sleep(2)
-print(f"[prod] Flask up on :{MAIN_PORT} and health mirror on :{HEALTH_PORT}", flush=True)
+bound = [MAIN_PORT] + [p for p in ALL_PORTS if p != MAIN_PORT]
+print(f"[prod] Flask up on ports: {bound}", flush=True)
 
 
 # ── 3. Run bot.py in a supervised restart loop ───────────────────────────────
