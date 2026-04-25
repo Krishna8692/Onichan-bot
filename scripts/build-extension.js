@@ -18,7 +18,7 @@ const OUT_ZIP = resolve(ROOT, "onichan-bypasser-extension.zip");
 
 // Files I authored that need obfuscation.
 // Originals (popup.js shell.js algo.js etc.) are already obfuscated — leave them.
-const MY_JS = ["functions/auth.js"];
+const MY_JS = ["functions/auth.js", "functions/init.js"];
 
 // ── 1. Clean build dir ──────────────────────────────────────────────────────
 if (existsSync(BUILD)) rmSync(BUILD, { recursive: true });
@@ -58,21 +58,6 @@ const STRONG = {
   unicodeEscapeSequence:              false,
 };
 
-// Lighter preset for inline HTML scripts (avoids breaking extension CSP)
-const INLINE = {
-  compact:                  true,
-  identifierNamesGenerator: "hexadecimal",
-  numbersToExpressions:     true,
-  simplify:                 true,
-  splitStrings:             true,
-  splitStringsChunkLength:  7,
-  stringArray:              true,
-  stringArrayEncoding:      ["base64"],
-  stringArrayThreshold:     0.75,
-  transformObjectKeys:      true,
-  unicodeEscapeSequence:    false,
-};
-
 // ── 3. Obfuscate authored JS files ──────────────────────────────────────────
 for (const rel of MY_JS) {
   const path = resolve(BUILD, rel);
@@ -83,27 +68,7 @@ for (const rel of MY_JS) {
   console.log(`✅ Obfuscated  ${rel}  (${b} KB → ${a} KB)`);
 }
 
-// ── 4. Obfuscate inline <script> blocks in popup.html ───────────────────────
-const htmlPath = resolve(BUILD, "popup.html");
-let html = readFileSync(htmlPath, "utf-8");
-
-html = html.replace(
-  /<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi,
-  (match, code) => {
-    const trimmed = code.trim();
-    if (trimmed.length < 30) return match;
-    try {
-      const obf = JsObfuscator.obfuscate(trimmed, INLINE).getObfuscatedCode();
-      return `<script>${obf}</script>`;
-    } catch {
-      return match;
-    }
-  }
-);
-writeFileSync(htmlPath, html, "utf-8");
-console.log("✅ Obfuscated  popup.html inline scripts");
-
-// ── 5. Minify CSS ───────────────────────────────────────────────────────────
+// ── 4. Minify CSS ───────────────────────────────────────────────────────────
 const cssPath = resolve(BUILD, "assets/css/popup.css");
 let css = readFileSync(cssPath, "utf-8");
 css = css
@@ -115,7 +80,7 @@ css = css
 writeFileSync(cssPath, css, "utf-8");
 console.log("✅ Minified    popup.css");
 
-// ── 6. Package ZIP via Python (write script to temp file) ───────────────────
+// ── 5. Package ZIP via Python (write script to temp file) ───────────────────
 const pyScript = resolve(ROOT, "src", "_pack_ext.py");
 writeFileSync(pyScript, `import zipfile, pathlib
 build = pathlib.Path(r"${BUILD.replace(/\\/g, "/")}")
