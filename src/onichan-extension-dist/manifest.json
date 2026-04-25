@@ -1,91 +1,74 @@
 {
   "manifest_version": 3,
-
   "name": "Onichan Bypasser",
   "short_name": "Onichan",
-  "description": "Onichan Bypasser — custom gateways, BIN tools, bypasser, and integrity checks. Powered by Onichan Bot.",
-  "version": "1.0.0",
-  "version_name": "stable",
-  "author": "Onichan Team",
-  "minimum_chrome_version": "116",
-
+  "version": "2.1.0",
+  "description": "💗 Onichan Bypasser — Stripe/Adyen/Checkout/Recurly/Xsolla automation, captcha bypass, card tools, proxy management. Powered by @Onichanbabybot.",
+  "author": "Onichan",
   "icons": {
-    "16": "assets/icons/icon16.png",
-    "32": "assets/icons/icon32.png",
-    "48": "assets/icons/icon48.png",
-    "128": "assets/icons/icon128.png"
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
-
   "action": {
-    "default_title": "Onichan Bypasser",
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "assets/icons/icon16.png",
-      "32": "assets/icons/icon32.png",
-      "48": "assets/icons/icon48.png",
-      "128": "assets/icons/icon128.png"
-    }
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Onichan Bypasser"
   },
-
   "background": {
-    "service_worker": "functions/background.js",
+    "service_worker": "background.js",
     "type": "module"
   },
-
   "permissions": [
     "storage",
-    "scripting",
-    "activeTab",
-    "webNavigation",
-    "clipboardWrite",
     "tabs",
+    "activeTab",
+    "scripting",
+    "webNavigation",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "proxy",
     "notifications",
-    "offscreen"
+    "alarms",
+    "downloads"
   ],
-
-  "host_permissions": [
-    "<all_urls>"
-  ],
-
+  "host_permissions": ["<all_urls>"],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["functions/inject.js"],
+      "js": ["content.js"],
       "run_at": "document_start",
       "all_frames": true
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["modules/bypasser/bypasser.js"],
+      "matches": ["https://api.stripe.com/*", "https://js.stripe.com/*", "https://*.stripe.com/*", "<all_urls>"],
+      "js": ["jeffrey-inject.js"],
       "run_at": "document_start",
-      "all_frames": false,
+      "all_frames": true,
       "world": "MAIN"
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["functions/algo.js"],
-      "run_at": "document_start",
-      "all_frames": true
+      "matches": [
+        "*://checkout.stripe.com/*",
+        "*://pay.stripe.com/*",
+        "*://buy.stripe.com/*",
+        "*://donate.stripe.com/*"
+      ],
+      "js": ["stripe-overlay.js"],
+      "css": ["stripe-overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
-
   "web_accessible_resources": [
     {
-      "resources": [
-        "defaults/default_gateways.enc",
-        "assets/sounds/decline.mp3",
-        "modules/bypasser/bypasser.js",
-        "modules/loader.content.js",
-        "content/stripe_filler.js",
-        "assets/library/*.js"
-      ],
+      "resources": ["images/*", "icons/*", "jeffrey-inject.js"],
       "matches": ["<all_urls>"]
     }
   ],
-
-  "omnibox": { "keyword": "onichan" },
-
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'self';"
-  }
+  "minimum_chrome_version": "108"
 }

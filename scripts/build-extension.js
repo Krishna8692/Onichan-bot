@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Onichan Bypasser — Secure Extension Builder
- * Obfuscates all editable JS, minifies CSS/HTML inline scripts,
- * then shells out to Python to package the final ZIP.
+ * Obfuscates popup.js, background.js, content.js, stripe-overlay.js
+ * Minifies popup.css + stripe-overlay.css
+ * Packages final ZIP
  */
 
 import { readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, existsSync } from "fs";
@@ -16,9 +17,19 @@ const SRC     = resolve(ROOT, "src/onichan-extension");
 const BUILD   = resolve(ROOT, "src/onichan-extension-dist");
 const OUT_ZIP = resolve(ROOT, "onichan-bypasser-extension.zip");
 
-// Files I authored that need obfuscation.
-// Originals (popup.js shell.js algo.js etc.) are already obfuscated — leave them.
-const MY_JS = ["functions/auth.js", "functions/init.js"];
+// JS files to obfuscate (jeffrey-inject.js is already obfuscated — skip it)
+const MY_JS = [
+  "popup.js",
+  "background.js",
+  "content.js",
+  "stripe-overlay.js",
+];
+
+// CSS files to minify
+const MY_CSS = [
+  "popup.css",
+  "stripe-overlay.css",
+];
 
 // ── 1. Clean build dir ──────────────────────────────────────────────────────
 if (existsSync(BUILD)) rmSync(BUILD, { recursive: true });
@@ -58,9 +69,10 @@ const STRONG = {
   unicodeEscapeSequence:              false,
 };
 
-// ── 3. Obfuscate authored JS files ──────────────────────────────────────────
+// ── 3. Obfuscate JS files ───────────────────────────────────────────────────
 for (const rel of MY_JS) {
   const path = resolve(BUILD, rel);
+  if (!existsSync(path)) { console.warn(`⚠️  Skipped (not found): ${rel}`); continue; }
   const src  = readFileSync(path, "utf-8");
   const obf  = JsObfuscator.obfuscate(src, STRONG).getObfuscatedCode();
   writeFileSync(path, obf, "utf-8");
@@ -69,18 +81,21 @@ for (const rel of MY_JS) {
 }
 
 // ── 4. Minify CSS ───────────────────────────────────────────────────────────
-const cssPath = resolve(BUILD, "assets/css/popup.css");
-let css = readFileSync(cssPath, "utf-8");
-css = css
-  .replace(/\/\*[\s\S]*?\*\//g, "")
-  .replace(/\s{2,}/g, " ")
-  .replace(/\s*([:;{},(>~+])\s*/g, "$1")
-  .replace(/;\}/g, "}")
-  .trim();
-writeFileSync(cssPath, css, "utf-8");
-console.log("✅ Minified    popup.css");
+for (const rel of MY_CSS) {
+  const path = resolve(BUILD, rel);
+  if (!existsSync(path)) continue;
+  let css = readFileSync(path, "utf-8");
+  css = css
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s*([:;{},(>~+])\s*/g, "$1")
+    .replace(/;\}/g, "}")
+    .trim();
+  writeFileSync(path, css, "utf-8");
+  console.log(`✅ Minified    ${rel}`);
+}
 
-// ── 5. Package ZIP via Python (write script to temp file) ───────────────────
+// ── 5. Package ZIP via Python ───────────────────────────────────────────────
 const pyScript = resolve(ROOT, "src", "_pack_ext.py");
 writeFileSync(pyScript, `import zipfile, pathlib
 build = pathlib.Path(r"${BUILD.replace(/\\/g, "/")}")
@@ -98,5 +113,5 @@ const result = execSync(`python3 "${pyScript}"`, { encoding: "utf-8" }).trim();
 import { unlinkSync } from "fs";
 try { unlinkSync(pyScript); } catch {}
 console.log(`\n🎀  onichan-bypasser-extension.zip — ${result}`);
-console.log("   To install: chrome://extensions → Load unpacked → select the dist folder");
-console.log(`   Dist folder: ${BUILD}`);
+console.log("   Load unpacked → select dist folder");
+console.log(`   Dist: ${BUILD}`);
