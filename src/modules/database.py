@@ -958,16 +958,42 @@ def create_extension_key(user_id: int) -> str:
     return key
 
 def validate_extension_key(key: str) -> dict:
-    """Return {valid: True, user_id: ...} if key is active, else {valid: False}."""
+    """Return {valid, user_id, is_premium, expires_at, expires_ts} or {valid: False}."""
+    from datetime import datetime, timedelta, timezone
     _ensure_extension_keys_table()
     row = _execute_with_retry(
         "SELECT user_id, active FROM extension_keys WHERE key = %s",
         (key,),
         fetch_one=True
     )
-    if row and row.get('active'):
-        return {"valid": True, "user_id": row['user_id']}
-    return {"valid": False}
+    if not row or not row.get('active'):
+        return {"valid": False}
+    user_id = row['user_id']
+    user = _execute_with_retry(
+        "SELECT premium, premium_expiry FROM users WHERE user_id = %s",
+        (user_id,),
+        fetch_one=True
+    )
+    now = datetime.utcnow()
+    if user and user.get('premium') and user.get('premium_expiry'):
+        expiry = user['premium_expiry']
+        if hasattr(expiry, 'tzinfo') and expiry.tzinfo:
+            expiry = expiry.replace(tzinfo=None)
+        is_premium = expiry > now
+        expires_ts = int(expiry.timestamp() * 1000)
+        expires_iso = expiry.isoformat()
+    else:
+        default_expiry = now + timedelta(days=30)
+        is_premium = False
+        expires_ts = int(default_expiry.timestamp() * 1000)
+        expires_iso = default_expiry.isoformat()
+    return {
+        "valid": True,
+        "user_id": user_id,
+        "is_premium": is_premium,
+        "expires_at": expires_iso,
+        "expires_ts": expires_ts
+    }
 
 def revoke_extension_key(user_id: int) -> bool:
     """Revoke all active extension keys for a user."""
