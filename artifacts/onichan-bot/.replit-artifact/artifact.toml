@@ -11,13 +11,14 @@ kind = "web"
   [[services]]
   name = "web"
   paths = ["/"]
-  localPort = 5000
+  localPort = 8080
 
   [services.development]
-  run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
+  run = "cd /home/runner/workspace/src && PORT=8080 python bot.py"
 
   [services.production]
   run = "bash /home/runner/workspace/scripts/start-bot.sh"
 
   [services.production.health.startup]
   path = "/ping"
+  
