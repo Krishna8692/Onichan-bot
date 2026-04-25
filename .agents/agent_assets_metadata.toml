@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "eW0FrMQ75zkdgsm0nzzPF"
+uri = "file://onichan-bypasser-extension.zip"
+type = "unspecified"
+title = "Onichan Bypasser Chrome Extension"

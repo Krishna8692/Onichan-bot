@@ -1,0 +1,91 @@
+{
+  "manifest_version": 3,
+
+  "name": "Onichan Bypasser",
+  "short_name": "Onichan",
+  "description": "Onichan Bypasser — custom gateways, BIN tools, bypasser, and integrity checks. Powered by Onichan Bot.",
+  "version": "1.0.0",
+  "version_name": "stable",
+  "author": "Onichan Team",
+  "minimum_chrome_version": "116",
+
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+
+  "action": {
+    "default_title": "Onichan Bypasser",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+
+  "background": {
+    "service_worker": "functions/background.js",
+    "type": "module"
+  },
+
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "webNavigation",
+    "clipboardWrite",
+    "tabs",
+    "notifications",
+    "offscreen"
+  ],
+
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["functions/inject.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["modules/bypasser/bypasser.js"],
+      "run_at": "document_start",
+      "all_frames": false,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["functions/algo.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "defaults/default_gateways.enc",
+        "assets/sounds/decline.mp3",
+        "modules/bypasser/bypasser.js",
+        "modules/loader.content.js",
+        "content/stripe_filler.js",
+        "assets/library/*.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "omnibox": { "keyword": "onichan" },
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'self';"
+  }
+}

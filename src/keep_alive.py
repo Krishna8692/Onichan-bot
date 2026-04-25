@@ -8073,6 +8073,33 @@ def api_generate():
     except Exception as e:
         return jsonify({'error': f'Generation failed: {str(e)[:50]}'})
 
+@app.route('/api/extension/validate_key', methods=['POST', 'OPTIONS'])
+def api_extension_validate_key():
+    """Validate an Onichan Bypasser extension activation key."""
+    if request.method == 'OPTIONS':
+        resp = jsonify({'ok': True})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return resp
+    try:
+        data = request.get_json(silent=True) or {}
+        key = (data.get('key') or '').strip()
+        if not key:
+            resp = jsonify({'valid': False, 'error': 'No key provided'})
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            return resp, 400
+        from modules.database import validate_extension_key
+        result = validate_extension_key(key)
+        resp = jsonify(result)
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp
+    except Exception as e:
+        resp = jsonify({'valid': False, 'error': str(e)})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp, 500
+
+
 @app.route('/health')
 def health():
     return {'status': 'ok', 'bot': 'running'}

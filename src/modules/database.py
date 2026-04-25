@@ -924,3 +924,55 @@ def get_user_check_stats(user_id):
         print(f"[DB] Error getting user stats: {e}")
     
     return {'total': 0, 'approved': 0, 'declined': 0, 'success_rate': 0, 'first_check': None}
+
+
+# ═══════════════════════════════════════════════════════════
+# EXTENSION KEYS — Onichan Bypasser Chrome Extension Auth
+# ═══════════════════════════════════════════════════════════
+
+def _ensure_extension_keys_table():
+    """Create extension_keys table if it doesn't exist."""
+    _execute_with_retry("""
+        CREATE TABLE IF NOT EXISTS extension_keys (
+            key        TEXT PRIMARY KEY,
+            user_id    BIGINT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            active     BOOLEAN DEFAULT TRUE
+        )
+    """)
+
+def create_extension_key(user_id: int) -> str:
+    """Generate a fresh extension activation key for a user (deactivates old ones)."""
+    import secrets, string
+    token = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(22))
+    key = f"ONIX-{token}"
+    _ensure_extension_keys_table()
+    _execute_with_retry(
+        "UPDATE extension_keys SET active = FALSE WHERE user_id = %s",
+        (user_id,)
+    )
+    _execute_with_retry(
+        "INSERT INTO extension_keys (key, user_id) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING",
+        (key, user_id)
+    )
+    return key
+
+def validate_extension_key(key: str) -> dict:
+    """Return {valid: True, user_id: ...} if key is active, else {valid: False}."""
+    _ensure_extension_keys_table()
+    row = _execute_with_retry(
+        "SELECT user_id, active FROM extension_keys WHERE key = %s",
+        (key,),
+        fetch_one=True
+    )
+    if row and row.get('active'):
+        return {"valid": True, "user_id": row['user_id']}
+    return {"valid": False}
+
+def revoke_extension_key(user_id: int) -> bool:
+    """Revoke all active extension keys for a user."""
+    _ensure_extension_keys_table()
+    return bool(_execute_with_retry(
+        "UPDATE extension_keys SET active = FALSE WHERE user_id = %s",
+        (user_id,)
+    ))

@@ -15132,6 +15132,26 @@ async def cmd_callerid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _reply_with_gif(update.message, "welcome", msg)
 
 
+async def cmd_extkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate an Onichan Bypasser Chrome extension activation key (/extkey)."""
+    user = update.effective_user
+    from modules.database import create_extension_key
+    try:
+        key = create_extension_key(user.id)
+        await _reply_with_gif(update.message, "success",
+            ae("🔑 <b>Onichan Bypasser — Extension Key</b>") + "\n\n"
+            f"Your activation key:\n<code>{key}</code>\n\n"
+            "📌 <b>How to use:</b>\n"
+            "1. Install the Onichan Bypasser Chrome extension\n"
+            "2. Open the extension and paste this key\n"
+            "3. Click <b>Unlock</b> to activate all features\n\n"
+            "⚠️ Each user gets one active key — generating a new one revokes the old one.\n"
+            "🔒 Keep this key private."
+        )
+    except Exception as e:
+        await update.message.reply_text(ae(f"❌ Failed to generate key: {str(e)[:80]}"), parse_mode=ParseMode.HTML)
+
+
 async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show gate hit rate analytics (/analytics)."""
     if not is_owner(update.effective_user.id):
@@ -16350,6 +16370,7 @@ def main():
     application.add_handler(CommandHandler("gift", cmd_gift))
     application.add_handler(CommandHandler("setcallerid", cmd_setcallerid))
     application.add_handler(CommandHandler("callerid", cmd_callerid))
+    application.add_handler(CommandHandler("extkey", cmd_extkey))
     application.add_handler(CommandHandler("analytics", cmd_analytics))
     application.add_handler(CommandHandler("gatetest", cmd_gatetest))
     application.add_handler(CommandHandler("find", cmd_find))
