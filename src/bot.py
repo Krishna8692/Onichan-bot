@@ -432,11 +432,42 @@ from modules.database import (
 )
 
 # Keep alive for Replit
+# Catch ALL exceptions — if keep_alive.py fails for any reason (import error,
+# module missing, etc.) we fall back to a minimal Flask server so the production
+# health-check at /ping always gets a 200, regardless of keep_alive.py status.
+import os as _os_ka
 try:
     from keep_alive import keep_alive
     REPLIT_MODE = True
-except ImportError:
-    REPLIT_MODE = False
+except Exception as _ka_err:
+    print(f"[warn] keep_alive import failed ({_ka_err}). Starting minimal health server instead.")
+    from flask import Flask as _FallbackFlask
+    from threading import Thread as _FallbackThread
+    _fb_app = _FallbackFlask("health")
+
+    @_fb_app.route("/ping")
+    def _fb_ping():
+        return "OK", 200
+
+    @_fb_app.route("/")
+    def _fb_home():
+        return "<h1>Onichan Bot</h1><p>Starting up…</p>", 200
+
+    def keep_alive():
+        _PORT = int(_os_ka.environ.get("PORT", 8080))
+        def _fb_run():
+            try:
+                from waitress import serve
+                serve(_fb_app, host="0.0.0.0", port=_PORT, _quiet=True)
+            except Exception:
+                _fb_app.run(host="0.0.0.0", port=_PORT, threaded=True)
+        _FallbackThread(target=_fb_run, daemon=True).start()
+
+    REPLIT_MODE = True  # force-enable so keep_alive() is always called
+
+# Also honour an explicit env-var override (set by start-bot.sh in production)
+if _os_ka.environ.get("FORCE_WEB_SERVER"):
+    REPLIT_MODE = True
 
 # ============================================================================
 # DATABASE MANAGEMENT
@@ -15929,7 +15960,7 @@ def main():
             import time as _t
             _t.sleep(1)  # give Flask a moment to bind
             from modules.twilio_call import start_tunnel
-            _tunnel_url = start_tunnel(port=5000)
+            _tunnel_url = start_tunnel(port=int(os.environ.get("PORT", 8080)))
             if _tunnel_url:
                 print(f"🌍 Twilio webhook tunnel: {_tunnel_url}")
             else:
