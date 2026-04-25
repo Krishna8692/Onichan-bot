@@ -1,118 +1,133 @@
 #!/usr/bin/env python3
 """
-Production entry point for Onichan Bot.
+Production entry point for Onichan Bot — Reserved VM edition.
 
-Starts the Flask web server IMMEDIATELY so Replit's health-check probe always
-gets a 200 response within the first second, regardless of how long bot.py
-takes to import and start.
+Strategy
+--------
+1. Bind a stdlib http.server on EVERY exposed port (5000, 8080) within
+   the first 0.1 seconds of startup — no third-party packages required.
+   This guarantees the deployment health-check probe gets HTTP 200 before
+   any other code runs.
 
-Replit's Reserved-VM health check probes ALL ports listed in .replit's
-[[ports]] section (localPort 5000 and localPort 8080).  This script:
-  1. Binds the full keep_alive Flask app on MAIN_PORT ($PORT, default 5000)
-  2. Binds minimal health-check mirrors on every other known port
-  3. Runs bot.py in a supervised restart loop
+2. Start bot.py as a supervised subprocess (Telegram polling + full
+   keep_alive web panel if SKIP_KEEP_ALIVE is not set in the child env).
 
-Architecture:
-  Thread 1 – keep_alive.py web server (all routes, admin panel, etc.)
-  Thread 2 – minimal Flask mirror on port 8080 (second .replit [[ports]] entry)
-  Thread 3 – minimal Flask mirror on port 5000 if MAIN_PORT≠5000
-  Main loop – bot.py subprocess restart supervisor (Telegram polling)
+3. Block the main process forever so the container stays alive.
 """
+import http.server
 import os
-import sys
 import subprocess
+import sys
 import threading
 import time
 
+# ---------------------------------------------------------------------------
+# 1.  Constants
+# ---------------------------------------------------------------------------
+
+DIR = os.path.dirname(os.path.abspath(__file__))
+PY  = sys.executable
+
+# Primary port: what the deployment health-check probes
 MAIN_PORT = int(os.environ.get("PORT", 5000))
-# All localPorts declared in .replit [[ports]] – health-check probes them all
-ALL_PORTS  = [5000, 8080]
-DIR        = os.path.dirname(os.path.abspath(__file__))
-PY         = sys.executable
+
+# All ports declared in .replit [[ports]] — probe ALL of them
+ALL_PORTS = [5000, 8080]
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# 2.  Instant health-check server (stdlib only, no Flask needed)
+# ---------------------------------------------------------------------------
 
-def _make_minimal_app(port_label):
-    """Return a tiny Flask app that answers /ping and / with 200."""
-    from flask import Flask
-    _app = Flask(f"health_{port_label}")
+class _OK(http.server.BaseHTTPRequestHandler):
+    """Responds 200 OK to any GET request."""
 
-    @_app.route("/ping")
-    def _ping():
-        return "OK", 200
+    def do_GET(self):
+        body = b"OK"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
-    @_app.route("/")
-    def _home():
-        return f"<h1>Onichan Bot</h1><p>Online (:{port_label})</p>", 200
-
-    return _app
+    def log_message(self, fmt, *args):
+        pass  # silence request logs
 
 
-def _serve(app, port):
+def _start_health_server(port: int, daemon: bool = True):
+    """Start a minimal HTTP health server on *port* in a background thread."""
     try:
-        from waitress import serve
-        serve(app, host="0.0.0.0", port=port)
-    except Exception:
-        app.run(host="0.0.0.0", port=port)
+        srv = http.server.HTTPServer(("0.0.0.0", port), _OK)
+        t = threading.Thread(target=srv.serve_forever, daemon=daemon)
+        t.start()
+        print(f"[prod] Health server up on :{port}", flush=True)
+        return srv
+    except OSError as exc:
+        print(f"[prod] Health server :{port} skipped ({exc})", flush=True)
+        return None
 
 
-# ── 1. Start main Flask app (full keep_alive routes) ─────────────────────────
+# Start health servers on every exposed port — runs in < 100 ms
+# Always include MAIN_PORT even if it's not in ALL_PORTS
+_all_ports = sorted(set(ALL_PORTS + [MAIN_PORT]))
+_servers = []
+for _p in _all_ports:
+    _srv = _start_health_server(_p, daemon=(_p != MAIN_PORT))
+    _servers.append(_srv)
 
-def _run_main_flask():
-    try:
-        from keep_alive import run
-        print(f"[prod] Main Flask: full keep_alive app on :{MAIN_PORT}", flush=True)
-        run()                                   # blocks until killed
-    except Exception as exc:
-        print(f"[prod] Main Flask: fallback ({exc})", flush=True)
-        _serve(_make_minimal_app(MAIN_PORT), MAIN_PORT)
-
-
-main_thread = threading.Thread(target=_run_main_flask, daemon=False)
-main_thread.start()
+# Small pause so threads actually bind before the health probe arrives
+time.sleep(0.3)
+print(f"[prod] Health servers running on ports {ALL_PORTS}", flush=True)
 
 
-# ── 2. Start health-check mirrors on every other known port ──────────────────
-# Replit probes ALL [[ports]] entries – each must return 200.
+# ---------------------------------------------------------------------------
+# 3.  Run bot.py in a supervised restart loop
+# ---------------------------------------------------------------------------
+# SKIP_KEEP_ALIVE=1  →  bot.py won't try to start its own Flask server
+# (the health servers above already handle /ping and /).
 
-def _mirror_thread(port):
-    def _run():
-        print(f"[prod] Health mirror: :{port}", flush=True)
+BOT_ENV = {
+    **os.environ,
+    "SKIP_KEEP_ALIVE": "1",
+    "PORT": str(MAIN_PORT),
+    # Ensure src/ is on PYTHONPATH so bot.py can resolve `from modules.X import Y`
+    "PYTHONPATH": DIR + ((":" + os.environ["PYTHONPATH"]) if os.environ.get("PYTHONPATH") else ""),
+}
+
+
+def _run_bot():
+    """Supervised restart loop for bot.py."""
+    while True:
+        print("[prod] Starting bot.py …", flush=True)
         try:
-            _serve(_make_minimal_app(port), port)
+            rc = subprocess.run(
+                [PY, os.path.join(DIR, "bot.py")],
+                env=BOT_ENV,
+                cwd=DIR,
+            ).returncode
+            print(f"[prod] bot.py exited (code {rc})", flush=True)
         except Exception as exc:
-            print(f"[prod] Health mirror :{port} failed ({exc})", flush=True)
-    return threading.Thread(target=_run, daemon=False)
+            print(f"[prod] bot.py launch error: {exc}", flush=True)
+        print("[prod] Restarting bot.py in 5 s …", flush=True)
+        time.sleep(5)
 
 
-for _p in ALL_PORTS:
-    if _p != MAIN_PORT:
-        _mirror_thread(_p).start()
+_bot_thread = threading.Thread(target=_run_bot, daemon=True)
+_bot_thread.start()
 
 
-# Give all servers 2 s to bind before launching the bot subprocess
-time.sleep(2)
-bound = [MAIN_PORT] + [p for p in ALL_PORTS if p != MAIN_PORT]
-print(f"[prod] Flask up on ports: {bound}", flush=True)
+# ---------------------------------------------------------------------------
+# 4.  Block main thread — keep container alive via the non-daemon server
+# ---------------------------------------------------------------------------
+# The health server for MAIN_PORT was started with daemon=False, so the
+# process stays alive as long as that server runs.  If for any reason it
+# exited, fall back to a simple sleep loop.
 
+main_srv = _servers[0] if _servers else None
+if main_srv and not threading.current_thread().daemon:
+    # serve_forever() was already called in its own thread; just join it.
+    pass
 
-# ── 3. Run bot.py in a supervised restart loop ───────────────────────────────
-# SKIP_KEEP_ALIVE=1 → bot.py skips keep_alive() since Flask is already running.
-
-BOT_ENV = {**os.environ, "SKIP_KEEP_ALIVE": "1", "PORT": str(MAIN_PORT)}
-
+# Safety net: sleep forever so the process never exits
 while True:
-    print("[prod] Starting bot.py …", flush=True)
-    try:
-        rc = subprocess.run(
-            [PY, "bot.py"],
-            env=BOT_ENV,
-            cwd=DIR,
-        ).returncode
-        print(f"[prod] bot.py exited with code {rc}", flush=True)
-    except Exception as exc:
-        print(f"[prod] bot.py launch error: {exc}", flush=True)
-
-    print("[prod] Restarting bot.py in 5 s …", flush=True)
-    time.sleep(5)
+    time.sleep(60)

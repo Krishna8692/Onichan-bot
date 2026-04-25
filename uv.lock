@@ -120,6 +120,18 @@ wheels = [
 ]
 
 [[package]]
+name = "aiohttp-retry"
+version = "2.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9d/61/ebda4d8e3d8cfa1fd3db0fb428db2dd7461d5742cea35178277ad180b033/aiohttp_retry-2.9.1.tar.gz", hash = "sha256:8eb75e904ed4ee5c2ec242fefe85bf04240f685391c4879d8f541d6028ff01f1", size = 13608, upload-time = "2024-11-06T10:44:54.574Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/99/84ba7273339d0f3dfa57901b846489d2e5c2cd731470167757f1935fffbd/aiohttp_retry-2.9.1-py3-none-any.whl", hash = "sha256:66d2759d1921838256a05a3f80ad7e724936f083e35be5abb5e16eed6be6dc54", size = 9981, upload-time = "2024-11-06T10:44:52.917Z" },
+]
+
+[[package]]
 name = "aiolimiter"
 version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2082,6 +2094,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyjwt"
+version = "2.12.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/27/a3b6e5bf6ff856d2509292e95c8f57f0df7017cf5394921fc4e4ef40308a/pyjwt-2.12.1.tar.gz", hash = "sha256:c74a7a2adf861c04d002db713dd85f84beb242228e671280bf709d765b03672b", size = 102564, upload-time = "2026-03-13T19:27:37.25Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/7a/8dd906bd22e79e47397a61742927f6747fe93242ef86645ee9092e610244/pyjwt-2.12.1-py3-none-any.whl", hash = "sha256:28ca37c070cad8ba8cd9790cd940535d40274d22f80ab87f3ac6a713e6e8454c", size = 29726, upload-time = "2026-03-13T19:27:35.677Z" },
+]
+
+[[package]]
 name = "pyotp"
 version = "2.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2288,6 +2309,7 @@ dependencies = [
     { name = "requests" },
     { name = "tls-client" },
     { name = "tronpy" },
+    { name = "twilio" },
     { name = "waitress" },
     { name = "yt-dlp" },
 ]
@@ -2315,6 +2337,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.33.1" },
     { name = "tls-client", specifier = ">=1.0.1" },
     { name = "tronpy", specifier = ">=0.6.2" },
+    { name = "twilio", specifier = ">=9.0.0" },
     { name = "waitress", specifier = ">=3.0.2" },
     { name = "yt-dlp", specifier = ">=2026.3.17" },
 ]
@@ -2441,6 +2464,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/96/8c/6e856cf86ab94363333d3e3e1a3754f0c56694fab7a7c8b328493eaef00d/tvm_valuetypes-0.0.12.tar.gz", hash = "sha256:1f9304126be99e30ecb827e68e6e36e1620b8dc6a781dca1b0fdcc1e31d70983", size = 9044, upload-time = "2023-07-18T19:28:37.89Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/58/d98de1ffd588dcf5cda8c9d105b5949aa66c69cb3af7d0a25bae679536c1/tvm_valuetypes-0.0.12-py3-none-any.whl", hash = "sha256:e4af62baebdcc8864a1f4aac40082f3221f1e4232f79b8dfb7411d7c78856880", size = 9471, upload-time = "2023-07-18T19:28:36.304Z" },
+]
+
+[[package]]
+name = "twilio"
+version = "9.10.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "aiohttp-retry" },
+    { name = "pyjwt" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b5/97/c439bc2c058f8a24edd732f5cc82adedd8794bcc2da0836c2eff1e2dbe91/twilio-9.10.5.tar.gz", hash = "sha256:d9f93b9280349ee7b52e7f17a0600fd7bfd0f7ff88eb00c40270164bc058743f", size = 1641690, upload-time = "2026-04-14T09:52:09.392Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/97/4fdde5e54fcbb789aa1a70c371f2f33d7eb1e58e8a6131fdbd8a98490976/twilio-9.10.5-py2.py3-none-any.whl", hash = "sha256:7972db54496fbf501b238f34d1f717f80ff22720313dc706632787aad5934997", size = 2284944, upload-time = "2026-04-14T09:52:07.333Z" },
 ]
 
 [[package]]

@@ -11,13 +11,13 @@ version = "1.0.0"
 [deployment]
 run = "/home/runner/workspace/.pythonlibs/bin/python /home/runner/workspace/src/production_start.py"
 
-[[services]]
+[services.web]
 name = "web"
 paths = ["/"]
 localPort = 5000
 
-[services.development]
+[services.web.development]
 run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
 
-[services.production]
+[services.web.production]
 run = "/home/runner/workspace/.pythonlibs/bin/python /home/runner/workspace/src/production_start.py"
