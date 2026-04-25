@@ -54,13 +54,25 @@ async function validateKeyRemote(key, apiUrl) {
 }
 
 function showLock() {
-  document.getElementById("landingPage").style.display = "flex";
-  document.getElementById("mainApp").style.display = "none";
+  // Reload the popup so the real lock screen is fully restored.
+  window.location.reload();
 }
 
 function showApp(isPremium) {
-  document.getElementById("landingPage").style.display = "none";
-  document.getElementById("mainApp").style.display   = "flex";
+  // Replace the real lock screen with a tiny invisible dummy so popup.js
+  // can still "find" landingPage via getElementById without ever re-showing it.
+  const realLock = document.getElementById("landingPage");
+  if (realLock && realLock.dataset.dummy !== "1") {
+    realLock.remove();
+    const dummy = document.createElement("div");
+    dummy.id = "landingPage";
+    dummy.dataset.dummy = "1";
+    dummy.style.cssText = "display:none!important;position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;";
+    document.body.appendChild(dummy);
+  }
+  const main = document.getElementById("mainApp");
+  if (main) main.style.display = "flex";
+  setBtnState(false);
   const badge = document.getElementById("statusBadge");
   if (badge) {
     badge.textContent = isPremium ? "⭐ Premium" : "Free";
@@ -108,7 +120,7 @@ async function doValidate() {
     await storeAuth(key, data, apiUrl);
     const expLabel = formatExpiry(data.expires_ts);
     setStatus(`✅ Unlocked${data.is_premium ? " ⭐ Premium" : ""}${expLabel ? " · Expires " + expLabel : ""}`, "success");
-    setTimeout(() => showApp(data.is_premium), 700);
+    setTimeout(() => showApp(data.is_premium), 300);
   } else if (data && data.valid === false) {
     setStatus("❌ Invalid or expired key. Get a new one with /extkey in the bot.", "error");
     setBtnState(false);
