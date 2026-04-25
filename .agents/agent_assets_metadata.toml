@@ -6,3 +6,9 @@ id = "eW0FrMQ75zkdgsm0nzzPF"
 uri = "file://onichan-bypasser-extension.zip"
 type = "unspecified"
 title = "Onichan Bypasser Chrome Extension"
+
+[[outputs]]
+id = "PC3WDh9c1NeiBW61LxS79"
+uri = "file://attached_assets/shopify_1777117109757_updated.zip"
+type = "unspecified"
+title = "shopify_1777117109757.py (updated)"
