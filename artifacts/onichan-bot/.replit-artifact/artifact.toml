@@ -8,6 +8,9 @@ id = "artifacts/onichan-bot"
 name = "react-vite"
 version = "1.0.0"
 
+[deployment]
+run = "bash /home/runner/workspace/scripts/start-bot.sh"
+
 [[services]]
 name = "web"
 paths = ["/"]
