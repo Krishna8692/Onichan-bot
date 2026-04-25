@@ -117,10 +117,47 @@
     return null;
   }
 
+  // Detect which "slot" this Stripe iframe represents (number/expiry/cvc)
+  // by looking at the page URL — js.stripe.com embeds use path hints
+  function detectStripeIframeSlot() {
+    const url = location.href;
+    if (/card-number|number/.test(url)) return 'number';
+    if (/card-expiry|expiry|exp/.test(url)) return 'expiry';
+    if (/card-cvc|cvc|cvv|security/.test(url)) return 'cvc';
+    // Also check document title / aria labels
+    const title = document.title.toLowerCase();
+    if (/number/.test(title)) return 'number';
+    if (/expir|exp/.test(title)) return 'expiry';
+    if (/cvc|cvv|security/.test(title)) return 'cvc';
+    return null;
+  }
+
   function fillCardFields(card, settings) {
+    // Probe mode — just check if any fillable inputs exist
+    const probeOnly = settings && settings.__probe;
+
     let filled = 0;
     const expStr      = (card.mm && card.yy) ? `${card.mm} / ${card.yy}` : '';
     const expStrSlash = (card.mm && card.yy) ? `${card.mm}/${card.yy}` : '';
+
+    // ── Detect if we're inside a Stripe iframe ──
+    const inStripeIframe = /js\.stripe\.com|stripe-js/.test(location.href);
+    if (inStripeIframe) {
+      const slot = detectStripeIframeSlot();
+      // Inside Stripe iframe, there's only 1 real input — find it broadly
+      const anyInput = document.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="radio"]):not([type="checkbox"])');
+      if (anyInput && !anyInput.disabled && !anyInput.readOnly) {
+        if (probeOnly) return { filled: 1, url: location.href.slice(0,80) };
+        if (slot === 'number' || !slot) {
+          if (nativeSetValue(anyInput, card.num)) filled++;
+        } else if (slot === 'expiry') {
+          if (expStr && (nativeSetValue(anyInput, expStr) || nativeSetValue(anyInput, expStrSlash))) filled++;
+        } else if (slot === 'cvc') {
+          if (card.cvv && nativeSetValue(anyInput, card.cvv)) filled++;
+        }
+      }
+      return { filled, url: location.href.slice(0,80) };
+    }
 
     // ── Card number ──
     const numEl = findInput([
@@ -130,8 +167,16 @@
       'input[placeholder="1234 1234 1234 1234"]', 'input[placeholder*="1234"]',
       'input[aria-label*="card number" i]', 'input[aria-label*="Card number" i]',
       'input[id*="cardnumber" i]', 'input[id*="card-number" i]',
-      'input[class*="CardNumber" i]', 'input[class*="card-number" i]'
+      'input[class*="CardNumber" i]', 'input[class*="card-number" i]',
+      // Stripe Payment Element (newer)
+      'input[data-testid="card-number"]',
+      'input[data-fieldtype="number"]',
+      '.p-Input input[type="text"]:first-of-type',
+      // Broader fallback — numbered text inputs inside payment forms
+      'form input[type="text"]:first-of-type',
+      '[data-field="number"] input'
     ]);
+    if (probeOnly && numEl) return { filled: 1, url: location.href.slice(0,80) };
     if (numEl && nativeSetValue(numEl, card.num)) filled++;
 
     // ── Expiry ──
@@ -142,7 +187,10 @@
       'input[placeholder="MM / YY"]', 'input[placeholder="MM/YY"]', 'input[placeholder="MM / YYYY"]',
       'input[aria-label*="expir" i]', 'input[aria-label*="Expiry" i]', 'input[aria-label*="Expiration" i]',
       'input[id*="expiry" i]', 'input[id*="exp-" i]',
-      'input[class*="CardExpiry" i]', 'input[class*="card-expiry" i]'
+      'input[class*="CardExpiry" i]', 'input[class*="card-expiry" i]',
+      'input[data-testid="card-expiry"]',
+      'input[data-fieldtype="expiry"]',
+      '[data-field="expiry"] input'
     ]);
     if (expEl && expStr) {
       nativeSetValue(expEl, expStr) || nativeSetValue(expEl, expStrSlash);
@@ -157,7 +205,10 @@
       'input[placeholder="CVC"]', 'input[placeholder="CVV"]', 'input[placeholder="123"]', 'input[placeholder="1234"]',
       'input[aria-label*="CVC" i]', 'input[aria-label*="CVV" i]', 'input[aria-label*="security code" i]',
       'input[id*="cvc" i]', 'input[id*="cvv" i]',
-      'input[class*="CardCvc" i]', 'input[class*="card-cvc" i]'
+      'input[class*="CardCvc" i]', 'input[class*="card-cvc" i]',
+      'input[data-testid="card-cvc"]',
+      'input[data-fieldtype="cvc"]',
+      '[data-field="cvc"] input'
     ]);
     if (cvcEl && card.cvv && nativeSetValue(cvcEl, card.cvv)) filled++;
 
