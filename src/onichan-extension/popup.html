@@ -3,646 +3,985 @@
 <head>
   <meta charset="UTF-8">
   <title>Onichan Bypasser</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="color-scheme" content="dark">
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-  <link rel="stylesheet" href="assets/css/popup.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/popup.css">
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════
-     LOCK SCREEN
-═══════════════════════════════════════════════════════ -->
-<div id="lockScreen" class="lock-screen">
+<!-- ═══════════════════════════════════════ LOCK SCREEN ═══ -->
+<div id="lockScreen" class="lock-overlay">
+  <div class="lock-blobs">
+    <div class="lb lb1"></div>
+    <div class="lb lb2"></div>
+    <div class="lb lb3"></div>
+  </div>
 
-  <!-- Ambient blobs -->
-  <div class="lock-blob lock-blob--a"></div>
-  <div class="lock-blob lock-blob--b"></div>
-  <div class="lock-blob lock-blob--c"></div>
+  <!-- Sparkles -->
+  <span class="sp">✦</span><span class="sp">✧</span><span class="sp">❋</span>
+  <span class="sp">✦</span><span class="sp">✧</span><span class="sp">❋</span>
 
-  <!-- Floating sparkles -->
-  <span class="sparkle">✦</span>
-  <span class="sparkle">✧</span>
-  <span class="sparkle">✦</span>
-  <span class="sparkle">✧</span>
-  <span class="sparkle">✦</span>
-  <span class="sparkle">✧</span>
+  <div class="lock-body">
 
-  <!-- Anime girl panel -->
-  <div class="lock-hero">
+    <!-- ── Anime girl hero ── -->
+    <div class="lock-girl-wrap">
+      <svg class="lock-girl" viewBox="0 0 340 300" xmlns="http://www.w3.org/2000/svg">
 
-    <!-- Anime girl SVG character -->
-    <div class="anichar">
-      <svg class="anichar__svg" viewBox="0 0 200 220" xmlns="http://www.w3.org/2000/svg">
-        <!-- Hair back layer -->
-        <ellipse cx="100" cy="85" rx="58" ry="65" fill="#c084fc"/>
-        <!-- Hair sides flowing down -->
-        <path d="M42 90 Q30 140 38 190 Q55 160 60 130 Q65 110 58 90Z" fill="#a855f7"/>
-        <path d="M158 90 Q170 140 162 190 Q145 160 140 130 Q135 110 142 90Z" fill="#a855f7"/>
-        <!-- Hair top detail -->
-        <path d="M50 70 Q55 30 100 25 Q145 30 150 70" fill="#7c3aed"/>
-        <!-- Cat ears -->
-        <polygon points="55,55 45,22 75,50" fill="#a855f7"/>
-        <polygon points="145,55 155,22 125,50" fill="#a855f7"/>
-        <polygon points="58,53 50,30 72,50" fill="#f9a8d4"/>
-        <polygon points="142,53 150,30 128,50" fill="#f9a8d4"/>
-        <!-- Neck -->
-        <rect x="88" y="152" width="24" height="20" rx="4" fill="#fde8d8"/>
-        <!-- Collar / shirt -->
-        <path d="M60 172 Q100 180 140 172 L150 220 L50 220Z" fill="#6d28d9"/>
-        <path d="M100 175 L88 195 L112 195Z" fill="#f9a8d4"/>
-        <path d="M60 172 L90 200 L100 175" fill="#7c3aed"/>
-        <path d="M140 172 L110 200 L100 175" fill="#7c3aed"/>
-        <!-- Face -->
-        <ellipse cx="100" cy="110" rx="48" ry="52" fill="#fde8d8"/>
-        <!-- Eyes -->
-        <ellipse cx="80" cy="108" rx="14" ry="16" fill="#1e1b4b"/>
-        <ellipse cx="120" cy="108" rx="14" ry="16" fill="#1e1b4b"/>
-        <!-- Iris color -->
-        <ellipse cx="80" cy="110" rx="10" ry="11" fill="#8b5cf6"/>
-        <ellipse cx="120" cy="110" rx="10" ry="11" fill="#8b5cf6"/>
-        <!-- Pupil -->
-        <ellipse cx="80" cy="112" rx="6" ry="7" fill="#1e1b4b"/>
-        <ellipse cx="120" cy="112" rx="6" ry="7" fill="#1e1b4b"/>
-        <!-- Eye shine highlight (large) -->
-        <ellipse cx="84" cy="106" rx="4" ry="5" fill="rgba(255,255,255,0.9)"/>
-        <ellipse cx="124" cy="106" rx="4" ry="5" fill="rgba(255,255,255,0.9)"/>
-        <!-- Eye shine (small) -->
-        <circle cx="89" cy="112" r="2" fill="rgba(255,255,255,0.7)"/>
-        <circle cx="129" cy="112" r="2" fill="rgba(255,255,255,0.7)"/>
-        <!-- Eyelashes upper -->
-        <path d="M66 98 Q80 90 94 98" stroke="#1e1b4b" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-        <path d="M106 98 Q120 90 134 98" stroke="#1e1b4b" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-        <!-- Eyebrows -->
-        <path d="M66 94 Q80 86 93 91" stroke="#7c3aed" stroke-width="3" fill="none" stroke-linecap="round"/>
-        <path d="M107 91 Q120 86 134 94" stroke="#7c3aed" stroke-width="3" fill="none" stroke-linecap="round"/>
-        <!-- Blush marks -->
-        <ellipse cx="64" cy="122" rx="10" ry="5" fill="rgba(249,168,212,0.5)"/>
-        <ellipse cx="136" cy="122" rx="10" ry="5" fill="rgba(249,168,212,0.5)"/>
-        <!-- Nose -->
-        <path d="M97 128 Q100 133 103 128" stroke="#e8b4a0" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-        <!-- Mouth - smile -->
-        <path d="M88 140 Q100 150 112 140" stroke="#e8936a" stroke-width="2" fill="none" stroke-linecap="round"/>
-        <!-- Hair front strands -->
-        <path d="M55 75 Q62 95 65 115" stroke="#7c3aed" stroke-width="8" fill="none" stroke-linecap="round"/>
-        <path d="M65 70 Q68 90 70 108" stroke="#a855f7" stroke-width="6" fill="none" stroke-linecap="round"/>
-        <path d="M75 65 Q76 80 77 95" stroke="#c084fc" stroke-width="5" fill="none" stroke-linecap="round"/>
-        <!-- Ahoge (hair antenna) -->
-        <path d="M100 25 Q105 5 115 12 Q110 20 108 30" stroke="#c084fc" stroke-width="4" fill="none" stroke-linecap="round"/>
-        <!-- Headband stars -->
-        <text x="87" y="80" font-size="10" fill="#f9a8d4" text-anchor="middle">✦</text>
+        <!-- ── Body / Torso ── -->
+        <!-- Shoulders -->
+        <ellipse cx="170" cy="248" rx="80" ry="25" fill="#1a0035" opacity=".6"/>
+        <!-- Chest clothing — tight crop top -->
+        <path d="M110 200 Q120 185 170 182 Q220 185 230 200 L235 260 Q170 270 105 260Z"
+              fill="#6d28d9"/>
+        <!-- Collar V -->
+        <path d="M155 182 L170 210 L185 182" fill="#8b5cf6" opacity=".7"/>
+        <!-- Cleavage line hint (tasteful) -->
+        <path d="M165 195 Q170 215 175 195" stroke="rgba(0,0,0,.25)" stroke-width="1.5" fill="none"/>
+        <!-- Chest volume left -->
+        <ellipse cx="145" cy="208" rx="24" ry="20" fill="#9333ea" opacity=".35"/>
+        <!-- Chest volume right -->
+        <ellipse cx="195" cy="208" rx="24" ry="20" fill="#9333ea" opacity=".35"/>
+        <!-- Bra strap hints -->
+        <line x1="148" y1="185" x2="145" y2="195" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+        <line x1="192" y1="185" x2="195" y2="195" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+        <!-- Midriff peek -->
+        <ellipse cx="170" cy="233" rx="22" ry="6" fill="#fde8d8" opacity=".4"/>
+
+        <!-- ── Arms ── -->
+        <!-- Left arm: raised to cheek (giggling pose) -->
+        <path d="M120 200 Q98 195 92 180 Q88 165 100 158 Q110 152 118 162 Q125 172 120 185Z"
+              fill="#fde8d8"/>
+        <!-- Left hand at cheek -->
+        <ellipse cx="100" cy="155" rx="13" ry="11" fill="#fde8d8"/>
+        <circle cx="93" cy="150" r="5" fill="#fde8d8"/>
+        <circle cx="101" cy="147" r="5" fill="#fde8d8"/>
+        <circle cx="109" cy="149" r="5" fill="#fde8d8"/>
+
+        <!-- Right arm: raised waving -->
+        <path d="M220 200 Q242 193 250 178 Q256 162 244 154 Q233 147 224 157 Q215 168 220 185Z"
+              fill="#fde8d8"/>
+        <!-- Right hand waving -->
+        <ellipse cx="248" cy="151" rx="13" ry="11" fill="#fde8d8"/>
+        <circle cx="241" cy="146" r="5" fill="#fde8d8"/>
+        <circle cx="249" cy="143" r="5" fill="#fde8d8"/>
+        <circle cx="257" cy="146" r="5" fill="#fde8d8"/>
+        <!-- Sparkle from waving hand -->
+        <text x="262" y="138" font-size="13" fill="#fbbf24" opacity=".9">✨</text>
+
+        <!-- ── Hair (back) ── -->
+        <ellipse cx="170" cy="120" rx="72" ry="80" fill="#7c3aed"/>
+        <!-- Hair flowing right side -->
+        <path d="M235 125 Q265 150 260 200 Q248 195 240 165 Q235 145 238 125Z" fill="#6d28d9"/>
+        <!-- Hair flowing left side  -->
+        <path d="M105 125 Q75 150 80 200 Q92 195 100 165 Q105 145 102 125Z" fill="#6d28d9"/>
+        <!-- Long hair cascading down back -->
+        <path d="M110 155 Q90 200 95 260 L115 255 Q112 210 118 170Z" fill="#5b21b6"/>
+        <path d="M230 155 Q250 200 245 260 L225 255 Q228 210 222 170Z" fill="#5b21b6"/>
+
+        <!-- ── Cat ears ── -->
+        <polygon points="120,70 102,32 140,65" fill="#7c3aed"/>
+        <polygon points="220,70 238,32 200,65" fill="#7c3aed"/>
+        <polygon points="122,68 106,38 138,64" fill="#f9a8d4"/>
+        <polygon points="218,68 234,38 202,64" fill="#f9a8d4"/>
+        <!-- Ear fur -->
+        <polygon points="118,68 108,40 133,63" fill="#ec4899" opacity=".4"/>
+        <polygon points="222,68 232,40 207,63" fill="#ec4899" opacity=".4"/>
+
+        <!-- ── Neck ── -->
+        <rect x="158" y="165" width="24" height="20" rx="5" fill="#fde8d8"/>
+
+        <!-- ── Face ── -->
+        <ellipse cx="170" cy="130" rx="55" ry="60" fill="#fde8d8"/>
+
+        <!-- ── Eyebrows ── -->
+        <path d="M133 105 Q148 97 160 103" stroke="#7c3aed" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        <path d="M180 103 Q192 97 207 105" stroke="#7c3aed" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+
+        <!-- ── Eyes (closed/squinting for giggle) ── -->
+        <!-- Left eye: happy squint arc -->
+        <path d="M132 118 Q148 108 164 118" stroke="#1e1b4b" stroke-width="4" fill="none"
+              stroke-linecap="round"/>
+        <!-- Left eye lower lash -->
+        <path d="M133 119 Q148 127 163 119" stroke="#1e1b4b" stroke-width="1.5" fill="none"
+              stroke-linecap="round" opacity=".4"/>
+        <!-- Left eye shine sparkle -->
+        <circle cx="138" cy="112" r="3" fill="white" opacity=".85"/>
+        <circle cx="145" cy="109" r="1.5" fill="white" opacity=".7"/>
+
+        <!-- Right eye: happy squint arc with wink  -->
+        <path d="M176 118 Q192 108 208 118" stroke="#1e1b4b" stroke-width="4" fill="none"
+              stroke-linecap="round"/>
+        <path d="M177 119 Q192 127 207 119" stroke="#1e1b4b" stroke-width="1.5" fill="none"
+              stroke-linecap="round" opacity=".4"/>
+        <circle cx="198" cy="112" r="3" fill="white" opacity=".85"/>
+        <circle cx="204" cy="109" r="1.5" fill="white" opacity=".7"/>
+
+        <!-- ── Big eyelashes ── -->
+        <!-- Left upper lashes -->
+        <line x1="133" y1="118" x2="128" y2="110" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="138" y1="113" x2="135" y2="105" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="145" y1="110" x2="143" y2="102" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="152" y1="110" x2="151" y2="102" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="159" y1="113" x2="160" y2="105" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="164" y1="118" x2="167" y2="110" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <!-- Right upper lashes -->
+        <line x1="177" y1="118" x2="173" y2="110" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="182" y1="113" x2="180" y2="105" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="189" y1="110" x2="188" y2="102" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="196" y1="110" x2="196" y2="102" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="203" y1="113" x2="204" y2="105" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+        <line x1="208" y1="118" x2="212" y2="110" stroke="#1e1b4b" stroke-width="2" stroke-linecap="round"/>
+
+        <!-- ── Nose ── -->
+        <path d="M165 143 Q170 150 175 143" stroke="#e8b4a0" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+        <!-- ── Open giggling mouth ── -->
+        <path d="M148 158 Q170 178 192 158" fill="#1e1b4b"/>
+        <path d="M148 158 Q170 175 192 158" fill="#e879a0"/>
+        <!-- Teeth  -->
+        <path d="M153 160 Q170 173 187 160 Q170 165 153 160Z" fill="white" opacity=".9"/>
+        <!-- Tongue peek -->
+        <ellipse cx="170" cy="170" rx="10" ry="7" fill="#ff7eb3"/>
+
+        <!-- ── Blush (big giggle blush) ── -->
+        <ellipse cx="128" cy="145" rx="16" ry="10" fill="rgba(249,168,212,.55)"/>
+        <ellipse cx="212" cy="145" rx="16" ry="10" fill="rgba(249,168,212,.55)"/>
+        <!-- Blush dots -->
+        <circle cx="123" cy="143" r="2.5" fill="rgba(236,72,153,.3)"/>
+        <circle cx="130" cy="149" r="2" fill="rgba(236,72,153,.3)"/>
+        <circle cx="207" cy="143" r="2.5" fill="rgba(236,72,153,.3)"/>
+        <circle cx="214" cy="149" r="2" fill="rgba(236,72,153,.3)"/>
+
+        <!-- ── Hair front / fringe ── -->
+        <path d="M115 88 Q118 115 122 135" stroke="#5b21b6" stroke-width="12" fill="none" stroke-linecap="round"/>
+        <path d="M125 80 Q128 105 130 125" stroke="#7c3aed" stroke-width="10" fill="none" stroke-linecap="round"/>
+        <path d="M137 73 Q138 92 140 112" stroke="#8b5cf6" stroke-width="9" fill="none" stroke-linecap="round"/>
+        <path d="M150 68 Q150 85 151 100" stroke="#a78bfa" stroke-width="7" fill="none" stroke-linecap="round"/>
+        <path d="M225 88 Q222 115 218 135" stroke="#5b21b6" stroke-width="12" fill="none" stroke-linecap="round"/>
+        <path d="M215 80 Q212 105 210 125" stroke="#7c3aed" stroke-width="10" fill="none" stroke-linecap="round"/>
+        <path d="M203 73 Q202 92 200 112" stroke="#8b5cf6" stroke-width="9" fill="none" stroke-linecap="round"/>
+
+        <!-- ── Ahoge ── -->
+        <path d="M170 48 Q178 20 192 28 Q185 38 180 52" stroke="#c084fc" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <circle cx="192" cy="26" r="6" fill="#f9a8d4"/>
+        <circle cx="188" cy="20" r="4" fill="#fbbf24" opacity=".8"/>
+
+        <!-- ── Sweat/giggle drops ── -->
+        <ellipse cx="230" cy="90" rx="4" ry="7" fill="rgba(147,197,253,.7)"/>
+        <ellipse cx="232" cy="100" rx="3" ry="5" fill="rgba(147,197,253,.5)"/>
+
+        <!-- ── Heart bubbles ── -->
+        <text x="80" y="100" font-size="18" fill="#f472b6" opacity=".8" class="float-hrt">♥</text>
+        <text x="264" y="108" font-size="14" fill="#fb7185" opacity=".7" class="float-hrt2">♥</text>
+        <text x="68" y="140" font-size="11" fill="#e879a0" opacity=".6" class="float-hrt">♡</text>
+
+        <!-- ── Stars decoration ── -->
+        <text x="255" y="82" font-size="16" fill="#fbbf24" opacity=".85">✦</text>
+        <text x="75" y="75" font-size="12" fill="#c084fc" opacity=".7">✧</text>
+        <text x="244" y="235" font-size="14" fill="#f9a8d4" opacity=".6">✦</text>
       </svg>
 
-      <!-- Name tag -->
-      <div class="anichar__name">
-        <span class="anichar__oni">Onichan</span>
-        <span class="anichar__byp">Bypasser</span>
+      <!-- Giggle sound waves -->
+      <div class="giggle-waves">
+        <span class="gw gw1"></span>
+        <span class="gw gw2"></span>
+        <span class="gw gw3"></span>
       </div>
     </div>
 
-    <!-- Input card -->
+    <!-- ── Brand ── -->
+    <div class="lock-brand">
+      <span class="lock-oni">Onichan</span>
+      <span class="lock-byp">BYPASSER</span>
+    </div>
+
+    <!-- ── Auth card ── -->
     <div class="lock-card">
-      <p class="lock-tagline">Enter your bot key to unlock all features</p>
+      <p class="lock-hint">Enter your bot key to unlock</p>
 
-      <div id="authStatus" class="auth-status" style="display:none;"></div>
+      <div id="authStatus" class="auth-msg" style="display:none;"></div>
 
-      <div class="lock-input-row">
-        <span class="lock-input-prefix">
-          <i class="fa-solid fa-key"></i>
-        </span>
-        <input
-          id="authKeyInput"
-          type="text"
-          class="lock-input"
-          placeholder="ONIX-XXXXXXXXXXXXXXXXXXXXXXX"
-          autocomplete="off"
-          spellcheck="false"
-        />
+      <div class="lock-input-wrap">
+        <span class="li-icon">🔑</span>
+        <input id="authKeyInput" type="text" class="li-field"
+               placeholder="ONIX-XXXXXXXXXXXXXXXXXXXXXXX"
+               autocomplete="off" spellcheck="false">
       </div>
 
-      <div id="authApiRow" class="lock-input-row" style="display:none;">
-        <span class="lock-input-prefix"><i class="fa-solid fa-server"></i></span>
-        <input
-          id="authApiInput"
-          type="text"
-          class="lock-input"
-          placeholder="Custom API URL"
-          autocomplete="off"
-        />
+      <div id="authApiRow" class="lock-input-wrap" style="display:none;">
+        <span class="li-icon">🌐</span>
+        <input id="authApiInput" type="text" class="li-field"
+               placeholder="Custom API URL" autocomplete="off">
       </div>
 
-      <button id="authSubmitBtn" class="lock-btn">
-        <i class="fa-solid fa-unlock"></i>
-        Unlock Extension
+      <button id="authSubmitBtn" class="lock-unlock-btn">
+        🔓 Unlock Extension
       </button>
 
-      <div class="lock-links">
-        <button id="authApiToggle" class="lock-link">
-          <i class="fa-solid fa-sliders"></i> Custom API URL
-        </button>
-        <a href="https://t.me/Onichanbabybot" target="_blank" class="lock-link" rel="noopener">
-          <i class="fa-brands fa-telegram"></i> Get key via /extkey
+      <div class="lock-links-row">
+        <button id="authApiToggle" class="llink">⚙ Custom API</button>
+        <a href="https://t.me/Onichanbabybot" target="_blank" class="llink" rel="noopener">
+          ✈ Get key via /extkey
         </a>
       </div>
     </div>
 
-    <p class="lock-footer">
-      <i class="fa-brands fa-telegram" style="color:#229ED9;"></i>
-      Powered by <strong>@Onichanbabybot</strong>
-    </p>
+    <p class="lock-footer">✈ Powered by <strong>@Onichanbabybot</strong></p>
   </div>
 </div>
 
 
-<!-- ═══════════════════════════════════════════════════════
-     MAIN APP
-═══════════════════════════════════════════════════════ -->
-<div id="mainApp" class="main-app" style="display:none;">
+<!-- ═══════════════════════════════════════ MAIN APP ══════ -->
+<div id="mainApp" class="app-wrap" style="display:none;">
 
-  <!-- ── Top header ─────────────────────────────────────── -->
-  <header class="app-header">
-    <div class="app-header__brand">
-      <!-- Mini anime girl avatar -->
-      <svg class="mini-anichar" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="30" cy="30" r="29" fill="#1e1a3d" stroke="#7c3aed" stroke-width="1.5"/>
-        <ellipse cx="30" cy="28" rx="14" ry="16" fill="#c084fc"/>
-        <ellipse cx="30" cy="33" rx="11" ry="13" fill="#fde8d8"/>
-        <polygon points="20,20 16,8 24,18" fill="#a855f7"/>
-        <polygon points="40,20 44,8 36,18" fill="#a855f7"/>
-        <ellipse cx="24" cy="33" rx="4" ry="4.5" fill="#1e1b4b"/>
-        <ellipse cx="36" cy="33" rx="4" ry="4.5" fill="#1e1b4b"/>
-        <ellipse cx="24" cy="33" rx="2.5" ry="3" fill="#8b5cf6"/>
-        <ellipse cx="36" cy="33" rx="2.5" ry="3" fill="#8b5cf6"/>
-        <circle cx="25.5" cy="31.5" r="1.2" fill="rgba(255,255,255,.85)"/>
-        <circle cx="37.5" cy="31.5" r="1.2" fill="rgba(255,255,255,.85)"/>
-        <ellipse cx="20" cy="36" rx="3" ry="1.5" fill="rgba(249,168,212,.5)"/>
-        <ellipse cx="40" cy="36" rx="3" ry="1.5" fill="rgba(249,168,212,.5)"/>
-        <path d="M26 40 Q30 43 34 40" stroke="#e8936a" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- ── Header ─────────────────────────────────── -->
+  <header class="hdr">
+
+    <!-- Brand -->
+    <div class="hdr-brand">
+      <svg class="hdr-ava" viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="28" cy="28" r="27" fill="#1a0035" stroke="#8b5cf6" stroke-width="1.5"/>
+        <ellipse cx="28" cy="26" rx="14" ry="16" fill="#7c3aed"/>
+        <ellipse cx="28" cy="31" rx="11" ry="13" fill="#fde8d8"/>
+        <polygon points="19,18 14,4 23,16" fill="#7c3aed"/>
+        <polygon points="37,18 42,4 33,16" fill="#7c3aed"/>
+        <polygon points="20,17 15,6 22,15" fill="#f9a8d4"/>
+        <polygon points="36,17 41,6 34,15" fill="#f9a8d4"/>
+        <!-- Happy squint eyes -->
+        <path d="M17 30 Q22 25 27 30" stroke="#1e1b4b" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <path d="M29 30 Q34 25 39 30" stroke="#1e1b4b" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <ellipse cx="17" cy="35" rx="5" ry="3" fill="rgba(249,168,212,.5)"/>
+        <ellipse cx="39" cy="35" rx="5" ry="3" fill="rgba(249,168,212,.5)"/>
+        <path d="M21 40 Q28 46 35 40" fill="#e879a0"/>
+        <path d="M21 40 Q28 44 35 40" fill="white" opacity=".7"/>
+        <circle cx="24" cy="37" r="1.5" fill="white" opacity=".8"/>
+        <circle cx="32" cy="37" r="1.5" fill="white" opacity=".8"/>
       </svg>
-      <div>
-        <div class="brand-title">ONICHAN</div>
-        <div class="brand-sub">Bypasser</div>
+      <div class="hdr-titles">
+        <span class="hdr-name">ONICHAN</span>
+        <span class="hdr-sub">Bypasser</span>
       </div>
     </div>
 
-    <!-- Navigation tabs -->
-    <nav class="app-nav" role="tablist">
-      <button class="nav-tab active" data-section="homePage" role="tab">
-        <i class="fa-solid fa-house"></i>
-        <span>Home</span>
-      </button>
-      <button class="nav-tab" data-section="gatewaysSection" role="tab">
-        <i class="fa-solid fa-network-wired"></i>
-        <span>Gateways</span>
-      </button>
-      <button class="nav-tab" data-section="binSection" role="tab">
-        <i class="fa-solid fa-credit-card"></i>
-        <span>BINs</span>
-      </button>
-      <button class="nav-tab" data-section="bypassSection" role="tab">
-        <i class="fa-solid fa-shield-halved"></i>
-        <span>Bypass</span>
-      </button>
-    </nav>
-
-    <!-- Right controls -->
-    <div class="app-header__right">
-      <span id="statusBadge" class="status-badge">Free</span>
-
-      <div class="toggle-wrap">
-        <input class="cyber-cb" id="cyber-toggle" type="checkbox" />
-        <label class="cyber-lbl" for="cyber-toggle">
-          <div class="cyber-track">
-            <div class="cyber-thumb">
-              <svg viewBox="0 0 24 24"><path d="M16.5 12c0-2.48-2.02-4.5-4.5-4.5s-4.5 2.02-4.5 4.5 2.02 4.5 4.5 4.5 4.5-2.02 4.5-4.5zm-4.5 7.5c-4.14 0-7.5-3.36-7.5-7.5s3.36-7.5 7.5-7.5 7.5 3.36 7.5 7.5-3.36 7.5-7.5 7.5zm0-16.5c-4.97 0-9 4.03-9 9h-3l3.89 3.89.07.14 4.04-4.03h-3c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42c1.63 1.63 3.87 2.64 6.36 2.64 4.97 0 9-4.03 9-9s-4.03-9-9-9z"/></svg>
-            </div>
-          </div>
-        </label>
-        <span class="toggle-labels"><span class="lbl-off">OFF</span><span class="lbl-on">ON</span></span>
+    <!-- Right side -->
+    <div class="hdr-right">
+      <!-- User badge (shown after auth) -->
+      <div id="user-badge" class="user-badge hidden">
+        <img id="user-avatar" src="assets/icons/icon32.png" class="ub-avatar" alt="">
+        <span id="statusBadge" class="ub-plan">Free</span>
+        <button id="authLogoutBtn" class="ub-logout" title="Logout">🚪</button>
+        <div class="ub-tip" id="user-tooltip">
+          <span id="tooltip-username">@Onichanbabybot</span>
+        </div>
+      </div>
+      <!-- If no user badge -->
+      <div id="fallback-logout" class="hidden">
+        <button id="authLogoutBtn2" class="icon-btn" title="Logout">🚪</button>
       </div>
 
-      <div class="clock-widget" id="clockWidget">
-        <span id="atcTime" class="clock-time">--:--</span>
-        <span id="atcAmPm" class="clock-ampm">--</span>
+      <!-- Notification bell -->
+      <div class="notif-bell" id="notif-bell" title="Notifications">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+        </svg>
+        <div class="notif-dot hidden" id="notif-badge">0</div>
       </div>
-
-      <button class="icon-btn" id="authLogoutBtn" title="Logout / Change key">
-        <i class="fa-solid fa-right-from-bracket"></i>
-      </button>
     </div>
   </header>
 
+  <!-- Notification dropdown -->
+  <div class="notif-drop hidden" id="notif-dropdown">
+    <div class="nd-hdr">
+      <span>🔔 Notifications</span>
+      <button class="nd-clear" id="notif-clear-all">Clear All</button>
+    </div>
+    <div class="nd-list" id="notif-list">
+      <div class="nd-empty">No new notifications</div>
+    </div>
+  </div>
 
-  <!-- ── Page container ─────────────────────────────────── -->
-  <main class="page-container" id="pageContainer">
+  <!-- Announcement banner -->
+  <div class="ann-banner hidden" id="announcement-banner">
+    <span class="ann-icon">📢</span>
+    <span class="ann-text" id="announcement-text">Announcement</span>
+    <button class="ann-x" id="announcement-dismiss">×</button>
+  </div>
 
-    <!-- HOME -->
-    <section id="homePage" class="page active">
-      <div class="home-grid">
+  <!-- Premium / Expiry banner -->
+  <div class="trial-banner hidden" id="trial-banner">
+    <div class="tb-inner">
+      <span class="tb-icon" id="trial-icon">⭐</span>
+      <div class="tb-info">
+        <div class="tb-title" id="trial-title">Premium Active</div>
+        <div class="tb-cd" id="trial-countdown">—</div>
+      </div>
+    </div>
+  </div>
 
-        <div class="home-hero">
-          <svg class="home-girl" viewBox="0 0 120 140" xmlns="http://www.w3.org/2000/svg">
-            <ellipse cx="60" cy="55" rx="36" ry="40" fill="#c084fc"/>
-            <path d="M24 58 Q18 90 23 120 Q35 100 38 80 Q40 68 36 58Z" fill="#a855f7"/>
-            <path d="M96 58 Q102 90 97 120 Q85 100 82 80 Q80 68 84 58Z" fill="#a855f7"/>
-            <polygon points="34,40 28,16 46,36" fill="#a855f7"/>
-            <polygon points="86,40 92,16 74,36" fill="#a855f7"/>
-            <polygon points="36,38 30,20 45,35" fill="#f9a8d4"/>
-            <polygon points="84,38 90,20 75,35" fill="#f9a8d4"/>
-            <ellipse cx="60" cy="70" rx="30" ry="32" fill="#fde8d8"/>
-            <ellipse cx="47" cy="68" rx="9" ry="10" fill="#1e1b4b"/>
-            <ellipse cx="73" cy="68" rx="9" ry="10" fill="#1e1b4b"/>
-            <ellipse cx="47" cy="69" rx="6.5" ry="7" fill="#8b5cf6"/>
-            <ellipse cx="73" cy="69" rx="6.5" ry="7" fill="#8b5cf6"/>
-            <ellipse cx="47" cy="70" rx="4" ry="4.5" fill="#1e1b4b"/>
-            <ellipse cx="73" cy="70" rx="4" ry="4.5" fill="#1e1b4b"/>
-            <ellipse cx="49.5" cy="66" rx="2.5" ry="3" fill="rgba(255,255,255,.9)"/>
-            <ellipse cx="75.5" cy="66" rx="2.5" ry="3" fill="rgba(255,255,255,.9)"/>
-            <ellipse cx="38" cy="76" rx="6" ry="3" fill="rgba(249,168,212,.45)"/>
-            <ellipse cx="82" cy="76" rx="6" ry="3" fill="rgba(249,168,212,.45)"/>
-            <path d="M57 84 Q60 88 63 84" stroke="#e8936a" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-            <rect x="52" y="96" width="16" height="12" rx="3" fill="#fde8d8"/>
-            <path d="M36 108 Q60 114 84 108 L90 140 L30 140Z" fill="#6d28d9"/>
-            <path d="M60 111 L52 125 L68 125Z" fill="#f9a8d4"/>
-          </svg>
-          <div class="home-hero__text">
-            <h2 class="home-title">Welcome back<span class="wave">👋</span></h2>
-            <p class="home-sub">Onichan Bypasser is active and ready.</p>
+  <!-- Stats bar -->
+  <div class="stats-bar" id="stats-section">
+    <div class="stat-item">
+      <div class="si-val blue" id="total-cards">0</div>
+      <div class="si-lbl">Total</div>
+    </div>
+    <div class="stat-item">
+      <div class="si-val green" id="stats-charged">0</div>
+      <div class="si-lbl">Live</div>
+    </div>
+    <div class="stat-item">
+      <div class="si-val pink" id="stats-ccn">0</div>
+      <div class="si-lbl">Charged</div>
+    </div>
+    <div class="stat-item">
+      <div class="si-val red" id="stats-dead">0</div>
+      <div class="si-lbl">Dead</div>
+    </div>
+    <div class="stat-item">
+      <div class="si-val gold" id="totalGateways">—</div>
+      <div class="si-lbl">Gates</div>
+    </div>
+    <div class="stat-item">
+      <div class="si-val purp" id="totalBins">—</div>
+      <div class="si-lbl">BINs</div>
+    </div>
+  </div>
+
+  <!-- ── Tabs ──────────────────────────────────── -->
+  <div class="tabs-row" role="tablist">
+    <button class="tab-btn active" data-tab="bypass">Bypass</button>
+    <button class="tab-btn" data-tab="history">History</button>
+    <button class="tab-btn" data-tab="bins">BINs</button>
+    <button class="tab-btn" data-tab="gateways">Gateways</button>
+    <button class="tab-btn" data-tab="settings">Settings</button>
+  </div>
+
+  <!-- ── Tab content ───────────────────────────── -->
+  <div class="tab-area">
+
+    <!-- ══ BYPASS TAB ══ -->
+    <div id="bypass-tab" class="t-panel active">
+
+      <!-- 1. BIN -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="bin-body">
+          <h2>1. BIN / CC List</h2>
+          <div class="sec-hdr-right">
+            <div class="mode-toggle">
+              <button class="mode-btn active" id="bin-mode-btn" data-mode="bin">BIN</button>
+              <button class="mode-btn" id="cc-list-mode-btn" data-mode="ccList">CC List</button>
+            </div>
+            <span class="chevron">▾</span>
           </div>
         </div>
-
-        <div class="stat-cards">
-          <div class="stat-card">
-            <div class="stat-card__icon" style="color:#c084fc"><i class="fa-solid fa-network-wired"></i></div>
-            <div class="stat-card__val" id="totalGateways">—</div>
-            <div class="stat-card__lbl">Gateways</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-card__icon" style="color:#f472b6"><i class="fa-solid fa-credit-card"></i></div>
-            <div class="stat-card__val" id="totalBins">—</div>
-            <div class="stat-card__lbl">My BINs</div>
-          </div>
-        </div>
-
-        <div class="home-quick">
-          <div class="section-label">Quick Actions</div>
-          <div class="quick-grid">
-            <button class="quick-tile" data-section="gatewaysSection">
-              <i class="fa-solid fa-network-wired"></i>
-              <span>Manage Gateways</span>
-            </button>
-            <button class="quick-tile" data-section="binSection">
-              <i class="fa-solid fa-credit-card"></i>
-              <span>My BINs</span>
-            </button>
-            <button class="quick-tile" id="binLibraryBtn" data-section="binSection">
-              <i class="fa-solid fa-book"></i>
-              <span>BIN Library</span>
-            </button>
-            <button class="quick-tile" id="openBypasserBtn" data-section="bypassSection">
-              <i class="fa-solid fa-shield-halved"></i>
-              <span>Bypasser</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="home-tweaks">
-          <div class="section-label">Tweaks</div>
-          <div class="tweak-list">
-            <label class="tweak-row">
-              <div>
-                <div class="tweak-name">Card filler (Stripe)</div>
-                <div class="tweak-desc">Auto-fill Stripe card forms</div>
+        <div class="sec-body" id="bin-body">
+          <!-- BIN mode -->
+          <div id="bin-mode-content">
+            <div class="two-col">
+              <div class="fcol">
+                <label class="lbl">BIN</label>
+                <input type="text" id="bin-input" class="oni-input" placeholder="44304400" autocomplete="off">
               </div>
-              <div class="oni-switch"><input type="checkbox" id="toggleCardFiller"><span></span></div>
-            </label>
-            <label class="tweak-row">
-              <div>
-                <div class="tweak-name">Twinkling effect</div>
-                <div class="tweak-desc">Sparkle overlay on pages</div>
+              <div class="fcol">
+                <label class="lbl">CVV</label>
+                <input type="text" id="cvv-input" class="oni-input" placeholder="RND" maxlength="4" autocomplete="off">
               </div>
-              <div class="oni-switch"><input type="checkbox" id="toggleTwinkle"><span></span></div>
-            </label>
-            <label class="tweak-row">
-              <div>
-                <div class="tweak-name">Night gazing</div>
-                <div class="tweak-desc">Dark mode enhancements</div>
+            </div>
+            <div class="two-col" style="margin-top:8px;">
+              <div class="fcol">
+                <label class="lbl">Expiry Month</label>
+                <select id="expiry-month-select" class="oni-select">
+                  <option value="RND">RND</option>
+                  <option>01</option><option>02</option><option>03</option><option>04</option>
+                  <option>05</option><option>06</option><option>07</option><option>08</option>
+                  <option>09</option><option>10</option><option>11</option><option>12</option>
+                </select>
               </div>
-              <div class="oni-switch"><input type="checkbox" id="toggleNight"><span></span></div>
-            </label>
+              <div class="fcol">
+                <label class="lbl">Expiry Year</label>
+                <select id="expiry-year-select" class="oni-select">
+                  <option value="RND">RND</option>
+                </select>
+              </div>
+            </div>
+            <p class="hint">💡 <code>RND</code> = random per card. AMEX (34/37) auto-detected.</p>
+          </div>
+          <!-- CC list mode -->
+          <div id="cc-list-mode-content" class="hidden">
+            <div class="cc-list-header">
+              <label class="lbl">CC List</label>
+              <span class="cc-badge" id="cc-list-counter">📋 0 cards</span>
+            </div>
+            <textarea id="cc-list-input" class="oni-textarea"
+              placeholder="Paste cards (any format: pipe, colon, space)"></textarea>
+            <p class="hint">💡 Supports: <code>4242...|12|25|123</code> or <code>4242... 12 25 123</code></p>
           </div>
         </div>
-
       </div>
 
-      <!-- Quick BIN -->
-      <div class="quick-bin-bar">
-        <i class="fa-solid fa-bolt" style="color:#fbbf24;"></i>
-        <input id="binQuickInput" type="text" placeholder="Quick BIN lookup…" class="qbin-input">
-        <button id="binQuickSubmitBtn" class="qbin-btn">Use BIN</button>
-      </div>
-
-      <form id="binQuickForm" style="display:none;"></form>
-    </section>
-
-
-    <!-- GATEWAYS -->
-    <section id="gatewaysSection" class="page">
-      <div class="page-header">
-        <h2 class="page-title"><i class="fa-solid fa-network-wired"></i> Custom Gateways</h2>
-        <div class="page-actions">
-          <button class="actionBtn action--danger" id="clearAllBtn">
-            <i class="fa-solid fa-trash"></i> Clear All
-          </button>
-          <button class="actionBtn action--top" id="backToLandingBtn">
-            <i class="fa-solid fa-arrow-up"></i> Top
-          </button>
+      <!-- 2. Card Replacement -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="card-rep-body">
+          <h2>2. Card Replacement</h2>
+          <div class="sec-hdr-right">
+            <label class="oni-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="card-replacement-toggle">
+              <span></span>
+            </label>
+            <span class="chevron">▾</span>
+          </div>
+        </div>
+        <div class="sec-body hidden" id="card-rep-body">
+          <div class="gw-checks" id="card-replacement-content">
+            <label class="gw-chk"><input type="checkbox" id="card-replacement-stripe" data-gateway="stripe"><span>Stripe</span></label>
+            <label class="gw-chk"><input type="checkbox" id="card-replacement-adyen" data-gateway="adyen"><span>Adyen</span></label>
+            <label class="gw-chk"><input type="checkbox" id="card-replacement-checkout" data-gateway="checkout"><span>Checkout.com</span></label>
+            <label class="gw-chk"><input type="checkbox" id="card-replacement-recurly" data-gateway="recurly"><span>Recurly</span></label>
+            <label class="gw-chk"><input type="checkbox" id="card-replacement-xsolla" data-gateway="xsolla"><span>Xsolla</span></label>
+          </div>
+          <p class="hint">💡 Auto-uses next card from CC List when one fails.</p>
         </div>
       </div>
 
-      <div class="gw-layout">
-        <!-- List panel -->
-        <div class="gw-list-panel">
-          <div class="toolbar-row">
-            <input type="text" id="gatewaySearch" placeholder="Search name / domain…" class="oni-input" />
-            <select id="gatewaySort" class="oni-select">
+      <!-- 3. CVV Bypass -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="cvv-body">
+          <h2>3. CVV Bypass</h2>
+          <div class="sec-hdr-right">
+            <label class="oni-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="cvv-bypass-toggle">
+              <span></span>
+            </label>
+            <span class="chevron">▾</span>
+          </div>
+        </div>
+        <div class="sec-body hidden" id="cvv-body">
+          <div class="gw-checks" id="cvv-bypass-content">
+            <label class="gw-chk"><input type="checkbox" id="cvv-stripe" data-gateway="stripe"><span>Stripe</span></label>
+            <label class="gw-chk"><input type="checkbox" id="cvv-adyen" data-gateway="adyen"><span>Adyen</span></label>
+            <label class="gw-chk"><input type="checkbox" id="cvv-checkout" data-gateway="checkout"><span>Checkout.com</span></label>
+            <label class="gw-chk"><input type="checkbox" id="cvv-recurly" data-gateway="recurly"><span>Recurly</span></label>
+            <label class="gw-chk"><input type="checkbox" id="cvv-xsolla" data-gateway="xsolla"><span>Xsolla</span></label>
+          </div>
+          <p class="hint">💡 <code>cvc_required</code> error? Disable for that gateway.</p>
+        </div>
+      </div>
+
+      <!-- 4. Payment UA Bypass -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="ua-body">
+          <h2>4. Payment User Agent Bypass</h2>
+          <div class="sec-hdr-right">
+            <label class="oni-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="payment-user-agent-bypass-toggle">
+              <span></span>
+            </label>
+            <span class="chevron">▾</span>
+          </div>
+        </div>
+        <div class="sec-body hidden" id="ua-body">
+          <p class="info-text">Stripe only</p>
+          <p class="hint">💡 <code>ua_required</code> error? Disable this.</p>
+        </div>
+      </div>
+
+      <!-- 5. Stripe Security -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="sec-body">
+          <h2>5. Stripe Security Bypass</h2>
+          <div class="sec-hdr-right">
+            <label class="oni-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="stripe-security-bypass-toggle">
+              <span></span>
+            </label>
+            <span class="chevron">▾</span>
+          </div>
+        </div>
+        <div class="sec-body hidden" id="sec-body">
+          <div class="gw-checks" id="stripe-security-bypass-content">
+            <label class="gw-chk"><input type="checkbox" id="security-pasted" checked><span>Pasted Fields</span></label>
+            <label class="gw-chk"><input type="checkbox" id="security-timing" checked><span>Time Tracking</span></label>
+            <label class="gw-chk"><input type="checkbox" id="security-tracking" checked><span>Tracking IDs</span></label>
+            <label class="gw-chk"><input type="checkbox" id="security-zip" checked><span>Zip Code</span></label>
+          </div>
+          <p class="hint">⚠️ Advanced — keep default <strong>ON</strong> recommended.</p>
+        </div>
+      </div>
+
+      <!-- 6. 3DS Bypass -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="ds-body">
+          <h2>6. 3DS Bypass</h2>
+          <div class="sec-hdr-right">
+            <label class="oni-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="three-ds-bypass-toggle">
+              <span></span>
+            </label>
+            <span class="chevron">▾</span>
+          </div>
+        </div>
+        <div class="sec-body hidden" id="ds-body">
+          <p class="info-text">Stripe only</p>
+          <div id="three-ds-bypass-content"></div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="section">
+        <div class="sec-hdr"><h2>Actions</h2></div>
+        <div class="sec-body open">
+          <button id="reset-stats-btn" class="oni-btn">🔄 Reset Statistics</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ HISTORY TAB ══ -->
+    <div id="history-tab" class="t-panel hidden">
+      <div class="section">
+        <div class="sec-hdr"><h2>📋 Request History</h2></div>
+        <div class="sec-body open">
+          <div id="consoleBox" class="console-box">No logs yet.</div>
+          <button class="oni-btn-sm" id="clearBypasserLogs" style="margin-top:8px;">🗑 Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ BINS TAB ══ -->
+    <div id="bins-tab" class="t-panel hidden">
+
+      <!-- Onichan BIN Library -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="binlib-body">
+          <h2>✦ BIN Library</h2>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="sec-body" id="binlib-body">
+          <div class="row-bar">
+            <input type="search" id="asheoBinSearch" class="oni-input" placeholder="Search BINs…">
+            <select id="asheoBinCountryFilter" class="oni-select sm">
+              <option value="">All</option>
+              <option value="US">US</option>
+              <option value="IN">IN</option>
+              <option value="UK">UK</option>
+            </select>
+            <select id="asheoBinSort" class="oni-select sm">
+              <option value="number">BIN ↕</option>
+              <option value="name">Name ↕</option>
+            </select>
+          </div>
+          <div class="row-bar">
+            <button id="fetchAsheoBinLibraryBtn" class="oni-btn-sm">Fetch</button>
+            <button id="asheoBinDoSearchBtn" class="oni-btn-sm">Search</button>
+            <button id="asheoBinResetBtn" class="oni-btn-sm ghost">Reset</button>
+          </div>
+          <div id="asheoBinStats" class="bin-stats-text"></div>
+          <div id="asheoBinLoader" class="skel-list hidden"><div class="sr"></div><div class="sr"></div></div>
+          <div id="asheoBinEmpty" class="empty-box hidden">📭 No BINs found.</div>
+          <div id="asheoBinLibraryList" class="bin-tbl" role="table" style="max-height:180px;overflow-y:auto;"></div>
+          <div class="pager">
+            <button id="prevPage" class="oni-btn-sm ghost" disabled>← Prev</button>
+            <span id="pageIndicator" class="pager-lbl">Page 1</span>
+            <button id="nextPage" class="oni-btn-sm ghost" disabled>Next →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- My BINs -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="mybins-body">
+          <h2>My BINs</h2>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="sec-body" id="mybins-body">
+          <div class="row-bar">
+            <input type="search" id="binSearch" class="oni-input" placeholder="Search my BINs…">
+            <select id="binSort" class="oni-select sm">
+              <option value="number">BIN</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
+          <div id="binListLoader" class="skel-list hidden"><div class="sr"></div></div>
+          <div id="binListEmpty" class="empty-box hidden">🗂️ No BINs saved.</div>
+          <div id="binList" class="list-items" role="list" style="max-height:160px;overflow-y:auto;"></div>
+          <button id="clearAllBinsBtn" class="oni-btn-sm danger" style="margin-top:8px;">🗑 Clear All</button>
+        </div>
+      </div>
+
+      <!-- Add BIN -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="addbin-body">
+          <h2>Add / Edit BIN</h2>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="sec-body" id="addbin-body">
+          <form id="binForm" novalidate>
+            <div class="fcol">
+              <label class="lbl">BIN Number</label>
+              <input type="text" id="binNumber" class="oni-input" placeholder="e.g. 456321" minlength="6" required>
+            </div>
+            <div class="fcol" style="margin-top:8px;">
+              <label class="lbl">Issuer Name</label>
+              <input type="text" id="binName" class="oni-input" placeholder="Bank name" maxlength="64" required>
+            </div>
+            <div class="btn-row" style="margin-top:10px;">
+              <button id="addBinBtn" type="submit" class="oni-btn-sm">💾 Save BIN</button>
+              <button id="cancelBinEditBtn" type="button" class="oni-btn-sm ghost hidden">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Quick BIN lookup -->
+      <div class="section">
+        <div class="sec-hdr"><h2>⚡ Quick BIN</h2></div>
+        <div class="sec-body open">
+          <div class="row-bar">
+            <input id="binQuickInput" type="text" class="oni-input" placeholder="Quick BIN lookup…">
+            <button id="binQuickSubmitBtn" class="oni-btn-sm">Use</button>
+          </div>
+          <form id="binQuickForm" style="display:none;"></form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ GATEWAYS TAB ══ -->
+    <div id="gateways-tab" class="t-panel hidden">
+
+      <div class="section">
+        <div class="sec-hdr" data-toggle="gwlist-body">
+          <h2>Custom Gateways</h2>
+          <div class="sec-hdr-right">
+            <button class="oni-btn-sm danger" id="clearAllBtn">🗑 Clear All</button>
+            <span class="chevron">▾</span>
+          </div>
+        </div>
+        <div class="sec-body" id="gwlist-body">
+          <div class="row-bar">
+            <input type="text" id="gatewaySearch" class="oni-input" placeholder="Search name / domain…">
+            <select id="gatewaySort" class="oni-select sm">
               <option value="name">Name</option>
               <option value="pattern">Domain</option>
               <option value="enabled">Enabled</option>
-              <option value="manual">Manual</option>
             </select>
           </div>
           <div id="defaultsToggleBar" class="togglebar" role="group">
-            <button type="button" class="tb-btn" data-value="show" aria-pressed="false">Show defaults</button>
-            <button type="button" class="tb-btn" data-value="min" aria-pressed="true">
+            <button class="tb-btn" data-value="show">Show defaults</button>
+            <button class="tb-btn" data-value="min">
               Hide defaults <span id="defaultsCount" class="tb-pill">0</span>
             </button>
             <span class="tb-count">Total: <span id="allGatewaysCount" class="tb-pill">0/0</span></span>
           </div>
-          <div id="gatewayList" class="gw-cards" aria-live="polite"></div>
-          <p class="hint-text">✦ Drag cards to change priority</p>
+          <div id="gatewayList" class="gw-cards-list" style="max-height:200px;overflow-y:auto;" aria-live="polite"></div>
+          <p class="hint">✦ Drag to reorder priority</p>
         </div>
+      </div>
 
-        <!-- Form panel -->
-        <div class="gw-form-panel">
-          <div class="form-header">
-            <h3 id="formTitle">Add Gateway</h3>
-            <label class="oni-switch sm"><input type="checkbox" id="gwEnabled" checked><span></span></label>
+      <div class="section">
+        <div class="sec-hdr" data-toggle="gwadd-body">
+          <h2 id="formTitle">Add Gateway</h2>
+          <div class="sec-hdr-right">
+            <label class="oni-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="gwEnabled" checked>
+              <span></span>
+            </label>
+            <span class="chevron">▾</span>
           </div>
-          <div class="form-grid-2">
-            <div class="form-field">
-              <label class="field-label">Domain / Pattern</label>
-              <input type="text" id="pattern" class="oni-input" placeholder="api.stripe.com" />
+        </div>
+        <div class="sec-body" id="gwadd-body">
+          <div class="two-col">
+            <div class="fcol">
+              <label class="lbl">Domain / Pattern</label>
+              <input type="text" id="pattern" class="oni-input" placeholder="api.stripe.com">
               <label class="tiny-check"><input type="checkbox" id="isRegex"> RegExp</label>
             </div>
-            <div class="form-field">
-              <label class="field-label">Display Name</label>
-              <input type="text" id="name" class="oni-input" placeholder="Stripe" />
+            <div class="fcol">
+              <label class="lbl">Display Name</label>
+              <input type="text" id="name" class="oni-input" placeholder="Stripe">
               <label class="tiny-check"><input type="checkbox" id="isDefault"> Default</label>
             </div>
           </div>
-          <div class="form-grid-2">
-            <div class="form-field">
-              <label class="field-label">Content-Type Gate</label>
+          <div class="two-col" style="margin-top:8px;">
+            <div class="fcol">
+              <label class="lbl">Content-Type Gate</label>
               <select id="matchContentType" class="oni-select">
                 <option value="">Any</option>
                 <option>application/x-www-form-urlencoded</option>
                 <option>application/json</option>
                 <option>multipart/form-data</option>
-                <option>text/plain</option>
               </select>
             </div>
-            <div class="form-field">
-              <label class="field-label">Required Keys</label>
+            <div class="fcol">
+              <label class="lbl">Required Keys</label>
               <div class="chips" id="requiredKeys"></div>
-              <input id="requiredKeysInput" class="chip-input" placeholder="Press Enter to add…" />
+              <input id="requiredKeysInput" class="chip-input" placeholder="Enter key, press Enter">
             </div>
           </div>
-          <div class="form-field">
-            <label class="field-label">Modify Keys</label>
+          <div class="fcol" style="margin-top:8px;">
+            <label class="lbl">Modify Keys</label>
             <div id="modifyKeysList" class="kv-rows"></div>
-            <button type="button" class="ghost-btn" id="addModifyKeyBtn">+ Add key</button>
-            <p class="help-text">Templates: <code>${now}</code> <code>${rand(6)}</code> <code>${host}</code></p>
+            <button type="button" class="oni-btn-sm ghost" id="addModifyKeyBtn">+ Add key</button>
+            <p class="hint">Templates: <code>${now}</code> <code>${rand(6)}</code> <code>${host}</code></p>
           </div>
-          <div class="form-field">
-            <label class="field-label">Fields to Remove</label>
+          <div class="fcol" style="margin-top:8px;">
+            <label class="lbl">Fields to Remove</label>
             <div class="chips" id="removalFields"></div>
-            <input id="removalFieldsInput" class="chip-input" placeholder="Press Enter to add…" />
+            <input id="removalFieldsInput" class="chip-input" placeholder="Enter field, press Enter">
           </div>
-          <div class="form-btns">
-            <button class="primary-btn" id="addGatewayBtn"><i class="fa-solid fa-floppy-disk"></i> Save</button>
-            <button class="ghost-btn" id="cancelEditBtn" style="display:none;"><i class="fa-solid fa-xmark"></i> Cancel</button>
+          <div class="btn-row" style="margin-top:10px;">
+            <button class="oni-btn-sm" id="addGatewayBtn">💾 Save Gateway</button>
+            <button class="oni-btn-sm ghost hidden" id="cancelEditBtn">✕ Cancel</button>
+            <button class="oni-btn-sm" id="backToLandingBtn">↑ Top</button>
           </div>
         </div>
       </div>
-    </section>
+    </div>
 
+    <!-- ══ SETTINGS TAB ══ -->
+    <div id="settings-tab" class="t-panel hidden">
 
-    <!-- BINS -->
-    <section id="binSection" class="page">
-      <div class="page-header">
-        <h2 class="page-title"><i class="fa-solid fa-credit-card"></i> BIN Library</h2>
-      </div>
-
-      <div class="bin-layout">
-        <!-- Library panel -->
-        <div class="bin-lib-panel">
-          <h3 class="panel-title">✦ Onichan BIN Library</h3>
-          <div id="binAlert" class="alert hidden" role="alert"></div>
-          <div class="toolbar-row">
-            <input type="search" id="asheoBinSearch" class="oni-input" placeholder="Search BINs…" autocomplete="off" />
-            <select id="asheoBinCountryFilter" class="oni-select">
-              <option value="">All Countries</option>
-              <option value="US">United States</option>
-              <option value="IN">India</option>
-              <option value="UK">United Kingdom</option>
-            </select>
-            <select id="asheoBinSort" class="oni-select">
-              <option value="number">BIN ↕</option>
-              <option value="name">Name ↕</option>
-              <option value="used">Used ↕</option>
-            </select>
-          </div>
-          <div class="toolbar-row">
-            <button id="fetchAsheoBinLibraryBtn" type="button" class="primary-btn">Fetch</button>
-            <button id="asheoBinDoSearchBtn" type="button" class="primary-btn">Search</button>
-            <button id="asheoBinResetBtn" type="button" class="ghost-btn">Reset</button>
-          </div>
-          <div id="asheoBinStats" class="bin-stats"></div>
-          <div class="scroll-area" style="max-height:220px;">
-            <div id="asheoBinLoader" class="skel-list hidden"><div class="skel-row"></div><div class="skel-row"></div><div class="skel-row"></div></div>
-            <div id="asheoBinEmpty" class="empty-state hidden">
-              <div style="font-size:28px;">📭</div>
-              <p>No BINs found. Fetch the library or adjust filters.</p>
-            </div>
-            <div id="asheoBinLibraryList" class="bin-table" role="table"></div>
-          </div>
-          <nav class="pagination">
-            <button id="prevPage" type="button" class="ghost-btn" disabled>← Prev</button>
-            <span id="pageIndicator">Page 1</span>
-            <button id="nextPage" type="button" class="ghost-btn" disabled>Next →</button>
-          </nav>
+      <!-- Bypasser settings -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="bpset-body">
+          <h2>Bypasser Settings</h2>
+          <span class="chevron">▾</span>
         </div>
-
-        <!-- Registered BINs -->
-        <div class="bin-reg-panel">
-          <h3 class="panel-title">My BINs</h3>
-          <input type="search" id="binSearch" class="oni-input" placeholder="Search my BINs…" style="margin-bottom:8px;" />
-          <div class="sort-row">
-            <span class="field-label" style="margin:0;">Sort</span>
-            <select id="binSort" class="oni-select">
-              <option value="number">BIN</option>
-              <option value="name">Name</option>
-            </select>
+        <div class="sec-body" id="bpset-body">
+          <div class="two-col">
+            <div class="fcol">
+              <label class="lbl">BIN</label>
+              <input type="text" id="bypassBin" class="oni-input" placeholder="Enter BIN">
+            </div>
+            <div class="fcol">
+              <label class="lbl">Issuer Label</label>
+              <input type="text" id="bypassIssuer" class="oni-input" placeholder="Label">
+            </div>
           </div>
-          <div class="scroll-area" style="max-height:200px;margin-top:8px;">
-            <div id="binListLoader" class="skel-list hidden"><div class="skel-row"></div><div class="skel-row"></div></div>
-            <div id="binListEmpty" class="empty-state hidden"><div style="font-size:24px;">🗂️</div><p>No BINs saved yet.</p></div>
-            <div id="binList" class="list-items" role="list"></div>
+          <div class="btn-row" style="margin-top:10px;">
+            <button id="saveBypasserSettings" class="oni-btn-sm">💾 Save BIN</button>
+            <button id="goToBins" class="oni-btn-sm ghost">View BINs</button>
+            <button id="addToRegisteredBins" class="oni-btn-sm">+ Add to BINs</button>
           </div>
-          <button id="clearAllBinsBtn" type="button" class="danger-btn" style="margin-top:10px;">Clear All</button>
-        </div>
-
-        <!-- Add BIN form -->
-        <div class="bin-form-panel">
-          <h3 class="panel-title">Add / Edit BIN</h3>
-          <form id="binForm" novalidate>
-            <div class="form-field">
-              <label class="field-label">BIN Number</label>
-              <input type="text" id="binNumber" class="oni-input" placeholder="e.g. 456321" minlength="6" required />
-              <p class="help-text">6–8 digits</p>
+          <div style="margin-top:14px;">
+            <label class="lbl">CVV Options</label>
+            <div class="cvv-opts">
+              <label class="twk-row">
+                <div class="oni-switch"><input type="checkbox" id="cvvGenModeToggle"><span></span></div>
+                <span>GEN mode (keep CVV in mods)</span>
+              </label>
+              <label class="twk-row">
+                <div class="oni-switch"><input type="checkbox" id="removeCvvToggle"><span></span></div>
+                <span>Remove CVV from fields</span>
+              </label>
+              <label class="twk-row">
+                <div class="oni-switch"><input type="checkbox" id="removeStripeAgentToggle"><span></span></div>
+                <span>Remove Stripe Agent</span>
+              </label>
             </div>
-            <div class="form-field">
-              <label class="field-label">Issuer Name</label>
-              <input type="text" id="binName" class="oni-input" placeholder="Bank name" maxlength="64" required />
-            </div>
-            <div class="form-btns">
-              <button id="addBinBtn" type="submit" class="primary-btn"><i class="fa-solid fa-floppy-disk"></i> Save BIN</button>
-              <button id="cancelBinEditBtn" type="button" class="ghost-btn" style="display:none;">Cancel</button>
-            </div>
-          </form>
+          </div>
         </div>
       </div>
-    </section>
 
-
-    <!-- BYPASS -->
-    <section id="bypassSection" class="page">
-      <div class="page-header">
-        <h2 class="page-title"><i class="fa-solid fa-shield-halved"></i> Bypasser Settings</h2>
-      </div>
-
-      <div class="bypass-layout">
-        <div class="bypass-config">
-          <h3 class="panel-title">Configure BIN</h3>
-          <div class="form-grid-2">
-            <div class="form-field">
-              <label class="field-label">BIN</label>
-              <input type="text" id="bypassBin" class="oni-input" placeholder="Enter BIN" />
-            </div>
-            <div class="form-field">
-              <label class="field-label">Issuer Label</label>
-              <input type="text" id="bypassIssuer" class="oni-input" placeholder="Label for storage" />
-            </div>
-          </div>
-          <div class="form-btns">
-            <button id="saveBypasserSettings" class="primary-btn"><i class="fa-solid fa-floppy-disk"></i> Save BIN</button>
-            <button id="clearBypasserLogs" class="ghost-btn"><i class="fa-solid fa-eraser"></i> Clear Console</button>
-            <button id="goToBins" class="ghost-btn">View BINs</button>
-            <button id="addToRegisteredBins" class="accent-btn"><i class="fa-solid fa-plus"></i> Add to My BINs</button>
-          </div>
-
-          <!-- CVV Options -->
-          <h3 class="panel-title" style="margin-top:18px;">CVV Options</h3>
-          <div class="cvv-grid">
-            <label class="cvv-option">
-              <div class="oni-switch"><input type="checkbox" id="cvvGenModeToggle"><span></span></div>
-              <div>
-                <div class="tweak-name">GEN mode</div>
-                <div class="tweak-desc">Don't remove CVV in modifications</div>
-              </div>
+      <!-- Form filling -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="ff-body">
+          <h2>Form Filling</h2>
+          <div class="sec-hdr-right">
+            <label class="oni-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="form-filling-toggle" checked>
+              <span></span>
             </label>
-            <label class="cvv-option">
-              <div class="oni-switch"><input type="checkbox" id="removeCvvToggle"><span></span></div>
-              <div>
-                <div class="tweak-name">Remove CVV</div>
-                <div class="tweak-desc">Strip CVV fields during modifications</div>
-              </div>
-            </label>
-            <label class="cvv-option">
-              <div class="oni-switch"><input type="checkbox" id="removeStripeAgentToggle"><span></span></div>
-              <div>
-                <div class="tweak-name">Remove Stripe Agent</div>
-                <div class="tweak-desc">Strip payment_agent fields</div>
-              </div>
-            </label>
+            <span class="chevron">▾</span>
           </div>
-          <p class="help-text" style="margin-top:6px;">Options are mutually exclusive.</p>
         </div>
+        <div class="sec-body hidden" id="ff-body">
+          <p class="info-text">Stripe Checkout pages always auto-fill. Toggle controls other sites.</p>
+          <div class="fcol" style="margin-top:10px;">
+            <label class="lbl">Email (for checkout)</label>
+            <div class="row-bar">
+              <input type="email" id="form-filling-custom-email" class="oni-input"
+                     value="onichan@gmail.com" autocomplete="off">
+              <label class="tiny-check" style="white-space:nowrap;">
+                <input type="checkbox" id="form-filling-random-email"> Random
+              </label>
+            </div>
+          </div>
+          <div class="fcol" style="margin-top:8px;">
+            <label class="lbl">Billing Name</label>
+            <div class="row-bar">
+              <input type="text" id="form-filling-custom-name" class="oni-input"
+                     value="Onichan User" autocomplete="off">
+              <label class="tiny-check" style="white-space:nowrap;">
+                <input type="checkbox" id="form-filling-random-name"> Random
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        <div class="bypass-right">
-          <!-- Console -->
-          <h3 class="panel-title">Console</h3>
-          <div id="consoleBox" class="console-box">No logs yet.</div>
+      <!-- Tweaks -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="twk-body">
+          <h2>Tweaks</h2>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="sec-body" id="twk-body">
+          <label class="twk-row">
+            <div>
+              <div class="twk-name">Card Filler (Stripe)</div>
+              <div class="twk-desc">Auto-fill Stripe card forms</div>
+            </div>
+            <div class="oni-switch"><input type="checkbox" id="toggleCardFiller"><span></span></div>
+          </label>
+          <label class="twk-row">
+            <div>
+              <div class="twk-name">Twinkling Effect</div>
+              <div class="twk-desc">Sparkle overlay on pages</div>
+            </div>
+            <div class="oni-switch"><input type="checkbox" id="toggleTwinkle"><span></span></div>
+          </label>
+          <label class="twk-row">
+            <div>
+              <div class="twk-name">Night Gazing</div>
+              <div class="twk-desc">Dark mode enhancements</div>
+            </div>
+            <div class="oni-switch"><input type="checkbox" id="toggleNight"><span></span></div>
+          </label>
+        </div>
+      </div>
 
-          <!-- Sounds -->
-          <h3 class="panel-title" style="margin-top:18px;">Sounds</h3>
-          <div class="sound-row">
+      <!-- Sounds -->
+      <div class="section">
+        <div class="sec-hdr" data-toggle="snd-body">
+          <h2>Sounds</h2>
+          <span class="chevron">▾</span>
+        </div>
+        <div class="sec-body hidden" id="snd-body">
+          <div class="row-bar" style="margin-bottom:10px;">
             <label class="oni-switch"><input type="checkbox" id="sndEnabled"><span></span></label>
             <span>Enable sounds</span>
-            <input type="range" id="sndVolume" min="0" max="1" step="0.05" value="0.8" class="oni-range" style="flex:1;margin-left:12px;">
+            <input type="range" id="sndVolume" min="0" max="1" step="0.05" value="0.8" class="oni-range" style="flex:1;margin-left:10px;">
           </div>
-          <div class="sound-tracks">
-            <div class="sound-track">
-              <span class="sound-label hit">✅ HIT</span>
-              <label class="oni-switch sm"><input type="checkbox" id="sndHitEnabled"><span></span></label>
-              <input type="file" id="sndHitFile" accept="audio/mpeg" style="display:none;">
-              <button class="ghost-btn xs" id="sndHitChoose">MP3</button>
-              <button class="ghost-btn xs" id="sndHitReset">Default</button>
-              <button class="primary-btn xs" id="sndHitTest">Test</button>
-              <span id="sndHitName" class="help-text" style="margin:0;"></span>
-            </div>
-            <div class="sound-track">
-              <span class="sound-label die">❌ Die</span>
-              <label class="oni-switch sm"><input type="checkbox" id="sndDeclineEnabled"><span></span></label>
-              <input type="file" id="sndDeclineFile" accept="audio/mpeg" style="display:none;">
-              <button class="ghost-btn xs" id="sndDeclineChoose">MP3</button>
-              <button class="ghost-btn xs" id="sndDeclineReset">Default</button>
-              <button class="primary-btn xs" id="sndDeclineTest">Test</button>
-              <span id="sndDeclineName" class="help-text" style="margin:0;"></span>
-            </div>
+          <div class="snd-track">
+            <span class="snd-lbl hit">✅ HIT</span>
+            <label class="oni-switch sm"><input type="checkbox" id="sndHitEnabled"><span></span></label>
+            <input type="file" id="sndHitFile" accept="audio/mpeg" style="display:none;">
+            <button class="oni-btn-xs ghost" id="sndHitChoose">MP3</button>
+            <button class="oni-btn-xs ghost" id="sndHitReset">Default</button>
+            <button class="oni-btn-xs" id="sndHitTest">Test</button>
+            <span id="sndHitName" class="hint" style="margin:0;"></span>
+          </div>
+          <div class="snd-track" style="margin-top:6px;">
+            <span class="snd-lbl die">❌ Die</span>
+            <label class="oni-switch sm"><input type="checkbox" id="sndDeclineEnabled"><span></span></label>
+            <input type="file" id="sndDeclineFile" accept="audio/mpeg" style="display:none;">
+            <button class="oni-btn-xs ghost" id="sndDeclineChoose">MP3</button>
+            <button class="oni-btn-xs ghost" id="sndDeclineReset">Default</button>
+            <button class="oni-btn-xs" id="sndDeclineTest">Test</button>
+            <span id="sndDeclineName" class="hint" style="margin:0;"></span>
           </div>
         </div>
       </div>
-    </section>
 
-  </main>
+    </div>
+  </div>
+
+  <!-- ── Status footer ──────────────────────────── -->
+  <div class="status-footer" id="status-footer">
+    <div class="sf-left">
+      <span class="sf-dot" id="sys-dot"></span>
+      <span class="sf-txt" id="sys-text">System Connected</span>
+    </div>
+    <span class="sf-ver" id="version-text">Onichan v1.0</span>
+  </div>
+
+  <!-- ── Footer ────────────────────────────────── -->
+  <footer class="app-footer">
+    <a href="https://t.me/Onichanbabybot" target="_blank" rel="noopener">
+      <button class="oni-btn-sm">✈ @Onichanbabybot Support</button>
+    </a>
+    <div class="footer-copy">© 2025 Onichan Bypasser</div>
+  </footer>
+
+</div>
+
+<!-- Modals -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-hdr"><h3 id="modal-title">Warning</h3><button class="modal-x" id="modal-close">×</button></div>
+    <div class="modal-body"><p id="modal-message"></p></div>
+    <div class="modal-ftr"><button class="oni-btn-sm" id="modal-ok">OK</button></div>
+  </div>
+</div>
+<div id="confirm-modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-hdr"><h3 id="confirm-modal-title">Confirm</h3><button class="modal-x" id="confirm-modal-close">×</button></div>
+    <div class="modal-body"><p id="confirm-modal-message"></p></div>
+    <div class="modal-ftr">
+      <button class="oni-btn-sm ghost" id="confirm-modal-cancel">Cancel</button>
+      <button class="oni-btn-sm" id="confirm-modal-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Auth overlay (kept for JS compatibility) -->
+<div id="auth-modal" class="auth-overlay hidden">
+  <div class="auth-card">
+    <div class="auth-icon">🛡️</div>
+    <h2 class="auth-title" id="auth-title">Login Required</h2>
+    <p class="auth-subtitle" id="auth-subtitle">Enter your Telegram ID to verify access.</p>
+    <div id="auth-step-1">
+      <div id="bot-alert-box" class="auth-alert hidden"></div>
+      <input type="text" id="auth-telegram-id" class="oni-input" placeholder="Telegram User ID" autocomplete="off">
+      <button class="oni-btn" id="auth-btn-send" style="margin-top:10px;width:100%;">Send OTP</button>
+    </div>
+    <div id="auth-step-2" class="hidden">
+      <input type="text" id="auth-otp" class="oni-input" placeholder="000000" maxlength="6" autocomplete="off">
+      <button class="oni-btn" id="auth-btn-verify" style="margin-top:10px;width:100%;">Verify & Login</button>
+      <a href="#" class="llink" id="auth-link-back" style="display:block;text-align:center;margin-top:8px;">← Back</a>
+    </div>
+  </div>
+</div>
+
+<!-- Maintenance overlay -->
+<div id="maintenance-overlay" class="maint-overlay hidden">
+  <div class="maint-card">
+    <div style="font-size:36px;">🔧</div>
+    <h2 style="margin:12px 0 8px;">Under Maintenance</h2>
+    <p id="maintenance-message" style="color:var(--dim);font-size:13px;">Server temporarily unavailable.</p>
+    <button class="oni-btn" id="maintenance-retry-btn" style="margin-top:14px;">🔄 Retry</button>
+  </div>
 </div>
 
 <script src="functions/auth.js"></script>
 <script src="functions/popup.js"></script>
 <script src="functions/shell.js"></script>
 <script>
-document.querySelectorAll(".nav-tab, .quick-tile, .quick-btn[data-section]").forEach(btn => {
-  btn.addEventListener("click", () => {
-    const target = btn.dataset.section;
-    if (!target) return;
-    document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
-    document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
-    const page = document.getElementById(target);
-    if (page) page.classList.add("active");
-    const tab = document.querySelector(`.nav-tab[data-section="${target}"]`);
-    if (tab) tab.classList.add("active");
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.t-panel').forEach(p => p.classList.add('hidden'));
+    btn.classList.add('active');
+    const panel = document.getElementById(t + '-tab');
+    if (panel) { panel.classList.remove('hidden'); panel.classList.add('active'); }
   });
 });
-document.getElementById("binQuickSubmitBtn")?.addEventListener("click", () => {
-  document.getElementById("binQuickInput") && document.getElementById("binQuickForm").dispatchEvent(new Event("submit"));
+// Section collapse
+document.querySelectorAll('.sec-hdr[data-toggle]').forEach(hdr => {
+  hdr.addEventListener('click', () => {
+    const body = document.getElementById(hdr.dataset.toggle);
+    if (!body) return;
+    const open = !body.classList.contains('hidden');
+    body.classList.toggle('hidden', open);
+    const ch = hdr.querySelector('.chevron');
+    if (ch) ch.textContent = open ? '▸' : '▾';
+  });
 });
-const t=document.getElementById("atcTime"),am=document.getElementById("atcAmPm");
-function tick(){if(!t)return;const n=new Date(),h=n.getHours(),m=n.getMinutes();const hh=h%12||12,mm=String(m).padStart(2,"0"),ap=h<12?"AM":"PM";t.textContent=`${hh}:${mm}`;if(am)am.textContent=ap;}
-tick();setInterval(tick,1000);
+// Logout button alias
+document.getElementById('authLogoutBtn2')?.addEventListener('click', () => {
+  document.getElementById('authLogoutBtn')?.click();
+});
 </script>
 </body>
 </html>
