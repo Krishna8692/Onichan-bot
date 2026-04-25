@@ -56,6 +56,10 @@ externalPort = 3000
 localPort = 8083
 externalPort = 3001
 
+[[ports]]
+localPort = 8099
+externalPort = 8099
+
   [nix]
   channel = "stable-25_05"
   packages = ["cargo", "freetype", "lcms2", "libiconv", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib"]

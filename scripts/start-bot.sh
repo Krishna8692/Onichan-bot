@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
 set -e
-export PATH="/home/runner/workspace/.pythonlibs/bin:/usr/local/bin:$PATH"
-export PYTHONPATH="/home/runner/workspace/src:$PYTHONPATH"
-# Replit Reserved VM routes external traffic to port 8080
+
+# Absolute path to the Python binary managed by Replit/.pythonlibs
+PYTHON="/home/runner/workspace/.pythonlibs/bin/python"
+
+# Fall back to whatever python3/python is available if .pythonlibs is absent
+if [ ! -x "$PYTHON" ]; then
+    PYTHON="$(command -v python3 || command -v python)"
+fi
+
+export PYTHONPATH="/home/runner/workspace/src:${PYTHONPATH}"
 export PORT="${PORT:-8080}"
-# Force Flask/health-server to start even if keep_alive.py fails to import
 export FORCE_WEB_SERVER=1
+
+echo "[start-bot] Using Python: $PYTHON"
+echo "[start-bot] PORT: $PORT"
+
 cd /home/runner/workspace/src
-exec python bot.py
+
+# production_start.py:
+#   1. Starts Flask (keep_alive routes) immediately so health-check passes
+#   2. Then runs bot.py as a supervised subprocess (auto-restarts on crash)
+exec "$PYTHON" production_start.py

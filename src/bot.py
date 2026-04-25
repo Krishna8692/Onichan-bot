@@ -15947,7 +15947,9 @@ def main():
 
     # ── Start Flask/keep_alive FIRST so the health-check probe always gets a
     #    200 response within ~1 second, regardless of how long other init takes.
-    if REPLIT_MODE:
+    # SKIP_KEEP_ALIVE=1 is set by production_start.py, which already launched
+    # the Flask server before starting bot.py as a subprocess.
+    if REPLIT_MODE and not os.environ.get("SKIP_KEEP_ALIVE"):
         print("🌐 Starting keep_alive server for Replit...")
         keep_alive()
         print("✅ Keep_alive server started!")

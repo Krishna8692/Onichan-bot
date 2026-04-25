@@ -1,24 +1,21 @@
 kind = "web"
-  previewPath = "/"
-  title = "Onichan Bot"
-  version = "1.0.0"
-  id = "artifacts/onichan-bot"
+    previewPath = "/"
+    title = "Onichan Bot"
+    version = "1.0.0"
+    id = "artifacts/onichan-bot"
 
-  [[integratedSkills]]
-  name = "react-vite"
-  version = "1.0.0"
+    [[integratedSkills]]
+    name = "react-vite"
+    version = "1.0.0"
 
-  [[services]]
-  name = "web"
-  paths = ["/"]
-  localPort = 8080
+    [[services]]
+    name = "web"
+    paths = ["/"]
+    localPort = 8080
 
-  [services.development]
-  run = "cd /home/runner/workspace/src && PORT=8080 python bot.py"
+    [services.development]
+    run = "cd /home/runner/workspace/src && PORT=5000 python bot.py"
 
-  [services.production]
-  run = "bash /home/runner/workspace/scripts/start-bot.sh"
-
-  [services.production.health.startup]
-  path = "/ping"
+    [services.production]
+    run = "bash /home/runner/workspace/scripts/start-bot.sh"
   
