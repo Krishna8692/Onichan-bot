@@ -15954,6 +15954,29 @@ def main():
         keep_alive()
         print("✅ Keep_alive server started!")
 
+        # Replit's Reserved-VM deployment health check probes port 5000
+        # (the first [[ports]] entry in .replit), regardless of which port
+        # the main Flask app uses.  Start a minimal mirror on 5000 so the
+        # deployment probe always gets a 200.
+        _main_port = int(os.environ.get("PORT", 8080))
+        if _main_port != 5000:
+            def _health_5000():
+                try:
+                    from flask import Flask as _F5
+                    _a = _F5("h5k")
+                    _a.route("/ping")(lambda: ("OK", 200))
+                    _a.route("/")(lambda: ("OK", 200))
+                    try:
+                        from waitress import serve as _ws
+                        _ws(_a, host="0.0.0.0", port=5000)
+                    except Exception:
+                        _a.run(host="0.0.0.0", port=5000)
+                except Exception as _e:
+                    print(f"[health5000] {_e}", flush=True)
+            import threading as _th5
+            _th5.Thread(target=_health_5000, daemon=True).start()
+            print("✅ Health-check mirror started on :5000")
+
         # Start public tunnel so Twilio webhooks can reach us from the internet.
         # The riker.replit.dev dev domain resolves to 127.0.0.2 (Replit-internal
         # only), so Twilio's servers cannot reach it. localtunnel gives us a real

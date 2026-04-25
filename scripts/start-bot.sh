@@ -10,7 +10,7 @@ if [ ! -x "$PYTHON" ]; then
 fi
 
 export PYTHONPATH="/home/runner/workspace/src:${PYTHONPATH}"
-export PORT="${PORT:-8080}"
+export PORT="${PORT:-5000}"
 export FORCE_WEB_SERVER=1
 
 echo "[start-bot] Using Python: $PYTHON"
