@@ -7,6 +7,8 @@ const router = Router();
 const FLASK_BASE  = "http://localhost:5000";
 const ZIP_PATH    = resolve("/home/runner/workspace/onichan-bypasser-extension.zip");
 const ZIP_NAME    = "onichan-bypasser-extension.zip";
+const SRC_ZIP     = resolve("/home/runner/workspace/onichan-bypasser-extension-src.zip");
+const SRC_NAME    = "onichan-bypasser-extension-src.zip";
 
 // ── Download extension ZIP ───────────────────────────────────────────────────
 router.get("/extension/download", (_req, res) => {
@@ -20,6 +22,20 @@ router.get("/extension/download", (_req, res) => {
   res.setHeader("Content-Length", size);
   res.setHeader("Cache-Control", "no-cache");
   createReadStream(ZIP_PATH).pipe(res);
+});
+
+// ── Download source (unobfuscated) ZIP ──────────────────────────────────────
+router.get("/extension/download/src", (_req, res) => {
+  if (!existsSync(SRC_ZIP)) {
+    res.status(404).json({ error: "Source ZIP not found." });
+    return;
+  }
+  const { size } = statSync(SRC_ZIP);
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${SRC_NAME}"`);
+  res.setHeader("Content-Length", size);
+  res.setHeader("Cache-Control", "no-cache");
+  createReadStream(SRC_ZIP).pipe(res);
 });
 
 // ── Validate key (proxy to Flask bot) ───────────────────────────────────────

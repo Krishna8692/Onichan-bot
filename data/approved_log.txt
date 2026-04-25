@@ -2533,3 +2533,30 @@ Bank: Capital One, National Association
 Country: United States of America (the) 🇺🇸
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-25 07:00:47
+User ID: 7428174063
+Username: @sabbir046955
+Card: 5187251223470975|07|27|101
+Gateway: sh
+Response: Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://rushcharge.com/checkouts/sessions/checkout-completion/redirect?_t=AQABgM4T7tUH3LbiFdXAnu4vSBXUNMF7_1zuh9tKQa8DmpA9zZE_FTtCUUDoLSJ7UZ3qjWH8uJCmV1OQAbDeS8FIR49aP3igkdBJvRuruPXk4woj5xZ4l0jJS74LcdRsnLH_ahd9cUtYf2VtFzdC-h6c7uBkGuqbLI91ga7h3Rwf2Memqgb9RE3HnE1JO2EJInwiUCSof88LWk_Ar1zpgFeAjvORVCvdo21FZkN4RP0dklkZjhdoSqo",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "24.93s"
+  }
+}
+BIN: 518725
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Capital One, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
