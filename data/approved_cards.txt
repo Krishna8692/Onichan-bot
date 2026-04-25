@@ -224,3 +224,47 @@
     "time": "24.93s"
   }
 }
+2026-04-25 10:21:59|2092939350|@Sunydop|5178059173058356|07|28|617|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://bemoxe.com/checkouts/sessions/checkout-completion/redirect?_t=AQABzK8gEppBIPBPu8LIFhxOIVZrYBtGr05xS_b4MBHfBzXX8sCyysRzxFmFMl_NxofsQloraJKj9H9yIXU4249pK6bIURDQWpmSWZXjvMbgUBoVUINQkgjbkbpLuE9qr2LpFFC-DNZ2UXhI-DMfdywOTxhh6otKSGmytXakSQQjvsIhx0cBqVOC_4OCFfqHrmTc13IySK9iWnP2TmdjjVp7HS1GOwFjQfHgADi5bIUH",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "14.49s"
+  }
+}
+2026-04-25 10:28:05|2092939350|@Sunydop|5178059320576722|12|26|047|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://shopindoorgolf.com/checkouts/sessions/checkout-completion/redirect?_t=AQAB94MCDbC71-bRvEZBrI3crISIRb6w7TOhwYQQNROC8FY76-ITIz8OQZ6e-Xmcw-00bSb3-jt2FEnBewuhoUlWb3vMtMbSpsKWPhS6VpKnY5idVpgi4t-hJOi34Z1WC74VL_baftHLfILqbxdL6Rn_4FJMc0rcFDuswher6v76vor5vBAOOnp5u5V4-jkycC6r7o76AjTpDfMuvL3wFs9vHv_oijDzbJjZdDQo-tsUnREgJ5NzxdQ",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "19.98s"
+  }
+}
+2026-04-25 10:32:32|2092939350|@Sunydop|5178059253187364|12|28|971|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "100.0 INR Charged!",
+    "receipt_url": "https://miamilinks.com/checkouts/sessions/checkout-completion/redirect?_t=AQABVOPCnvwhR1Fj5JH0bXibUkDp6fQ0kxQWHFuB-a3DkUMfBXi5P6jtBYdxIkKmy97_w-8gsQlkNd1dP7Qiw-2qoBEH5XNlfro1bnAh7p52MR6Z96rGvxRYSHH9IT0OsgOgrymyFrIM200Nyq124_7SaO60-oDT0zAtbq3FQoFDz4esi5nalDKztXn0KD4R9rWyxh1HxnMB-fhwL3ViiwFhdqSjtFGyu9EGb6Z4d9D_Gu1TuTrC",
+    "amount": "100.0",
+    "currency": "INR",
+    "time": "26.47s"
+  }
+}
+2026-04-25 11:26:02|2092939350|@Sunydop|4217833011685216|06|27|117|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://rushcharge.com/checkouts/sessions/checkout-completion/redirect?_t=AQABGbq6JGwoXr7fn5X6rCjXroPc3mt_YsCYjQ7qM0yBn9dcT62G1XiXKQGT9jPBA4szVDXoAmzIq2oOIj-q4HLiAl7kvGozvLgFIKXbOSlkZKouoSgpw7kOfZKlr39Lw0Urhpjt_yLyZK3dct83FtJRh52W7U2hmpa7A8JrE2zg_wYu9b3mx0-mTraBFAdzkAKH8tKAgez6jn8CzXlrBJmUW52NO6lCOGaSenMF59PubEIwyN7Jf-o",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "24.43s"
+  }
+}
