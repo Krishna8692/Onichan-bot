@@ -131,10 +131,22 @@ def _ssrf_redirect_hook(response, **kwargs):
 
 
 def _make_session() -> requests.Session:
-    s = requests.Session()
+    """
+    Create a scraper session that transparently bypasses Cloudflare IUAM /
+    browser-challenge pages (cloudscraper solves the JS challenge), while
+    still applying SSRF redirect protection via our response hook.
+    Falls back to a plain requests.Session if cloudscraper is unavailable.
+    """
+    try:
+        import cloudscraper
+        s = cloudscraper.create_scraper(
+            browser={"browser": "chrome", "platform": "windows", "desktop": True},
+            delay=5,
+        )
+    except Exception:
+        s = requests.Session()
+
     s.headers.update(_DEFAULT_HEADERS)
-    # Attach the SSRF redirect guard so every hop in a redirect chain is
-    # validated before requests follows it.
     s.hooks["response"].append(_ssrf_redirect_hook)
     return s
 
@@ -148,14 +160,17 @@ def _extract_stripe_pk(html_text: str) -> str | None:
 
 
 _CLOUDFLARE_MARKERS = [
-    "cf-ray",
-    "checking your browser",
-    "just a moment",
+    # These markers appear when cloudscraper FAILED to bypass the challenge
+    # (e.g. Turnstile, managed challenge, or a full block).
+    # Basic IUAM ("just a moment" / "__cf_bm") is handled transparently by
+    # cloudscraper and should not appear in a clean response.
     "cloudflare ray id",
-    "__cf_bm",
     "ddos-guard",
     "attention required | cloudflare",
     "enable javascript and cookies to continue",
+    "access denied",
+    "this site is protected by cloudflare",
+    "you have been blocked",
 ]
 
 _CAPTCHA_MARKERS = [
