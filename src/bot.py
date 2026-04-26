@@ -9294,8 +9294,17 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await status_msg.delete()
             except Exception:
                 pass
+            masked_email = email[:3] + "***" + email[email.find("@"):] if "@" in email else email[:4] + "***"
             await update.message.reply_text(
-                ae(f"⚠️ <b>WAH Error</b>\n\n<code>{str(e)[:100]}</code>"),
+                ae(f"⚠️ <b>ERROR — WAH Gate</b>\n"
+                   f"━━━━━━━━━━━━━━━━━━\n"
+                   f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
+                   f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+                   f"📧 <b>Email:</b> <code>{masked_email}</code>\n"
+                   f"━━━━━━━━━━━━━━━━━━\n"
+                   f"⚠️ <b>Result:</b> {str(e)[:200]}\n"
+                   f"━━━━━━━━━━━━━━━━━━\n"
+                   f"👤 {username}"),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -9340,8 +9349,17 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.delete()
         except Exception:
             pass
+        masked_email = email[:3] + "***" + email[email.find("@"):] if "@" in email else email[:4] + "***"
         await update.message.reply_text(
-            ae(f"⚠️ <b>WAH Setup Error</b>\n\n<code>{str(e)[:100]}</code>"),
+            ae(f"⚠️ <b>ERROR — WAH BIN Loop</b>\n"
+               f"━━━━━━━━━━━━━━━━━━\n"
+               f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+               f"📧 <b>Email:</b> <code>{masked_email}</code>\n"
+               f"💳 <b>BIN:</b> <code>{bin_display}</code>\n"
+               f"━━━━━━━━━━━━━━━━━━\n"
+               f"⚠️ <b>Result:</b> {str(e)[:250]}\n"
+               f"━━━━━━━━━━━━━━━━━━\n"
+               f"👤 {username}"),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -9351,8 +9369,18 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.delete()
         except Exception:
             pass
+        masked_email = email[:3] + "***" + email[email.find("@"):] if "@" in email else email[:4] + "***"
+        error_msg = setup.get("error", "Unknown error")
         await update.message.reply_text(
-            ae(f"⚠️ <b>WAH Setup Failed</b>\n\n{setup.get('error', 'Unknown error')}"),
+            ae(f"⚠️ <b>FAILED — WAH BIN Loop</b>\n"
+               f"━━━━━━━━━━━━━━━━━━\n"
+               f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+               f"📧 <b>Email:</b> <code>{masked_email}</code>\n"
+               f"💳 <b>BIN:</b> <code>{bin_display}</code>\n"
+               f"━━━━━━━━━━━━━━━━━━\n"
+               f"⚠️ <b>Result:</b> {error_msg}\n"
+               f"━━━━━━━━━━━━━━━━━━\n"
+               f"👤 {username}"),
             parse_mode=ParseMode.HTML,
         )
         return
