@@ -169,6 +169,29 @@ def _extract_stripe_pk(html_text: str) -> str | None:
     return None
 
 
+def _extract_stripe_pk_from_site(session: requests.Session, site_url: str) -> str | None:
+    """Fetch the site's HTML and extract a Stripe publishable key."""
+    try:
+        r = session.get(site_url, timeout=12)
+        pk = _extract_stripe_pk(r.text)
+        if pk:
+            return pk
+        # Also check JS bundles referenced from the page
+        for src in re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']', r.text)[:5]:
+            if not src.startswith("http"):
+                src = site_url.rstrip("/") + "/" + src.lstrip("/")
+            try:
+                rjs = session.get(src, timeout=8)
+                pk = _extract_stripe_pk(rjs.text)
+                if pk:
+                    return pk
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return None
+
+
 _CAPTCHA_MARKERS = [
     "g-recaptcha",
     "recaptcha",
@@ -611,6 +634,92 @@ def login_to_site(
     }
 
 
+def _skool_group_product(session: requests.Session, site_url: str) -> dict | None:
+    """
+    If site_url is a Skool community URL (skool.com/<slug>), fetch the group data
+    from api2.skool.com and return a product dict suitable for checkout_and_charge.
+    Returns None if the URL is not a Skool group page or no paid membership is set.
+    """
+    from urllib.parse import urlparse
+    import json as _json
+
+    parsed = urlparse(site_url)
+    if "skool.com" not in parsed.netloc:
+        return None
+
+    # The group slug is the first path segment: /group-slug[/...] or just /
+    path_parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if not path_parts:
+        return None  # bare skool.com — no specific group
+    slug = path_parts[0]
+    if slug in ("pricing", "login", "signup", "signin", "discover", "about"):
+        return None  # not a group page
+
+    # Fetch group data from Skool's backend API
+    try:
+        r_group = session.get(
+            f"https://api2.skool.com/groups/{slug}",
+            timeout=12,
+            headers={"Accept": "application/json", "Origin": "https://www.skool.com"},
+        )
+        if r_group.status_code != 200:
+            return None
+        g = r_group.json()
+    except Exception:
+        return None
+
+    meta = g.get("metadata", {})
+    group_id = g.get("id", "")
+    display_name = meta.get("display_name", slug)
+
+    # Look for paid membership billing product ID (metadata.mmbp) and price.
+    # NOTE: metadata.membership is a type enum (0=free,1=public,2=paid…), NOT a price.
+    billing_product_id = meta.get("mmbp") or meta.get("billing_product_id")
+    raw_price = meta.get("price") or meta.get("amount")  # only dedicated price fields
+
+    try:
+        price = float(str(raw_price)) if raw_price else 0.0
+    except (TypeError, ValueError):
+        price = 0.0
+
+    # A paid group must have at least a billing_product_id; otherwise skip
+    if not billing_product_id:
+        return None
+
+    # Get Stripe billing PK from the group's page __NEXT_DATA__
+    billing_pk = None
+    try:
+        rp = session.get(site_url, timeout=12, allow_redirects=True)
+        nd_m = re.search(
+            r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
+            rp.text, re.DOTALL | re.IGNORECASE,
+        )
+        if nd_m:
+            raw = nd_m.group(1)
+            for key in ("BILLING_STRIPE_PUBLISHABLE_KEY", "STRIPE_PUBLISHABLE_KEY"):
+                m2 = re.search(rf'"{key}"\s*:\s*"(pk_[a-zA-Z0-9_]+)"', raw)
+                if m2:
+                    billing_pk = m2.group(1)
+                    break
+    except Exception:
+        pass
+
+    interval = meta.get("recurring_interval", "month")
+    return {
+        "title": f"{display_name} Membership (${price:.2f}/{interval})" if price > 0
+                 else f"{display_name} Membership",
+        "price": price,
+        "product_url": site_url,
+        "variant_id": None,
+        "source": "skool_group",
+        "billing_product_id": billing_product_id,
+        "group_id": group_id,
+        "group_slug": slug,
+        "billing_pk_override": billing_pk,
+        "api_base": "https://api2.skool.com",
+    }
+
+
 def find_cheapest_product(session: requests.Session, site_url: str) -> dict | None:
     """
     Scrape the site for products and return info about the cheapest available one.
@@ -619,6 +728,11 @@ def find_cheapest_product(session: requests.Session, site_url: str) -> dict | No
     When bot-protection is detected, returns {"error": "<message>"} instead.
     """
     last_protection_error: str | None = None
+
+    # 0. Skool community group detection — must run before generic scraping
+    skool_product = _skool_group_product(session, site_url)
+    if skool_product is not None:
+        return skool_product
 
     # 1. Try Shopify /products.json endpoint first
     for path in ["/products.json", "/collections/all/products.json"]:
@@ -810,6 +924,118 @@ def checkout_and_charge(
     product_url = product_info.get("product_url", "")
     variant_id  = product_info.get("variant_id")
     source      = product_info.get("source", "")
+
+    # ── Skool community group checkout ────────────────────────────────────────
+    # Uses Skool's own backend API: /billing/transactions
+    # Requires billing_product_id (from group metadata.mmbp).
+    if source == "skool_group":
+        billing_product_id = product_info.get("billing_product_id")
+        api_base = product_info.get("api_base", "https://api2.skool.com")
+
+        if not billing_product_id:
+            return {
+                "status": "error",
+                "message": (
+                    "Skool group found but billing_product_id not set — "
+                    "this group may be free or not yet configured for paid membership"
+                ),
+                "stripe_pk": None,
+            }
+
+        # Use Skool's billing Stripe PK (may differ from main Stripe PK)
+        stripe_pk = (product_info.get("billing_pk_override")
+                     or _extract_stripe_pk_from_site(session, site_url))
+        if not stripe_pk:
+            return {"status": "error", "message": "Skool Stripe PK not found", "stripe_pk": None}
+
+        import uuid as _uuid
+        cc = card["cc"]; mm = card["mm"]; yy = card["yy"]; cvv = card["cvv"]
+
+        # Create Stripe payment method
+        try:
+            pm_resp = requests.post(
+                "https://api.stripe.com/v1/payment_methods",
+                data={
+                    "type": "card",
+                    "card[number]": cc, "card[cvc]": cvv,
+                    "card[exp_month]": mm, "card[exp_year]": yy,
+                    "key": stripe_pk,
+                },
+                headers={
+                    "authority": "api.stripe.com", "accept": "application/json",
+                    "content-type": "application/x-www-form-urlencoded",
+                    "origin": "https://js.stripe.com", "referer": "https://js.stripe.com/",
+                    "user-agent": USER_AGENT,
+                },
+                timeout=20,
+            ).json()
+        except Exception as e:
+            return {"status": "error", "message": f"Stripe API error: {e}", "stripe_pk": stripe_pk}
+
+        if "error" in pm_resp:
+            err = pm_resp["error"]
+            code = err.get("code", "")
+            msg = err.get("message", "Card Declined")
+            _decline_map = {
+                "incorrect_number": "Incorrect Card Number",
+                "invalid_number": "Invalid Card Number",
+                "invalid_expiry_year": "Invalid Expiry Year",
+                "invalid_expiry_month": "Invalid Expiry Month",
+                "invalid_cvc": "Invalid CVC",
+                "expired_card": "Expired Card",
+            }
+            return {"status": "declined",
+                    "message": f"Declined - {_decline_map.get(code, msg)}",
+                    "stripe_pk": stripe_pk}
+
+        pm_id = pm_resp.get("id")
+        if not pm_id:
+            return {"status": "error", "message": "No payment method ID from Stripe", "stripe_pk": stripe_pk}
+
+        # POST to Skool's billing/transactions endpoint
+        idem_key = str(_uuid.uuid4())  # UUID idempotency key, matches frontend
+        try:
+            r_txn = session.post(
+                f"{api_base}/billing/transactions",
+                json={
+                    "payment_method_id": pm_id,
+                    "billing_product_id": billing_product_id,
+                    "idem_key": idem_key,
+                    "version": 2,
+                },
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "Origin": "https://www.skool.com",
+                    "Referer": site_url,
+                },
+                timeout=20,
+            )
+        except Exception as e:
+            return {"status": "error", "message": f"Skool checkout error: {e}", "stripe_pk": stripe_pk}
+
+        try:
+            txn_data = r_txn.json()
+        except Exception:
+            txn_data = {}
+
+        txn_text = str(txn_data)
+        # Check for 3DS / requires_action
+        if r_txn.status_code == 200 or r_txn.status_code == 201:
+            client_secret = txn_data.get("data", {}).get("clientSecret") or txn_data.get("clientSecret")
+            if client_secret or "requires_action" in txn_text or "3ds" in txn_text.lower():
+                return {"status": "approved", "message": "3DS Required", "stripe_pk": stripe_pk}
+            if txn_data.get("data") or txn_data.get("token") or "success" in txn_text.lower():
+                return {"status": "approved", "message": "Approved - Subscription charged", "stripe_pk": stripe_pk}
+        if r_txn.status_code in (400, 402, 422):
+            err_msg = txn_data.get("error", txn_data.get("message", txn_text[:80]))
+            return {"status": "declined", "message": f"Declined - {err_msg}", "stripe_pk": stripe_pk}
+
+        return {
+            "status": "error",
+            "message": f"Skool checkout returned HTTP {r_txn.status_code}: {txn_text[:80]}",
+            "stripe_pk": stripe_pk,
+        }
 
     # ── Subscription / Membership path ────────────────────────────────────────
     # For subscription sites we skip the Shopify cart entirely and instead:
@@ -1122,15 +1348,28 @@ def checkout_and_charge(
                     if r_ep.status_code in (404, 405, 410):
                         break  # endpoint doesn't exist, skip remaining payloads for it
 
-                    try:
-                        ep_text = str(r_ep.json())
-                    except Exception:
-                        ep_text = r_ep.text or ""
+                    # Only check approve/decline signals on genuine JSON responses.
+                    # HTML SPA shells often contain words like "subscription" or "active"
+                    # in their nav/titles and must NOT be counted as payment approval.
+                    ct = r_ep.headers.get("content-type", "")
+                    is_json_response = "application/json" in ct
+                    ep_json = None
+                    if not is_json_response:
+                        try:
+                            ep_json = r_ep.json()
+                            is_json_response = True
+                        except Exception:
+                            pass  # not JSON — skip signal check
+
+                    if not is_json_response:
+                        continue  # HTML / unknown — don't mistake page text for approval
+
+                    ep_text = str(ep_json) if ep_json is not None else r_ep.text
 
                     if _APPROVE_SIGNALS.search(ep_text):
                         return {
                             "status": "approved",
-                            "message": f"Approved - Subscription charged",
+                            "message": "Approved - Subscription charged",
                             "stripe_pk": stripe_pk,
                         }
                     if _DECLINE_SIGNALS.search(ep_text):
