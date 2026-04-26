@@ -9396,11 +9396,13 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data[f'mass_check_running_{user_id}'] = True
     context.user_data['mass_check_stop'] = False
 
-    checked  = 0
-    approved = 0
-    declined = 0
-    errors   = 0
-    last_card = ""
+    checked    = 0
+    approved   = 0
+    declined   = 0
+    errors     = 0
+    last_card  = ""
+    last_status_emoji = ""
+    last_error = ""
 
     try:
         await status_msg.edit_text(
@@ -9440,7 +9442,7 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cvv = card_obj.get("cvv", "")
                 last_card = f"{cc}|{mm}|{yy}|{cvv}"
 
-                # Charge in executor
+                # Charge in executor (single try — no double-counting)
                 try:
                     result = await loop.run_in_executor(
                         None, charge_wah_card,
@@ -9448,19 +9450,25 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         cc, mm, yy, cvv
                     )
                 except Exception as e:
-                    errors += 1
-                    checked += 1
-                    result = {"status": "error", "message": str(e)[:60], "stripe_pk": None, "elapsed": 0}
+                    result = {"status": "error", "message": str(e)[:120], "stripe_pk": None, "elapsed": 0}
 
                 checked += 1
                 st = result.get("status", "error")
+                result_msg = result.get("message", "")
                 if st == "approved":
                     approved += 1
+                    last_status_emoji = "✅"
                 elif st == "declined":
                     declined += 1
+                    last_status_emoji = "❌"
+                    last_error = result_msg
                 else:
                     errors += 1
+                    last_status_emoji = "⚠️"
+                    last_error = result_msg
 
+                # Build progress text with last result reason
+                error_line = (f"\n💬 <b>Last reason:</b> <i>{last_error[:120]}</i>" if last_error else "")
                 # Update progress every card
                 try:
                     await status_msg.edit_text(
@@ -9468,7 +9476,8 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
                            f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
                            f"🛒 <b>Product:</b> {product_title} ({price_str})\n"
                            f"💳 <b>BIN:</b> <code>{bin_display}</code>\n"
-                           f"🔍 <b>Last:</b> <code>{last_card}</code>\n\n"
+                           f"🔍 <b>Last:</b> {last_status_emoji} <code>{last_card}</code>"
+                           f"{error_line}\n\n"
                            f"⏳ Checked: {checked} | ✅ {approved} | ❌ {declined} | ⚠️ {errors}\n\n"
                            f"Use /stop to cancel."),
                         parse_mode=ParseMode.HTML,
@@ -9496,12 +9505,18 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.delete()
     except Exception:
         pass
+    error_summary = (f"\n💬 <b>Last reason:</b> <i>{last_error[:150]}</i>" if last_error else "")
     await update.message.reply_text(
-        ae(f"🛑 <b>WAH BIN Loop Stopped</b>\n\n"
+        ae(f"🛑 <b>WAH BIN Loop Stopped</b>\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
            f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
-           f"💳 <b>BIN:</b> <code>{bin_display}</code>\n\n"
+           f"💳 <b>BIN:</b> <code>{bin_display}</code>\n"
+           f"🛒 <b>Product:</b> {product_title} ({price_str})\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
            f"⏳ Checked: {checked} | ✅ {approved} | ❌ {declined} | ⚠️ {errors}\n"
-           f"🔍 Last: <code>{last_card}</code>\n\n"
+           f"🔍 <b>Last:</b> {last_status_emoji} <code>{last_card}</code>"
+           f"{error_summary}\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
            f"👤 {username}"),
         parse_mode=ParseMode.HTML,
     )
