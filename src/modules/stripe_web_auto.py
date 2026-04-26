@@ -26,17 +26,6 @@ _DEFAULT_HEADERS = {
     "Accept-Encoding": "gzip, deflate, br",
 }
 
-# Common product listing paths to try when scraping cheapest item
-_PRODUCT_PATHS = [
-    "/products.json",
-    "/shop",
-    "/products",
-    "/store",
-    "/collections/all",
-    "/collections/all/products.json",
-    "/api/products",
-]
-
 # Common login form paths
 _LOGIN_PATHS = [
     "/login",
@@ -70,9 +59,41 @@ _PRIVATE_NETWORKS = [
 ]
 
 
+def _check_host_ssrf(hostname: str) -> None:
+    """
+    Resolve hostname and raise ValueError if it points to a private/internal
+    address.  Called for the initial URL and every redirect hop.
+    """
+    if not hostname:
+        raise ValueError("Invalid URL — no hostname")
+
+    try:
+        addr = ipaddress.ip_address(hostname)
+        for net in _PRIVATE_NETWORKS:
+            if addr in net:
+                raise ValueError("Requests to private/internal addresses are not allowed")
+        return  # raw IP that is public — OK
+    except ValueError as ve:
+        if "private" in str(ve) or "internal" in str(ve):
+            raise
+
+    # Not a raw IP — resolve hostname
+    try:
+        resolved_ip = socket.gethostbyname(hostname)
+        addr = ipaddress.ip_address(resolved_ip)
+        for net in _PRIVATE_NETWORKS:
+            if addr in net:
+                raise ValueError(f"Hostname resolves to a private/internal IP ({resolved_ip})")
+    except ValueError:
+        raise
+    except Exception:
+        pass  # DNS failure — let requests handle it naturally
+
+
 def _validate_url(url: str) -> str:
     """
-    Validate URL against SSRF. Returns normalised URL on success.
+    Validate the user-supplied URL against SSRF.
+    Returns normalised https:// URL on success.
     Raises ValueError with a user-friendly message on failure.
     """
     if not url.startswith(("http://", "https://")):
@@ -82,43 +103,39 @@ def _validate_url(url: str) -> str:
     if parsed.scheme not in ("http", "https"):
         raise ValueError("Only http/https URLs are allowed")
 
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError("Invalid URL — no hostname")
-
-    # Reject numeric IPs directly
-    try:
-        addr = ipaddress.ip_address(hostname)
-        for net in _PRIVATE_NETWORKS:
-            if addr in net:
-                raise ValueError("Requests to private/internal addresses are not allowed")
-    except ValueError as ve:
-        if "private" in str(ve) or "internal" in str(ve):
-            raise
-        # Not a raw IP — resolve hostname
-        try:
-            resolved_ip = socket.gethostbyname(hostname)
-            addr = ipaddress.ip_address(resolved_ip)
-            for net in _PRIVATE_NETWORKS:
-                if addr in net:
-                    raise ValueError(f"Hostname resolves to a private/internal IP ({resolved_ip})")
-        except ValueError:
-            raise
-        except Exception:
-            pass  # DNS failure is acceptable — let requests handle it
-
+    _check_host_ssrf(parsed.hostname or "")
     return url.rstrip("/")
 
 
-def _normalize_url(url: str) -> str:
-    if not url.startswith("http"):
-        url = "https://" + url
-    return url.rstrip("/")
+def _ssrf_redirect_hook(response, **kwargs):
+    """
+    Response hook installed on every _make_session() session.
+    Fires for every HTTP response in the redirect chain.
+    If the response is a redirect, validates the Location target before
+    requests follows it, blocking redirects to private/internal hosts.
+    """
+    if response.is_redirect:
+        location = response.headers.get("Location", "")
+        if location:
+            try:
+                # Resolve relative redirects against the current URL
+                abs_loc = urljoin(response.url, location)
+                parsed = urlparse(abs_loc)
+                if parsed.scheme not in ("http", "https"):
+                    raise ValueError(f"Redirect to non-http(s) scheme blocked: {parsed.scheme}")
+                _check_host_ssrf(parsed.hostname or "")
+            except ValueError as ve:
+                # Raise so requests propagates it as an exception rather than
+                # silently following the redirect to an internal target.
+                raise requests.exceptions.InvalidURL(str(ve))
 
 
 def _make_session() -> requests.Session:
     s = requests.Session()
     s.headers.update(_DEFAULT_HEADERS)
+    # Attach the SSRF redirect guard so every hop in a redirect chain is
+    # validated before requests follows it.
+    s.hooks["response"].append(_ssrf_redirect_hook)
     return s
 
 
