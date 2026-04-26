@@ -159,20 +159,6 @@ def _extract_stripe_pk(html_text: str) -> str | None:
     return None
 
 
-_CLOUDFLARE_MARKERS = [
-    # These markers appear when cloudscraper FAILED to bypass the challenge
-    # (e.g. Turnstile, managed challenge, or a full block).
-    # Basic IUAM ("just a moment" / "__cf_bm") is handled transparently by
-    # cloudscraper and should not appear in a clean response.
-    "cloudflare ray id",
-    "ddos-guard",
-    "attention required | cloudflare",
-    "enable javascript and cookies to continue",
-    "access denied",
-    "this site is protected by cloudflare",
-    "you have been blocked",
-]
-
 _CAPTCHA_MARKERS = [
     "g-recaptcha",
     "recaptcha",
@@ -182,33 +168,56 @@ _CAPTCHA_MARKERS = [
     "captcha",
 ]
 
+# These patterns only appear in a real Cloudflare BLOCK/CHALLENGE page,
+# NOT on normal pages served through Cloudflare (which just have cf-ray headers).
+_CF_CHALLENGE_BODY = [
+    "just a moment...",
+    "enable javascript and cookies to continue",
+    "attention required! | cloudflare",
+    "ray id:</span>",              # challenge page ray-id block
+    "ddos-guard",
+    "you have been blocked",
+    "your ip address is banned",
+    "cf-please-wait",
+    "challenge-platform",
+]
+
+# Hard HTTP-status signals that mean we're definitely blocked
+_BLOCK_STATUSES = {403, 503}
+
 
 def _detect_bot_protection(response: requests.Response) -> str | None:
     """
     Inspect a response for signs of bot-protection, rate-limiting, or CAPTCHA.
     Returns a user-facing error string if detected, or None if the response looks clean.
+
+    Key rule: Cloudflare adds 'cf-ray' to ALL responses from CF-proxied sites,
+    even successful 200-OK pages.  We must NOT use cf-ray alone as a block signal.
+    Only treat it as a block when the *body* contains challenge/block content
+    OR when combined with a hard error status (403/503).
     """
     status = response.status_code
 
-    # HTTP 429 — explicit rate-limit response
+    # HTTP 429 — explicit rate-limit
     if status == 429:
         return "Site is rate-limiting — try again later"
 
     body = response.text.lower()
     headers_lower = {k.lower(): v.lower() for k, v in response.headers.items()}
 
-    # Cloudflare/bot-protection: header signals
-    cf_header = "cf-ray" in headers_lower or "cf-mitigated" in headers_lower
+    # CF challenge/block page — must match body content, not just headers
+    has_cf_header    = "cf-ray" in headers_lower or "cf-mitigated" in headers_lower
+    has_cf_challenge = any(marker in body for marker in _CF_CHALLENGE_BODY)
 
-    # Cloudflare/bot-protection: body signals
-    cf_body = any(marker in body for marker in _CLOUDFLARE_MARKERS)
-
-    if cf_header or cf_body:
+    # Trigger only when:
+    #   (a) body is a CF challenge page (regardless of status), or
+    #   (b) CF header present AND status is a hard error (403/503)
+    if has_cf_challenge or (has_cf_header and status in _BLOCK_STATUSES):
         return "Site is protected by Cloudflare — cannot auto-hit"
 
-    # HTTP 503 without Cloudflare markers still suggests a bot wall
+    # Generic bot-wall: 503 with no Cloudflare, still likely a wall
     if status == 503:
-        return "Site is rate-limiting — try again later"
+        return "Site is temporarily unavailable (503) — try again later"
 
     return None
 

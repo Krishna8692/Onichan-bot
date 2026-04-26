@@ -2668,3 +2668,37 @@ Bank: Stride Bank, National Association
 Country: United States of America (the) 🇺🇸
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-26 03:44:11
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355128804107|01|32|8759
+Gateway: wah
+Response: Approved - Subscription charged
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: BANK
+Country: United States of America (the) 🇺🇸
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-26 03:46:34
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355127862437|06|28|9153
+Gateway: wah
+Response: Approved - Subscription charged
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: BANK
+Country: United States of America (the) 🇺🇸
+================================================================================
+
