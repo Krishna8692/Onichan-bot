@@ -9167,7 +9167,12 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    parts = [p.strip() for p in raw[1].strip().split("|")]
+    arg_str = raw[1].strip()
+    # Support both pipe-separated and space-separated input
+    if "|" in arg_str:
+        parts = [p.strip() for p in arg_str.split("|")]
+    else:
+        parts = arg_str.split()
     if len(parts) < 4:
         await update.message.reply_text(
             "❌ <b>Need at least 4 fields:</b> url|email|password|cc_or_bin",
