@@ -258,6 +258,13 @@ def _find_login_url(
             ):
                 if _detect_captcha(r.text):
                     return None, None, "Login requires CAPTCHA — cannot auto-hit this site"
+                # Must have an actual password input — not just a SPA page whose title
+                # mentions "login" but renders the form in JavaScript at runtime.
+                has_password_input = bool(re.search(
+                    r'<input[^>]+type=["\']password["\']', r.text, re.IGNORECASE
+                ))
+                if not has_password_input:
+                    continue
                 return r.url, r.text, None
         except Exception:
             continue
@@ -308,13 +315,59 @@ def _api_login(session: requests.Session, site_url: str, email: str, password: s
       4. Detect success via JWT token, auth cookie, or positive response body.
       5. Inject discovered auth token into the session for subsequent requests.
     """
-    # ── Step 1: Scan JS bundles for API endpoint hints ────────────────────────
+    # ── Step 1: Fetch root page and extract extra API base URLs ─────────────
     discovered_endpoints: list[str] = []
-    try:
-        r_root = session.get(site_url, timeout=15, allow_redirects=True)
-        root_html = r_root.text if r_root.status_code == 200 else ""
-    except Exception:
-        root_html = ""
+    extra_api_bases: list[str] = []   # other domains found in page config
+
+    # Fetch root page + login page (login page often has more embedded config)
+    pages_html: list[str] = []
+    for fetch_url in [site_url, site_url + "/login", site_url + "/signin"]:
+        try:
+            r_root = session.get(fetch_url, timeout=12, allow_redirects=True)
+            if r_root.status_code == 200:
+                pages_html.append(r_root.text)
+        except Exception:
+            pass
+    root_html = pages_html[0] if pages_html else ""
+    combined_html = "\n".join(pages_html)
+
+    import json as _json
+
+    def _extract_api_bases_from_html(html: str) -> None:
+        """Pull API base URLs from SSR config embedded in the page."""
+        # 1. Next.js __NEXT_DATA__ — walks the full JSON tree
+        nd_m = re.search(
+            r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
+            html, re.DOTALL | re.IGNORECASE,
+        )
+        if nd_m:
+            try:
+                nd = _json.loads(nd_m.group(1))
+                # Also scan raw JSON for API_URL keys (faster + catches all nesting)
+                for raw_m in re.finditer(
+                    r'"([A-Z_]*(?:API|BASE)[A-Z_]*URL[A-Z_]*)"\s*:\s*"(https?://[^"]{3,80})"',
+                    nd_m.group(1), re.IGNORECASE,
+                ):
+                    extra_api_bases.append(raw_m.group(2).rstrip('/'))
+            except Exception:
+                pass
+
+        # 2. Vite / CRA / React env-var patterns injected into the bundle or page
+        for env_m in re.finditer(
+            r'(?:API_URL|VITE_API|apiUrl|baseUrl|REACT_APP_API|API_BASE)[^"\'`]{0,20}["\`\'](https?://[^"\'`\s]{5,80})["\`\']',
+            html, re.IGNORECASE,
+        ):
+            extra_api_bases.append(env_m.group(1).rstrip('/'))
+
+        # 3. Bare JSON assignment patterns: "API_URL":"https://..."
+        for bare_m in re.finditer(
+            r'"(?:API_URL|apiUrl|baseUrl|api_url|API_BASE_URL)"\s*:\s*"(https?://[^"]{3,80})"',
+            html, re.IGNORECASE,
+        ):
+            extra_api_bases.append(bare_m.group(1).rstrip('/'))
+
+    for page_html in pages_html:
+        _extract_api_bases_from_html(page_html)
 
     js_bundle_text = root_html
     # Download main JS bundles (React/Vue typically emit app.*.js, main.*.js, etc.)
@@ -336,11 +389,15 @@ def _api_login(session: requests.Session, site_url: str, email: str, password: s
         r'(?:/[a-z_\-]{1,30}){0,3})["\`]',
         re.IGNORECASE,
     )
+    # Build against site_url AND any extra API bases found above
+    api_bases_to_try = [site_url] + [b for b in dict.fromkeys(extra_api_bases) if b != site_url]
+
     for m in _AUTH_PATH_RE.finditer(js_bundle_text):
         path = m.group(1)
-        full = site_url + path
-        if full not in discovered_endpoints:
-            discovered_endpoints.append(full)
+        for base in api_bases_to_try:
+            full = base + path
+            if full not in discovered_endpoints:
+                discovered_endpoints.append(full)
 
     # ── Step 2: Static fallback endpoint list ────────────────────────────────
     _STATIC_AUTH = [
@@ -435,13 +492,14 @@ def _api_login(session: requests.Session, site_url: str, email: str, password: s
                             "Accept": "application/json",
                             "Content-Type": "application/json",
                             "X-Requested-With": "XMLHttpRequest",
-                            "Referer": site_url,
+                            "Origin": site_url,
+                            "Referer": site_url + "/login",
                         },
                     )
                 else:
                     r_auth = session.post(
                         ep_url, data=pay_data, timeout=15,
-                        headers={"Referer": site_url},
+                        headers={"Origin": site_url, "Referer": site_url + "/login"},
                         allow_redirects=True,
                     )
 
