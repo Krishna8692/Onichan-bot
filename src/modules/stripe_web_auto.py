@@ -36,6 +36,16 @@ _LOGIN_PATHS = [
     "/my-account",
     "/wp-login.php",
     "/auth/login",
+    "/auth",
+    "/users/sign_in",
+    "/session/new",
+    "/sessions/new",
+    "/member/login",
+    "/members/login",
+    "/customer/login",
+    "/portal/login",
+    "/admin/login",
+    "/",
 ]
 
 # Common patterns for Stripe public key
@@ -168,56 +178,41 @@ _CAPTCHA_MARKERS = [
     "captcha",
 ]
 
-# These patterns only appear in a real Cloudflare BLOCK/CHALLENGE page,
-# NOT on normal pages served through Cloudflare (which just have cf-ray headers).
-_CF_CHALLENGE_BODY = [
-    "just a moment...",
-    "enable javascript and cookies to continue",
-    "attention required! | cloudflare",
-    "ray id:</span>",              # challenge page ray-id block
-    "ddos-guard",
-    "you have been blocked",
-    "your ip address is banned",
-    "cf-please-wait",
-    "challenge-platform",
-]
-
-# Hard HTTP-status signals that mean we're definitely blocked
-_BLOCK_STATUSES = {403, 503}
-
-
 def _detect_bot_protection(response: requests.Response) -> str | None:
     """
-    Inspect a response for signs of bot-protection, rate-limiting, or CAPTCHA.
-    Returns a user-facing error string if detected, or None if the response looks clean.
+    Inspect a response for signs of bot-protection or rate-limiting.
+    Returns a user-facing error string if detected, or None if clean.
 
-    Key rule: Cloudflare adds 'cf-ray' to ALL responses from CF-proxied sites,
-    even successful 200-OK pages.  We must NOT use cf-ray alone as a block signal.
-    Only treat it as a block when the *body* contains challenge/block content
-    OR when combined with a hard error status (403/503).
+    Rules:
+    - cf-ray header alone is NOT a block signal (present on all CF-proxied sites).
+    - 'challenge-platform' in the body is NOT a block signal (appears in Turnstile
+      JS URLs on functional pages).
+    - We only block on definitive signals: HTTP 429, or specific body text that
+      ONLY appears on a real CF block/ban page.
     """
     status = response.status_code
 
-    # HTTP 429 — explicit rate-limit
     if status == 429:
-        return "Site is rate-limiting — try again later"
+        return "Site is rate-limiting requests — try again later"
 
     body = response.text.lower()
-    headers_lower = {k.lower(): v.lower() for k, v in response.headers.items()}
 
-    # CF challenge/block page — must match body content, not just headers
-    has_cf_header    = "cf-ray" in headers_lower or "cf-mitigated" in headers_lower
-    has_cf_challenge = any(marker in body for marker in _CF_CHALLENGE_BODY)
+    # These strings appear exclusively on real Cloudflare block/challenge pages,
+    # NOT on functional pages that simply use CF as a CDN or Turnstile as a widget.
+    _DEFINITIVE_BLOCK = [
+        "just a moment...",
+        "enable javascript and cookies to continue",
+        "you have been blocked",
+        "your ip address is banned",
+        "access denied | cloudflare",
+        "ddos-guard",
+    ]
+    if any(m in body for m in _DEFINITIVE_BLOCK):
+        return "Site is blocking automated access — cannot auto-hit"
 
-    # Trigger only when:
-    #   (a) body is a CF challenge page (regardless of status), or
-    #   (b) CF header present AND status is a hard error (403/503)
-    if has_cf_challenge or (has_cf_header and status in _BLOCK_STATUSES):
-        return "Site is protected by Cloudflare — cannot auto-hit"
-
-    # Generic bot-wall: 503 with no Cloudflare, still likely a wall
-    if status == 503:
-        return "Site is temporarily unavailable (503) — try again later"
+    # 503 without a real page suggests a bot-wall or maintenance
+    if status == 503 and len(response.text) < 5000:
+        return "Site is temporarily unavailable (503)"
 
     return None
 
@@ -241,32 +236,41 @@ def _find_login_url(
     a later path may succeed even if an earlier one was blocked.
     """
     last_protection_error: str | None = None
+    pages_tried = 0
 
     for path in _LOGIN_PATHS:
         try:
             url = site_url + path
             r = session.get(url, timeout=15, allow_redirects=True)
 
-            # Check for bot-protection but continue to the next path rather than
-            # exiting immediately — another login path on the same site may be
-            # unguarded.
+            # Only skip on definitive bot-blocks (429, known block pages).
+            # Do NOT skip merely because CF headers are present — CF is on millions
+            # of functional sites and cloudscraper already handles the JS challenge.
             protection_error = _detect_bot_protection(r)
             if protection_error:
                 last_protection_error = protection_error
                 continue
 
+            pages_tried += 1
             if r.status_code == 200 and any(
                 kw in r.text.lower()
-                for kw in ["password", "email", "log in", "login", "sign in"]
+                for kw in ["password", "email", "log in", "login", "sign in", "sign_in"]
             ):
                 if _detect_captcha(r.text):
-                    return None, None, "Login requires CAPTCHA — not supported by /wah"
+                    return None, None, "Login requires CAPTCHA — cannot auto-hit this site"
                 return r.url, r.text, None
         except Exception:
             continue
 
-    # No valid login page found; surface protection error if one was encountered.
-    return None, None, last_protection_error
+    # Surface the most useful error message
+    if last_protection_error:
+        return None, None, last_protection_error
+    if pages_tried > 0:
+        return None, None, (
+            "No login form found — site uses JavaScript-rendered authentication "
+            "(React/Vue SPA). /wah only works on sites with an HTML login form."
+        )
+    return None, None, "Login page not found on this site"
 
 
 def _extract_form_fields(html_text: str, form_action_hint: str = "") -> dict:
