@@ -147,20 +147,102 @@ def _extract_stripe_pk(html_text: str) -> str | None:
     return None
 
 
-def _find_login_url(session: requests.Session, site_url: str) -> tuple[str | None, str | None]:
-    """Return (login_url, page_html) for the first working login path."""
+_CLOUDFLARE_MARKERS = [
+    "cf-ray",
+    "checking your browser",
+    "just a moment",
+    "cloudflare ray id",
+    "__cf_bm",
+    "ddos-guard",
+    "attention required | cloudflare",
+    "enable javascript and cookies to continue",
+]
+
+_CAPTCHA_MARKERS = [
+    "g-recaptcha",
+    "recaptcha",
+    "hcaptcha",
+    "h-captcha",
+    "data-sitekey",
+    "captcha",
+]
+
+
+def _detect_bot_protection(response: requests.Response) -> str | None:
+    """
+    Inspect a response for signs of bot-protection, rate-limiting, or CAPTCHA.
+    Returns a user-facing error string if detected, or None if the response looks clean.
+    """
+    status = response.status_code
+
+    # HTTP 429 — explicit rate-limit response
+    if status == 429:
+        return "Site is rate-limiting — try again later"
+
+    body = response.text.lower()
+    headers_lower = {k.lower(): v.lower() for k, v in response.headers.items()}
+
+    # Cloudflare/bot-protection: header signals
+    cf_header = "cf-ray" in headers_lower or "cf-mitigated" in headers_lower
+
+    # Cloudflare/bot-protection: body signals
+    cf_body = any(marker in body for marker in _CLOUDFLARE_MARKERS)
+
+    if cf_header or cf_body:
+        return "Site is protected by Cloudflare — cannot auto-hit"
+
+    # HTTP 503 without Cloudflare markers still suggests a bot wall
+    if status == 503:
+        return "Site is rate-limiting — try again later"
+
+    return None
+
+
+def _detect_captcha(html: str) -> bool:
+    """Return True if the page contains a CAPTCHA challenge."""
+    lower = html.lower()
+    return any(marker in lower for marker in _CAPTCHA_MARKERS)
+
+
+def _find_login_url(
+    session: requests.Session, site_url: str
+) -> tuple[str | None, str | None, str | None]:
+    """
+    Return (login_url, page_html, error) for the first working login path.
+    On success: (url, html, None).
+    On bot/rate-limit/captcha detection (after all paths exhausted): (None, None, error_message).
+    When no login page is found at all: (None, None, None).
+
+    Protection errors are tracked across all paths but do not cause an early exit —
+    a later path may succeed even if an earlier one was blocked.
+    """
+    last_protection_error: str | None = None
+
     for path in _LOGIN_PATHS:
         try:
             url = site_url + path
             r = session.get(url, timeout=15, allow_redirects=True)
+
+            # Check for bot-protection but continue to the next path rather than
+            # exiting immediately — another login path on the same site may be
+            # unguarded.
+            protection_error = _detect_bot_protection(r)
+            if protection_error:
+                last_protection_error = protection_error
+                continue
+
             if r.status_code == 200 and any(
                 kw in r.text.lower()
                 for kw in ["password", "email", "log in", "login", "sign in"]
             ):
-                return r.url, r.text
+                if _detect_captcha(r.text):
+                    return None, None, "Login requires CAPTCHA — not supported by /wah"
+                return r.url, r.text, None
         except Exception:
             continue
-    return None, None
+
+    # No valid login page found; surface protection error if one was encountered.
+    return None, None, last_protection_error
 
 
 def _extract_form_fields(html_text: str, form_action_hint: str = "") -> dict:
@@ -195,9 +277,10 @@ def login_to_site(
     Attempt form-based login.
     Returns {"ok": True} on success, {"ok": False, "error": "..."} on failure.
     """
-    login_url, login_html = _find_login_url(session, site_url)
+    login_url, login_html, find_error = _find_login_url(session, site_url)
     if not login_url:
-        return {"ok": False, "error": "Login page not found"}
+        error_msg = find_error if find_error else "Login page not found"
+        return {"ok": False, "error": error_msg}
 
     hidden = _extract_form_fields(login_html)
 
