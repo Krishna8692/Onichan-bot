@@ -8,13 +8,46 @@
 """
 
 import os
+import sys
+import http.server as _http_server
+import threading as _threading
+
+# ── Instant production health-check servers ───────────────────────────────────
+# MUST run before ANY third-party import.  Uses only stdlib so it works
+# even if the Python environment is missing packages.  Non-daemon threads
+# keep the process alive (and port 5000 answering) even if a later import
+# fails — this lets the Reserved VM health check pass and lets runtime logs
+# capture the real error.
+def _start_health_srv(_port: int) -> None:
+    try:
+        class _OK(_http_server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"OK"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *_a): pass
+        t = _threading.Thread(
+            target=_http_server.HTTPServer(("0.0.0.0", _port), _OK).serve_forever,
+            daemon=False,  # non-daemon: keeps process alive if imports fail later
+        )
+        t.start()
+        print(f"[bot] Health server up on :{_port}", flush=True)
+    except OSError:
+        pass  # port already bound by production_start.py — that's fine
+
+for _hp in [5000, 8080]:
+    _start_health_srv(_hp)
+# ─────────────────────────────────────────────────────────────────────────────
+
 import re
 import json
 import requests
 import random
 import time
 import logging
-import sys
 from logging.handlers import RotatingFileHandler
 
 # ── Error log file (read by /geterror) ───────────────────────────────────────
@@ -48,35 +81,6 @@ _log_handler.setLevel(logging.WARNING)
 _log_handler.setFormatter(logging.Formatter(
     "%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 logging.getLogger().addHandler(_log_handler)
-# ─────────────────────────────────────────────────────────────────────────────
-# ── Instant production health-check servers (stdlib only) ────────────────────
-# Bind ports 5000 and 8080 BEFORE slow imports so the Reserved VM health
-# probe gets HTTP 200 well within the startup timeout.  Uses try/except so
-# it silently skips any port already claimed by production_start.py.
-import http.server as _http_server
-import threading as _threading
-
-def _start_health_srv(_port: int) -> None:
-    try:
-        class _OK(_http_server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                body = b"OK"
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            def log_message(self, *_a): pass
-        _threading.Thread(
-            target=_http_server.HTTPServer(("0.0.0.0", _port), _OK).serve_forever,
-            daemon=True,
-        ).start()
-        print(f"[bot] Health server up on :{_port}", flush=True)
-    except OSError:
-        pass  # port already bound (e.g. by production_start.py) — that's fine
-
-for _hp in [5000, 8080]:
-    _start_health_srv(_hp)
 # ─────────────────────────────────────────────────────────────────────────────
 import asyncio
 import aiohttp
