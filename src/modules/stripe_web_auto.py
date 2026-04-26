@@ -298,51 +298,259 @@ def _extract_form_fields(html_text: str, form_action_hint: str = "") -> dict:
     return fields
 
 
+def _api_login(session: requests.Session, site_url: str, email: str, password: str) -> dict:
+    """
+    API-based login for JavaScript SPAs (React/Vue/Angular) that have no HTML
+    login form.  Strategy:
+      1. Download the app's JS bundles and scan for auth API endpoint paths.
+      2. Combine discovered endpoints with a large static list of common patterns.
+      3. Try each endpoint with several payload formats (JSON/form, field name variants).
+      4. Detect success via JWT token, auth cookie, or positive response body.
+      5. Inject discovered auth token into the session for subsequent requests.
+    """
+    # ── Step 1: Scan JS bundles for API endpoint hints ────────────────────────
+    discovered_endpoints: list[str] = []
+    try:
+        r_root = session.get(site_url, timeout=15, allow_redirects=True)
+        root_html = r_root.text if r_root.status_code == 200 else ""
+    except Exception:
+        root_html = ""
+
+    js_bundle_text = root_html
+    # Download main JS bundles (React/Vue typically emit app.*.js, main.*.js, etc.)
+    _BUNDLE_PATTERNS = re.compile(
+        r'src=["\']([^"\']*(?:app|main|bundle|vendor|chunk|index)[^"\']*\.js[^"\']*)["\']',
+        re.IGNORECASE,
+    )
+    for js_src in _BUNDLE_PATTERNS.findall(root_html)[:6]:  # cap at 6 files
+        try:
+            rj = session.get(urljoin(site_url, js_src), timeout=12)
+            if rj.status_code == 200:
+                js_bundle_text += rj.text[:500_000]  # cap per-file at 500 KB
+        except Exception:
+            pass
+
+    # Extract paths that look like auth API endpoints from bundle source
+    _AUTH_PATH_RE = re.compile(
+        r'["\`](/(?:api/)?(?:v\d+/)?(?:auth|login|sign[-_]in|session|token|user|account)'
+        r'(?:/[a-z_\-]{1,30}){0,3})["\`]',
+        re.IGNORECASE,
+    )
+    for m in _AUTH_PATH_RE.finditer(js_bundle_text):
+        path = m.group(1)
+        full = site_url + path
+        if full not in discovered_endpoints:
+            discovered_endpoints.append(full)
+
+    # ── Step 2: Static fallback endpoint list ────────────────────────────────
+    _STATIC_AUTH = [
+        f"{site_url}/api/auth/login",
+        f"{site_url}/api/auth/signin",
+        f"{site_url}/api/auth/sign-in",
+        f"{site_url}/api/login",
+        f"{site_url}/api/sign-in",
+        f"{site_url}/api/signin",
+        f"{site_url}/api/v1/auth/login",
+        f"{site_url}/api/v1/login",
+        f"{site_url}/api/v1/sessions",
+        f"{site_url}/api/v2/auth/login",
+        f"{site_url}/api/users/sign_in",
+        f"{site_url}/api/user/login",
+        f"{site_url}/api/session",
+        f"{site_url}/api/sessions",
+        f"{site_url}/api/token",
+        f"{site_url}/api/tokens",
+        f"{site_url}/api/accounts/login",
+        f"{site_url}/auth/login",
+        f"{site_url}/auth/signin",
+        f"{site_url}/auth/token",
+        f"{site_url}/auth/local",
+        f"{site_url}/users/sign_in",
+        f"{site_url}/user/login",
+        f"{site_url}/login",
+        f"{site_url}/signin",
+        f"{site_url}/session",
+        f"{site_url}/oauth/token",
+        f"{site_url}/connect/token",
+        f"{site_url}/identity/connect/token",
+        # WordPress/WooCommerce REST
+        f"{site_url}/wp-json/wp/v2/users/me",
+        f"{site_url}/wp-json/jwt-auth/v1/token",
+        f"{site_url}/wp-json/simple-jwt-login/v1/auth",
+        # Membership platforms
+        f"{site_url}/api/membership/login",
+        f"{site_url}/api/members/login",
+        f"{site_url}/members/auth",
+    ]
+    # Discovered endpoints go first (higher confidence)
+    all_endpoints = discovered_endpoints + [e for e in _STATIC_AUTH if e not in discovered_endpoints]
+
+    # ── Step 3: Payload variants to try for each endpoint ────────────────────
+    def _make_auth_payloads(email: str, pwd: str) -> list[tuple[dict, str]]:
+        """Return (payload, format) pairs. format is 'json' or 'form'."""
+        return [
+            ({"email": email, "password": pwd}, "json"),
+            ({"username": email, "password": pwd}, "json"),
+            ({"login": email, "password": pwd}, "json"),
+            ({"user": {"email": email, "password": pwd}}, "json"),
+            ({"credentials": {"email": email, "password": pwd}}, "json"),
+            # OAuth2 password grant
+            ({"grant_type": "password", "username": email, "password": pwd,
+              "scope": "openid profile email"}, "json"),
+            # Form-encoded variants
+            ({"email": email, "password": pwd}, "form"),
+            ({"username": email, "password": pwd, "log": email, "pwd": pwd}, "form"),
+        ]
+
+    payloads = _make_auth_payloads(email, password)
+
+    # ── Step 4: Success / failure detection ──────────────────────────────────
+    _SUCCESS_KEYS = re.compile(
+        r'\b(?:token|access_token|id_token|jwt|auth_token|session_token|'
+        r'accessToken|idToken|authToken|sessionToken)\b',
+        re.IGNORECASE,
+    )
+    _BAD_CREDS = re.compile(
+        r'invalid.{0,20}(?:email|password|credential|user)|'
+        r'incorrect.{0,20}(?:email|password)|'
+        r'wrong.{0,20}password|'
+        r'no.{0,10}account|'
+        r'user.{0,10}not.{0,10}found|'
+        r'authentication.{0,10}failed',
+        re.IGNORECASE,
+    )
+    _AUTH_HEADER_KW = ("bearer", "token", "jwt")
+
+    tried: set[str] = set()
+    for ep_url in all_endpoints:
+        if ep_url in tried:
+            continue
+        tried.add(ep_url)
+        for pay_data, pay_fmt in payloads:
+            try:
+                if pay_fmt == "json":
+                    r_auth = session.post(
+                        ep_url, json=pay_data, timeout=15,
+                        headers={
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Referer": site_url,
+                        },
+                    )
+                else:
+                    r_auth = session.post(
+                        ep_url, data=pay_data, timeout=15,
+                        headers={"Referer": site_url},
+                        allow_redirects=True,
+                    )
+
+                # Non-existent endpoint
+                if r_auth.status_code in (404, 405, 410):
+                    break  # skip remaining payload variants for this URL
+
+                # Explicit bad-credentials response
+                try:
+                    resp_body = str(r_auth.json())
+                except Exception:
+                    resp_body = r_auth.text or ""
+
+                if _BAD_CREDS.search(resp_body):
+                    return {"ok": False, "error": "Invalid credentials (wrong email/password)"}
+
+                # Success: look for a token in the response body
+                if r_auth.status_code in (200, 201) and _SUCCESS_KEYS.search(resp_body):
+                    # Extract and inject the token into the session
+                    tok_m = re.search(
+                        r'(?:token|access_token|id_token|jwt|auth_token|accessToken|idToken)'
+                        r'["\s:]+([A-Za-z0-9\-_.]{20,500})',
+                        resp_body, re.IGNORECASE,
+                    )
+                    if tok_m:
+                        token_val = tok_m.group(1).strip('"\'')
+                        session.headers.update({"Authorization": f"Bearer {token_val}"})
+                    return {"ok": True, "method": "api", "endpoint": ep_url}
+
+                # Success: auth cookie set without an explicit token body
+                if r_auth.status_code in (200, 201) and r_auth.cookies:
+                    cookie_names = [c.name.lower() for c in r_auth.cookies]
+                    if any(k in n for n in cookie_names
+                           for k in ("session", "auth", "token", "jwt", "user", "login")):
+                        return {"ok": True, "method": "api_cookie", "endpoint": ep_url}
+
+                # Success: was redirected to a dashboard / account area
+                if r_auth.status_code in (200, 201):
+                    final = r_auth.url.lower()
+                    if any(kw in final for kw in ("/dashboard", "/account", "/profile",
+                                                   "/home", "/app", "/portal", "/member")):
+                        return {"ok": True, "method": "api_redirect", "endpoint": ep_url}
+
+            except Exception:
+                continue
+
+    return {"ok": False, "error": f"No working login API found (tried {len(tried)} endpoints)"}
+
+
 def login_to_site(
     session: requests.Session, site_url: str, email: str, password: str
 ) -> dict:
     """
-    Attempt form-based login.
+    Attempt login via:
+      1. HTML form-based login (traditional sites, WordPress, WooCommerce, etc.)
+      2. API / JSON login fallback (React/Vue SPAs, modern SaaS, membership platforms)
     Returns {"ok": True} on success, {"ok": False, "error": "..."} on failure.
     """
+    # ── Path 1: HTML form login ───────────────────────────────────────────────
     login_url, login_html, find_error = _find_login_url(session, site_url)
-    if not login_url:
-        error_msg = find_error if find_error else "Login page not found"
-        return {"ok": False, "error": error_msg}
+    if login_url:
+        hidden = _extract_form_fields(login_html)
+        payload = {**hidden, "email": email, "password": password}
+        payload.setdefault("username", email)
+        payload.setdefault("log", email)
+        payload.setdefault("pwd", password)
+        payload.setdefault("rememberme", "forever")
+        payload.setdefault("redirect", "")
 
-    hidden = _extract_form_fields(login_html)
+        form_action = None
+        m = re.search(r'<form[^>]+action=["\']([^"\']+)["\']', login_html, re.IGNORECASE)
+        if m:
+            form_action = urljoin(login_url, m.group(1))
+        post_url = form_action or login_url
 
-    payload = {**hidden, "email": email, "password": password}
-    payload.setdefault("username", email)
-    payload.setdefault("log", email)
-    payload.setdefault("pwd", password)
-    payload.setdefault("rememberme", "forever")
-    payload.setdefault("redirect", "")
+        try:
+            r = session.post(
+                post_url, data=payload, timeout=20, allow_redirects=True,
+                headers={"Referer": login_url, "Content-Type": "application/x-www-form-urlencoded"},
+            )
+            body_lower = r.text.lower()
+            if any(kw in body_lower for kw in ["incorrect password", "invalid credentials",
+                                                "wrong password", "no account found",
+                                                "does not exist", "invalid email"]):
+                return {"ok": False, "error": "Invalid credentials"}
+            return {"ok": True, "method": "form"}
+        except requests.Timeout:
+            return {"ok": False, "error": "Login timeout"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:60]}
 
-    form_action = None
-    m = re.search(r'<form[^>]+action=["\']([^"\']+)["\']', login_html, re.IGNORECASE)
-    if m:
-        form_action = urljoin(login_url, m.group(1))
-    post_url = form_action or login_url
+    # If there was a definitive block (rate-limit / ban), stop here
+    if find_error and "blocking" in (find_error or "").lower():
+        return {"ok": False, "error": find_error}
+    if find_error and "captcha" in (find_error or "").lower():
+        return {"ok": False, "error": find_error}
 
-    try:
-        r = session.post(
-            post_url,
-            data=payload,
-            timeout=20,
-            allow_redirects=True,
-            headers={"Referer": login_url, "Content-Type": "application/x-www-form-urlencoded"},
-        )
-        body_lower = r.text.lower()
-        if any(kw in body_lower for kw in ["incorrect password", "invalid credentials",
-                                             "wrong password", "no account found",
-                                             "does not exist", "invalid email"]):
-            return {"ok": False, "error": "Invalid credentials"}
-        return {"ok": True, "final_url": r.url}
-    except requests.Timeout:
-        return {"ok": False, "error": "Login timeout"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:60]}
+    # ── Path 2: API / JSON login (SPA sites) ─────────────────────────────────
+    api_result = _api_login(session, site_url, email, password)
+    if api_result.get("ok"):
+        return api_result
+
+    # Report the most useful error
+    html_err = find_error or "No HTML login form found"
+    api_err  = api_result.get("error", "API login failed")
+    return {
+        "ok": False,
+        "error": f"Form login: {html_err} | API login: {api_err}",
+    }
 
 
 def find_cheapest_product(session: requests.Session, site_url: str) -> dict | None:
