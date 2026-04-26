@@ -2736,3 +2736,20 @@ Bank: BANK
 Country: United States of America (the) 🇺🇸
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-26 04:30:21
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355126371646|09|26|7260
+Gateway: wah
+Response: Approved - Subscription charged
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: BANK
+Country: United States of America (the) 🇺🇸
+================================================================================
+
