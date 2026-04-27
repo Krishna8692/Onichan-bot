@@ -18,6 +18,8 @@ import threading as _threading
 # keep the process alive (and port 5000 answering) even if a later import
 # fails — this lets the Reserved VM health check pass and lets runtime logs
 # capture the real error.
+_early_srv_registry: dict = {}  # port → HTTPServer instance
+
 def _start_health_srv(_port: int) -> None:
     try:
         class _OK(_http_server.BaseHTTPRequestHandler):
@@ -29,14 +31,24 @@ def _start_health_srv(_port: int) -> None:
                 self.end_headers()
                 self.wfile.write(body)
             def log_message(self, *_a): pass
+        srv = _http_server.HTTPServer(("0.0.0.0", _port), _OK)
+        _early_srv_registry[_port] = srv
         t = _threading.Thread(
-            target=_http_server.HTTPServer(("0.0.0.0", _port), _OK).serve_forever,
-            daemon=False,  # non-daemon: keeps process alive if imports fail later
+            target=srv.serve_forever,
+            daemon=True,  # daemon: keep_alive will replace us on port 5000
         )
         t.start()
         print(f"[bot] Health server up on :{_port}", flush=True)
     except OSError:
-        pass  # port already bound by production_start.py — that's fine
+        pass  # port already bound elsewhere — that's fine
+
+def _stop_early_health_srv(_port: int) -> None:
+    srv = _early_srv_registry.pop(_port, None)
+    if srv:
+        try:
+            srv.shutdown()
+        except Exception:
+            pass
 
 for _hp in [5000, 8080]:
     _start_health_srv(_hp)
@@ -16541,6 +16553,11 @@ def main():
     # SKIP_KEEP_ALIVE=1 is set by production_start.py, which already launched
     # the Flask server before starting bot.py as a subprocess.
     if REPLIT_MODE and not os.environ.get("SKIP_KEEP_ALIVE"):
+        # Release the early health server on port 5000 so keep_alive (waitress)
+        # can bind the same port for the full web panel.
+        _port_for_ka = int(os.environ.get("PORT", 5000))
+        _stop_early_health_srv(_port_for_ka)
+        import time as _t; _t.sleep(0.3)  # give OS time to free the socket
         print("🌐 Starting keep_alive server for Replit...")
         keep_alive()
         print("✅ Keep_alive server started!")

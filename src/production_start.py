@@ -4,15 +4,17 @@ Production entry point for Onichan Bot — Reserved VM edition.
 
 Strategy
 --------
-1. Bind a stdlib http.server on EVERY exposed port (5000, 8080) within
-   the first 0.1 seconds of startup — no third-party packages required.
-   This guarantees the deployment health-check probe gets HTTP 200 before
-   any other code runs.
+1. Bind a stdlib http.server on port 5000 ONLY — no third-party packages.
+   This satisfies Replit's health-check probe instantly.
+   Port 8080 is owned by the API server; we must NOT touch it.
 
-2. Start bot.py as a supervised subprocess (Telegram polling + full
-   keep_alive web panel if SKIP_KEEP_ALIVE is not set in the child env).
+2. Release port 5000 once Replit has detected it, so that bot.py's
+   keep_alive (Flask/waitress) web panel can take over that port.
 
-3. Block the main process forever so the container stays alive.
+3. Start bot.py as a supervised subprocess.  keep_alive will bind 5000
+   and serve the full web panel.  SKIP_KEEP_ALIVE is NOT set.
+
+4. Block the main process forever so the container stays alive.
 """
 import http.server
 import os
@@ -30,9 +32,6 @@ PY  = sys.executable
 
 # Primary port: what the deployment health-check probes
 MAIN_PORT = int(os.environ.get("PORT", 5000))
-
-# All ports declared in .replit [[ports]] — probe ALL of them
-ALL_PORTS = [5000, 8080]
 
 
 # ---------------------------------------------------------------------------
@@ -54,11 +53,11 @@ class _OK(http.server.BaseHTTPRequestHandler):
         pass  # silence request logs
 
 
-def _start_health_server(port: int, daemon: bool = True):
+def _start_health_server(port: int):
     """Start a minimal HTTP health server on *port* in a background thread."""
     try:
         srv = http.server.HTTPServer(("0.0.0.0", port), _OK)
-        t = threading.Thread(target=srv.serve_forever, daemon=daemon)
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
         t.start()
         print(f"[prod] Health server up on :{port}", flush=True)
         return srv
@@ -67,28 +66,30 @@ def _start_health_server(port: int, daemon: bool = True):
         return None
 
 
-# Start health servers on every exposed port — runs in < 100 ms
-# Always include MAIN_PORT even if it's not in ALL_PORTS
-_all_ports = sorted(set(ALL_PORTS + [MAIN_PORT]))
-_servers = []
-for _p in _all_ports:
-    _srv = _start_health_server(_p, daemon=(_p != MAIN_PORT))
-    _servers.append(_srv)
+# Start health server on MAIN_PORT (5000) only.
+# Port 8080 belongs to the API server — never bind it here.
+_health_srv = _start_health_server(MAIN_PORT)
 
-# Small pause so threads actually bind before the health probe arrives
-time.sleep(0.3)
-print(f"[prod] Health servers running on ports {ALL_PORTS}", flush=True)
+# Wait so Replit's port-detection probe sees the port come up
+time.sleep(1.5)
+print(f"[prod] Health server running on port {MAIN_PORT}", flush=True)
+
+# Release port 5000 so bot.py's keep_alive (Flask/waitress) can bind it.
+if _health_srv:
+    _health_srv.shutdown()
+    _health_srv = None
+time.sleep(0.5)  # give the OS time to free the socket
+print(f"[prod] Released port {MAIN_PORT} — handing off to keep_alive", flush=True)
 
 
 # ---------------------------------------------------------------------------
 # 3.  Run bot.py in a supervised restart loop
 # ---------------------------------------------------------------------------
-# SKIP_KEEP_ALIVE=1  →  bot.py won't try to start its own Flask server
-# (the health servers above already handle /ping and /).
+# keep_alive.py will bind PORT (5000) and serve the full web panel.
+# Do NOT set SKIP_KEEP_ALIVE here.
 
 BOT_ENV = {
     **os.environ,
-    "SKIP_KEEP_ALIVE": "1",
     "PORT": str(MAIN_PORT),
     # Ensure src/ is on PYTHONPATH so bot.py can resolve `from modules.X import Y`
     "PYTHONPATH": DIR + ((":" + os.environ["PYTHONPATH"]) if os.environ.get("PYTHONPATH") else ""),
@@ -117,17 +118,10 @@ _bot_thread.start()
 
 
 # ---------------------------------------------------------------------------
-# 4.  Block main thread — keep container alive via the non-daemon server
+# 4.  Block main thread — keep the container alive forever
 # ---------------------------------------------------------------------------
-# The health server for MAIN_PORT was started with daemon=False, so the
-# process stays alive as long as that server runs.  If for any reason it
-# exited, fall back to a simple sleep loop.
+# bot.py runs as a daemon thread; the main thread must not exit or the
+# entire process (and all daemon threads) will be killed.
 
-main_srv = _servers[0] if _servers else None
-if main_srv and not threading.current_thread().daemon:
-    # serve_forever() was already called in its own thread; just join it.
-    pass
-
-# Safety net: sleep forever so the process never exits
 while True:
     time.sleep(60)
