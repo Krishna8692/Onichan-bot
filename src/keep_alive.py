@@ -622,8 +622,9 @@ def admin_dashboard():
                 }}
                 el.innerHTML = rows.map(r => {{
                     const res = (r.result || 'error').toLowerCase();
-                    const badgeCls = res === 'live' ? 'badge-live' : res.startsWith('dead') ? 'badge-dead' : 'badge-error';
-                    const label = res === 'live' ? 'LIVE' : res.startsWith('dead') ? 'DIE' : 'ERR';
+                    const isDead = res === 'dead' || res === 'die' || res.startsWith('dead') || res.startsWith('die');
+                    const badgeCls = res === 'live' ? 'badge-live' : isDead ? 'badge-dead' : 'badge-error';
+                    const label = res === 'live' ? 'LIVE' : isDead ? 'DIE' : 'ERR';
                     return '<div class="feed-row">'
                         + '<span class="badge ' + badgeCls + '">' + label + '</span>'
                         + '<span class="feed-gate">' + (r.gate || '?').toUpperCase() + '</span>'
@@ -3305,6 +3306,7 @@ def admin_user_profile():
     from config import DB_OWNER, DB_PREMIUM, DB_FREE, DB_BANNED
     from modules.database import _execute_with_retry, is_db_connected
     from modules.credits import get_balance, get_transaction_history
+    from markupsafe import escape as _esc
 
     uid_raw = request.args.get('uid', '').strip()
     profile = None
@@ -3364,7 +3366,7 @@ def admin_user_profile():
                     parts = line.split()
                     if parts and parts[0] == uid_str:
                         rank = 'Premium'
-                        premium_expiry = parts[1] if len(parts) > 1 else 'N/A'
+                        premium_expiry = _esc(parts[1]) if len(parts) > 1 else 'N/A'
                         break
                 if rank is None and any(l.split()[0] == uid_str for l in free_users if l.split()):
                     rank = 'Free'
@@ -3394,11 +3396,13 @@ def admin_user_profile():
                     amt = t['amount']
                     amt_color = '#4ade80' if amt > 0 else '#e94560'
                     amt_str = f"+{amt}" if amt > 0 else str(amt)
-                    at = t['at'].strftime('%Y-%m-%d %H:%M') if hasattr(t['at'], 'strftime') else str(t['at'])
+                    at = _esc(t['at'].strftime('%Y-%m-%d %H:%M') if hasattr(t['at'], 'strftime') else str(t['at']))
+                    t_type = _esc(t['type'] or '')
+                    t_desc = _esc(t['description'] or '—')
                     txn_rows += f"""<tr>
                         <td style="color:{amt_color};font-weight:bold;">{amt_str}</td>
-                        <td>{t['type']}</td>
-                        <td style="opacity:0.8;">{t['description'] or '—'}</td>
+                        <td>{t_type}</td>
+                        <td style="opacity:0.8;">{t_desc}</td>
                         <td style="opacity:0.6;">{at}</td>
                     </tr>"""
 
@@ -3460,7 +3464,7 @@ def admin_user_profile():
                     <div style="flex:1;min-width:200px;">
                         <label style="display:block;margin-bottom:6px;opacity:0.7;font-size:0.9em;">Telegram User ID</label>
                         <input type="text" name="uid" placeholder="e.g. 123456789"
-                               value="{uid_raw}"
+                               value="{_esc(uid_raw)}"
                                style="width:100%;padding:12px;border:none;border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:1em;"
                                required>
                     </div>
