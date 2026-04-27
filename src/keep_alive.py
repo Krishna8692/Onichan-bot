@@ -435,6 +435,7 @@ def admin_dashboard():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -543,6 +544,7 @@ def admin_users():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -673,6 +675,7 @@ def admin_premium():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -801,6 +804,7 @@ def admin_owners():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -990,6 +994,7 @@ def admin_permissions():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1081,6 +1086,7 @@ def admin_payments():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1195,6 +1201,7 @@ def admin_banned():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1247,6 +1254,7 @@ def admin_cards():
             <a href="/admin/payments" onclick="closeSidebar()">Payments</a>
             <a href="/admin/banned" onclick="closeSidebar()">Banned</a>
             <a href="/admin/cards" class="active" onclick="closeSidebar()">Approved Cards</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1405,6 +1413,7 @@ def admin_settings():
             <a href="/admin/payments" onclick="closeSidebar()">Payments</a>
             <a href="/admin/banned" onclick="closeSidebar()">Banned</a>
             <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" class="active" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -2835,6 +2844,226 @@ ANIME_DECORATIONS = '''
     <div class="star">⭐</div>
 </div>
 '''
+
+GATE_LIST = [
+    ("exgate", "ExGate / External Gate Checker"),
+    ("sq", "Square Auth $0"),
+    ("bu", "Braintree Auth $1"),
+    ("pp", "PayPal $1"),
+    ("ppv", "PayPal V2 (Admin Only)"),
+    ("sor", "Stripe $2"),
+    ("st5", "Stripe $5"),
+    ("st12", "Stripe $12"),
+    ("str", "Stripe $15 Donation"),
+    ("b3n", "Braintree $5"),
+    ("dep", "Stripe $49"),
+    ("wah", "Website Auto-Hit (WAH)"),
+    ("auz", "Authorize.net $0"),
+    ("asd", "Authorize.net $7"),
+    ("atf", "Authorize.net $25"),
+    ("anh", "Authorize.net $200"),
+    ("sh6", "Shopify $6"),
+    ("sh8", "Shopify $8"),
+    ("sh10", "Shopify $10"),
+    ("sh13", "Shopify $13"),
+    ("b3", "Braintree Auth"),
+    ("mb3", "Mass Braintree"),
+    ("ast", "Auto Stripe Auth"),
+    ("st", "Stripe Auth"),
+    ("rz", "Razorpay ₹1"),
+    ("rzp", "Razorpay Pages"),
+    ("mrz", "Mass Razorpay ₹1"),
+    ("mrzp", "Mass Razorpay Pages"),
+    ("payu", "PayU ₹1"),
+    ("mpayu", "Mass PayU ₹1"),
+    ("kill", "CC Killer"),
+    ("stm", "Stripe Mass Auth"),
+    ("se1", "SE1 Gate"),
+    ("sh", "Shopify (Netherex)"),
+    ("st1", "Stripe $1"),
+    ("bt1", "Braintree $1"),
+    ("bt3d", "Braintree 3D"),
+]
+
+@app.route('/admin/gates')
+@admin_required
+def admin_gates():
+    from modules.gate_status import get_all_gate_status
+    statuses = get_all_gate_status()
+
+    rows = ""
+    for gate_id, gate_label in GATE_LIST:
+        is_offline = statuses.get(gate_id, False)
+        checked = "checked" if is_offline else ""
+        status_text = "OFFLINE" if is_offline else "ONLINE"
+        status_color = "#e94560" if is_offline else "#4ade80"
+        rows += f"""
+        <div class="gate-row" id="row-{gate_id}">
+            <div class="gate-info">
+                <span class="gate-cmd">/{gate_id}</span>
+                <span class="gate-label">{gate_label}</span>
+            </div>
+            <div class="gate-controls">
+                <span class="gate-status" id="status-{gate_id}" style="color:{status_color};font-weight:bold;min-width:70px;display:inline-block;">{status_text}</span>
+                <label class="toggle-switch" title="Toggle {gate_id} offline">
+                    <input type="checkbox" {checked} onchange="toggleGate('{gate_id}', this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+        </div>"""
+
+    return render_template_string(f"""
+    <html>
+    <head><title>Gates - Onichan Admin</title>{ADMIN_CSS}
+    <style>
+        .gate-row {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.05);
+            margin-bottom: 10px;
+            border: 1px solid rgba(255,255,255,0.08);
+            transition: background 0.2s;
+        }}
+        .gate-row:hover {{ background: rgba(255,255,255,0.09); }}
+        .gate-info {{ display: flex; flex-direction: column; gap: 4px; }}
+        .gate-cmd {{ font-family: monospace; font-size: 1.05em; color: #a78bfa; font-weight: bold; }}
+        .gate-label {{ font-size: 0.88em; color: rgba(255,255,255,0.6); }}
+        .gate-controls {{ display: flex; align-items: center; gap: 16px; }}
+        .toggle-switch {{ position: relative; width: 64px; height: 32px; display: inline-block; flex-shrink: 0; }}
+        .toggle-switch input {{ opacity: 0; width: 0; height: 0; }}
+        .toggle-slider {{
+            position: absolute; cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #4ade80;
+            transition: 0.3s; border-radius: 32px;
+        }}
+        .toggle-slider:before {{
+            position: absolute; content: "";
+            height: 24px; width: 24px;
+            left: 4px; bottom: 4px;
+            background-color: white;
+            transition: 0.3s; border-radius: 50%;
+        }}
+        input:checked + .toggle-slider {{ background-color: #e94560; }}
+        input:checked + .toggle-slider:before {{ transform: translateX(32px); }}
+        .toast {{
+            position: fixed; bottom: 24px; right: 24px;
+            background: #1a1a2e; color: #fff;
+            padding: 12px 22px; border-radius: 8px;
+            border-left: 4px solid #4ade80;
+            opacity: 0; transition: opacity 0.3s;
+            z-index: 9999; font-size: 0.95em;
+        }}
+        .toast.error {{ border-left-color: #e94560; }}
+        .toast.show {{ opacity: 1; }}
+        .bulk-controls {{ display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap; }}
+        .bulk-btn {{ padding: 8px 18px; border-radius:7px; border:none; cursor:pointer; font-size:0.92em; font-weight:600; }}
+        .bulk-btn.disable-all {{ background:#e94560; color:#fff; }}
+        .bulk-btn.enable-all {{ background:#4ade80; color:#1a1a2e; }}
+    </style>
+    </head>
+    <body>
+        <button class="menu-toggle" onclick="toggleSidebar()">
+            <span></span><span></span><span></span>
+        </button>
+        <div class="sidebar-overlay" onclick="closeSidebar()"></div>
+        <div class="sidebar">
+            <h2>Onichan Admin</h2>
+            <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" class="active" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
+            <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
+            <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
+            <a href="/admin/payments" onclick="closeSidebar()">Payments</a>
+            <a href="/admin/banned" onclick="closeSidebar()">Banned</a>
+            <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
+            <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
+            <a href="/tools/checker" onclick="closeSidebar()">CC Checker</a>
+            <a href="/tools/generator" onclick="closeSidebar()">Generator</a>
+            <a href="/admin/autohitter" onclick="closeSidebar()">Auto Hitter</a>
+            <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
+            <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
+            <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
+            <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
+            <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
+            <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
+        </div>
+        <div class="main">
+            <div class="header"><h1>⚡ Gate Control Panel</h1></div>
+            <div class="card">
+                <h2 style="margin-bottom:6px;">Gate Maintenance Toggles</h2>
+                <p style="color:rgba(255,255,255,0.55);margin-bottom:18px;font-size:0.92em;">
+                    Toggle any gate <b>ON</b> (green = online) or <b>OFF</b> (red = offline/maintenance).<br>
+                    When offline, users see a maintenance message instead of the checker.
+                </p>
+                <div class="bulk-controls">
+                    <button class="bulk-btn disable-all" onclick="bulkToggle(true)">🚫 Disable All</button>
+                    <button class="bulk-btn enable-all" onclick="bulkToggle(false)">✅ Enable All</button>
+                </div>
+                {rows}
+            </div>
+        </div>
+        <div class="toast" id="toast"></div>
+        <script>
+        function showToast(msg, isError) {{
+            var t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast' + (isError ? ' error' : '') + ' show';
+            setTimeout(function(){{ t.className = 'toast'; }}, 2500);
+        }}
+        function toggleGate(gate, offline) {{
+            fetch('/admin/gates/toggle', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{gate: gate, offline: offline}})
+            }})
+            .then(function(r){{ return r.json(); }})
+            .then(function(d){{
+                if (d.ok) {{
+                    var el = document.getElementById('status-' + gate);
+                    if (el) {{
+                        el.textContent = offline ? 'OFFLINE' : 'ONLINE';
+                        el.style.color = offline ? '#e94560' : '#4ade80';
+                    }}
+                    showToast('/' + gate + ' is now ' + (offline ? 'OFFLINE' : 'ONLINE'), offline);
+                }} else {{
+                    showToast('Error: ' + (d.error || 'unknown'), true);
+                }}
+            }})
+            .catch(function(e){{ showToast('Request failed', true); }});
+        }}
+        function bulkToggle(offline) {{
+            var checkboxes = document.querySelectorAll('.toggle-switch input[type=checkbox]');
+            checkboxes.forEach(function(cb) {{
+                var gate = cb.getAttribute('onchange').match(/'([^']+)'/)[1];
+                if (cb.checked !== offline) {{
+                    cb.checked = offline;
+                    toggleGate(gate, offline);
+                }}
+            }});
+        }}
+        </script>
+    </body>
+    </html>
+    """)
+
+@app.route('/admin/gates/toggle', methods=['POST'])
+@admin_required
+def admin_gates_toggle():
+    from modules.gate_status import set_gate_offline
+    data = request.get_json(silent=True) or {}
+    gate = data.get('gate', '').strip()
+    offline = bool(data.get('offline', False))
+    valid_gates = {g for g, _ in GATE_LIST}
+    if not gate or gate not in valid_gates:
+        return jsonify({'ok': False, 'error': 'Invalid gate'}), 400
+    set_gate_offline(gate, offline)
+    return jsonify({'ok': True, 'gate': gate, 'offline': offline})
 
 def user_required(f):
     @wraps(f)
@@ -8406,6 +8635,7 @@ TOOLS_SIDEBAR = """
     <a href="/admin/users" onclick="closeSidebar()">Users</a>
     <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
     <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
+    <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
     <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
     <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
 </div>
@@ -9817,6 +10047,7 @@ def admin_ccshop():
             <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
             <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
             <a href="/admin/ccshop" class="active" onclick="closeSidebar()">CC Shop</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -10234,6 +10465,7 @@ def admin_ccshop_purchases():
             <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
             <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
             <a href="/admin/ccshop" class="active" onclick="closeSidebar()">CC Shop</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -11485,6 +11717,7 @@ def _admin_proxy_sidebar(active='proxyshop'):
             <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" {cls('proxyshop')} onclick="closeSidebar()">Proxy Shop</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>

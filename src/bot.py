@@ -4963,6 +4963,10 @@ async def gate_exgate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     razorpay  rzpid=<key_id>  rzpsec=<secret>  → Razorpay order + card payment
     api       (any above) uses approvedchkr.store external API (needs apikey=<key>)
     """
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("exgate"):
+        await update.message.reply_text(offline_message("exgate"), parse_mode=ParseMode.HTML)
+        return
     from modules.gate_checker import (
         check_sk_pk_gate,
         check_shopify_site_gate,
@@ -7285,8 +7289,12 @@ def _build_gate_response(cc, mm, yy, cvv, status_str, message, gate_display, bin
 
 async def check_gate(update: Update, context: ContextTypes.DEFAULT_TYPE, gate_name: str, gate_display: str, require_prem: bool = False):
     """Generic gate checker"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline(gate_name):
+        await update.message.reply_text(offline_message(gate_name), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
-    
+
     # Check if banned
     if is_banned(user.id):
         gif_url = get_sexy_anime_gif("banned")
@@ -7663,8 +7671,12 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
 @require_premium
 async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Braintree checker using external API"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("b3"):
+        await update.message.reply_text(offline_message("b3"), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
-    
+
     card_data = parse_card(update.message.text)
     if not card_data:
         await update.message.reply_text(
@@ -7921,9 +7933,13 @@ async def gate_bt3d(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Braintree (vkrm API)"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("b3"):
+        await update.message.reply_text(offline_message("b3"), parse_mode=ParseMode.HTML)
+        return
     import time
     from modules.bin_lookup import format_mass_card_result
-    
+
     user = update.effective_user
     if not context.args:
         await update.message.reply_text(
@@ -7968,12 +7984,16 @@ async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_mb3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass Braintree check with 5 batches and 1s delay"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("b3"):
+        await update.message.reply_text(offline_message("b3"), parse_mode=ParseMode.HTML)
+        return
     import time
     from modules.bin_lookup import format_mass_card_result
-    
+
     user = update.effective_user
     user_id = user.id
-    
+
     if not context.args:
         await update.message.reply_text(
             "📋 <b>Mass Braintree Check</b>\n\n"
@@ -8073,8 +8093,12 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
 @require_premium
 async def gate_ast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Auto Stripe Auth using newrp.vercel.app API"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("ast"):
+        await update.message.reply_text(offline_message("ast"), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
-    
+
     card_data = parse_card(update.message.text)
     if not card_data:
         await update.message.reply_text(
@@ -8375,9 +8399,13 @@ async def process_mass_st(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
 @require_premium
 async def gate_rz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Razorpay ₹1 using Nyvexis API"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("rz"):
+        await update.message.reply_text(offline_message("rz"), parse_mode=ParseMode.HTML)
+        return
     import time as time_module
     user = update.effective_user
-    
+
     card_data = parse_card(update.message.text)
     if not card_data:
         await update.message.reply_text(
@@ -8433,6 +8461,10 @@ async def gate_rz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_rzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Razorpay Pages checker using external API"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("rzp"):
+        await update.message.reply_text(offline_message("rzp"), parse_mode=ParseMode.HTML)
+        return
     import time as time_module
     user = update.effective_user
 
@@ -8518,6 +8550,10 @@ async def gate_rzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_mrzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass Razorpay Pages checker using external API"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("rzp"):
+        await update.message.reply_text(offline_message("rzp"), parse_mode=ParseMode.HTML)
+        return
     import asyncio
     user = update.effective_user
     user_id = user.id
@@ -8705,12 +8741,16 @@ async def gate_mrzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_approval
 async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Braintree Auth Gate using BarryX API"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("b3"):
+        await update.message.reply_text(offline_message("b3"), parse_mode=ParseMode.HTML)
+        return
     import aiohttp
     import time as time_module
     from modules.gate_checker import get_bin_info
-    
+
     user = update.effective_user
-    
+
     # Parse card
     card_data = parse_card(update.message.text)
     if not card_data:
@@ -9117,9 +9157,13 @@ async def stop_mass_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """PayPal $1 checker"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("pp"):
+        await update.message.reply_text(offline_message("pp"), parse_mode=ParseMode.HTML)
+        return
     import time as time_module
     user = update.effective_user
-    
+
     card_data = parse_card(update.message.text)
     if not card_data:
         await update.message.reply_text(
@@ -9195,9 +9239,13 @@ async def gate_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def gate_ppv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """PayPal V2 Variable Price checker - Owner/Admin only"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("ppv"):
+        await update.message.reply_text(offline_message("ppv"), parse_mode=ParseMode.HTML)
+        return
     import time as time_module
     user = update.effective_user
-    
+
     if not is_owner(user.id):
         await update.message.reply_text(
             "🔒 <b>Owner Only</b>\n\n"
@@ -9271,9 +9319,13 @@ async def gate_ppv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_str(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Stripe $1 Donation checker"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("str"):
+        await update.message.reply_text(offline_message("str"), parse_mode=ParseMode.HTML)
+        return
     import time as time_module
     user = update.effective_user
-    
+
     card_data = parse_card(update.message.text)
     if not card_data:
         await update.message.reply_text(
@@ -9332,6 +9384,10 @@ async def gate_str(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Website Auto-Hit: single card OR unlimited BIN loop against a Stripe-powered site."""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("wah"):
+        await update.message.reply_text(offline_message("wah"), parse_mode=ParseMode.HTML)
+        return
     import asyncio as _asyncio
     user = update.effective_user
     username = user.username or user.first_name
@@ -9831,6 +9887,10 @@ async def mass_str(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_b3n(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Braintree $5.00 checker"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("b3n"):
+        await update.message.reply_text(offline_message("b3n"), parse_mode=ParseMode.HTML)
+        return
     import time as time_module
     user = update.effective_user
     card_data = parse_card(update.message.text)
@@ -9879,6 +9939,10 @@ async def gate_b3n(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_rz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Razorpay ₹1 checker using BarryX API"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("rz"):
+        await update.message.reply_text(offline_message("rz"), parse_mode=ParseMode.HTML)
+        return
     import time as time_module
     user = update.effective_user
     card_data = parse_card(update.message.text)
@@ -9927,10 +9991,14 @@ async def gate_rz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_mrz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass Razorpay checker with 1 second delay"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("rz"):
+        await update.message.reply_text(offline_message("rz"), parse_mode=ParseMode.HTML)
+        return
     import asyncio
     user = update.effective_user
     user_id = user.id
-    
+
     if context.user_data.get(f'mass_check_running_{user_id}'):
         await update.message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress."), parse_mode=ParseMode.HTML)
         return
@@ -10011,9 +10079,13 @@ async def gate_mrz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_payu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """PayU ₹1 Gate - Single card check"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("payu"):
+        await update.message.reply_text(offline_message("payu"), parse_mode=ParseMode.HTML)
+        return
     import asyncio
     user = update.effective_user
-    
+
     if not context.args:
         await update.message.reply_text(ae("🎀 <b>PayU ₹1 Gate</b>\n\n<b>Usage:</b>\n<code>/payu CC|MM|YY|CVV</code>\n\n💡 Uses MiracleManna donation gateway"), parse_mode=ParseMode.HTML)
         return
@@ -10055,10 +10127,14 @@ async def gate_payu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_mpayu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass PayU checker with 1 second delay"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("payu"):
+        await update.message.reply_text(offline_message("payu"), parse_mode=ParseMode.HTML)
+        return
     import asyncio
     user = update.effective_user
     user_id = user.id
-    
+
     if context.user_data.get(f'mass_check_running_{user_id}'):
         await update.message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress."), parse_mode=ParseMode.HTML)
         return
@@ -10323,6 +10399,10 @@ def _format_shopify_result(cc, mm, yy, cvv, result, bin_info, elapsed, username)
 @require_premium
 async def gate_sh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shopify (Netherex) - Clean EnvoX style"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("sh"):
+        await update.message.reply_text(offline_message("sh"), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
 
     if is_banned(user.id):
@@ -10614,8 +10694,12 @@ async def handle_dot_commands(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def mass_check_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE, gate_name: str):
     """Handle mass check shortcuts like /mpp, /mss - Available for all approved users"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline(gate_name):
+        await update.message.reply_text(offline_message(gate_name), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
-    
+
     # Check if approved
     if not is_approved(user.id):
         await update.message.reply_text(
@@ -10691,8 +10775,12 @@ async def mass_check_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def mass_check_txt_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE, gate_name: str):
     """Handle TXT file mass check shortcuts like /msstxt, /mpptxt"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline(gate_name):
+        await update.message.reply_text(offline_message(gate_name), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
-    
+
     # Check if approved
     if not is_approved(user.id):
         await update.message.reply_text(
@@ -12719,9 +12807,13 @@ Premium activates within 5 mins! ✅
 @require_approval
 async def gate_st1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /st1 command for Stripe $1 gate"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("st1"):
+        await update.message.reply_text(offline_message("st1"), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
     message = update.message
-    
+
     if not context.args:
         await message.reply_text(
             "<b>Stripe $1 Gate</b>\n\n"
@@ -13962,9 +14054,13 @@ from modules.square_auth import square_auth_logic
 @require_premium
 async def gate_sq(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Square Auth Gate - /sq [cc|mm|yy|cvv]"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("sq"):
+        await update.message.reply_text(offline_message("sq"), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
     message = update.message
-    
+
     if not context.args:
         await message.reply_text(
             "⬛ <b>SQUARE AUTH GATE</b>\n\n"
@@ -14043,9 +14139,13 @@ async def gate_sq(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_premium
 async def gate_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """CC Killer Gate - /kill [cc|mm|yy|cvv]"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("kill"):
+        await update.message.reply_text(offline_message("kill"), parse_mode=ParseMode.HTML)
+        return
     user = update.effective_user
     message = update.message
-    
+
     if not context.args:
         await message.reply_text(
             "💀 <b>CC KILLER GATE</b>\n\n"
