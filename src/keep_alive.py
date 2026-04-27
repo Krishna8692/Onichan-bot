@@ -613,6 +613,9 @@ def admin_dashboard():
                 document.getElementById('health-active').textContent  = d.active_users_24h;
             }}).catch(() => {{}});
         }}
+        function _esc(s) {{
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }}
         function fetchFeed() {{
             fetch('/admin/live-feed').then(r => r.json()).then(rows => {{
                 const el = document.getElementById('live-feed');
@@ -627,8 +630,8 @@ def admin_dashboard():
                     const label = res === 'live' ? 'LIVE' : isDead ? 'DIE' : 'ERR';
                     return '<div class="feed-row">'
                         + '<span class="badge ' + badgeCls + '">' + label + '</span>'
-                        + '<span class="feed-gate">' + (r.gate || '?').toUpperCase() + '</span>'
-                        + '<span class="feed-uid">uid:' + (r.user_id || '?') + '</span>'
+                        + '<span class="feed-gate">' + _esc((r.gate || '?').toUpperCase()) + '</span>'
+                        + '<span class="feed-uid">uid:' + _esc(r.user_id || '?') + '</span>'
                         + '<span class="feed-time">' + fmtAgo(r.seconds_ago) + '</span>'
                         + '</div>';
                 }}).join('');
@@ -3292,7 +3295,7 @@ def admin_live_feed():
                     FROM gate_analytics
                     WHERE created_at >= NOW() - INTERVAL '24 hours'
                     ORDER BY created_at DESC
-                    LIMIT 25
+                    LIMIT 20
                 """)
                 return [{'gate': r[0], 'user_id': r[1], 'result': r[2], 'seconds_ago': int(r[3] or 0)}
                         for r in cur.fetchall()]
