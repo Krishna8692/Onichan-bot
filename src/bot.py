@@ -4935,6 +4935,183 @@ async def sk_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ============================================================================
+# EXGATE — EXTRACTED GATE CHECKER (sk-based / shopify / razorpay)
+# Reverse-engineered from approvedchkr.store/api/v1/check.php
+# ============================================================================
+
+@require_approval
+async def gate_exgate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /exgate <gateway> <cc|mm|yy|cvv> [key=val ...]
+
+    Gateways
+    ─────────
+    sk-based  sk=<SK>  pk=<PK>                → PK tokenises, SK charges (real browser flow)
+    shopify   url=<store_url>                  → Full Shopify site checkout
+    razorpay  rzpid=<key_id>  rzpsec=<secret>  → Razorpay order + card payment
+    api       (any above) uses approvedchkr.store external API (needs apikey=<key>)
+    """
+    from modules.gate_checker import (
+        check_sk_pk_gate,
+        check_shopify_site_gate,
+        check_razorpay_session_gate,
+        check_approvedchkr_api,
+        get_bin_info,
+    )
+
+    user = update.effective_user
+    args = context.args or []
+
+    USAGE = (
+        "🔓 <b>ExGate — Extracted Gate Checker</b>\n\n"
+        "<b>Usage:</b>\n"
+        "<code>/exgate sk-based 4242...4242|01|26|123 sk=sk_live_xxx pk=pk_live_xxx</code>\n"
+        "<code>/exgate shopify  4242...4242|01|26|123 url=https://store.com</code>\n"
+        "<code>/exgate razorpay 4242...4242|01|26|123 rzpid=rzp_live_x rzpsec=secret</code>\n\n"
+        "<b>Gateways:</b>\n"
+        "• <code>sk-based</code> — PK browser-tokenises → SK charges (stealthiest)\n"
+        "• <code>shopify</code>  — Full Shopify checkout on a real store\n"
+        "• <code>razorpay</code> — Razorpay order + card payment\n\n"
+        "<i>Reverse-engineered from approvedchkr.store</i>"
+    )
+
+    if len(args) < 2:
+        await update.message.reply_text(USAGE, parse_mode=ParseMode.HTML)
+        return
+
+    gateway = args[0].lower()
+    card_raw = args[1]
+
+    # Parse key=val extra params
+    kv = {}
+    for part in args[2:]:
+        if '=' in part:
+            k, _, v = part.partition('=')
+            kv[k.lower()] = v
+
+    # Parse card
+    card_parts = [x.strip() for x in card_raw.split('|')]
+    if len(card_parts) != 4:
+        await update.message.reply_text(
+            "❌ Card must be <code>cc|mm|yy|cvv</code>", parse_mode=ParseMode.HTML
+        )
+        return
+    cc, mm, yy, cvv = card_parts
+
+    # Loading msg
+    loading = await update.message.reply_text(
+        f"⏳ <b>ExGate</b> — running <code>{gateway}</code> gate...",
+        parse_mode=ParseMode.HTML
+    )
+
+    try:
+        t0 = time_module.time()
+
+        if gateway == 'sk-based':
+            sk = kv.get('sk', '')
+            pk = kv.get('pk', '')
+            if not sk or not pk:
+                await loading.edit_text(
+                    "❌ sk-based needs <code>sk=</code> and <code>pk=</code>",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            result = await asyncio.to_thread(check_sk_pk_gate, cc, mm, yy, cvv, sk, pk)
+
+        elif gateway == 'shopify':
+            url = kv.get('url', '')
+            if not url:
+                await loading.edit_text(
+                    "❌ shopify needs <code>url=https://store.com</code>",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            result = await asyncio.to_thread(check_shopify_site_gate, cc, mm, yy, cvv, url)
+
+        elif gateway == 'razorpay':
+            rzpid = kv.get('rzpid', '')
+            rzpsec = kv.get('rzpsec', '')
+            if not rzpid or not rzpsec:
+                await loading.edit_text(
+                    "❌ razorpay needs <code>rzpid=</code> and <code>rzpsec=</code>",
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            result = await asyncio.to_thread(check_razorpay_session_gate, cc, mm, yy, cvv, rzpid, rzpsec)
+
+        else:
+            await loading.edit_text(
+                f"❌ Unknown gateway <code>{html.escape(gateway)}</code>. Use: sk-based | shopify | razorpay",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        elapsed = result.get('time', round(time_module.time() - t0, 2))
+        msg_raw = result.get('message', 'No response')
+        status  = result.get('status', 'error')
+
+        # BIN lookup
+        try:
+            bin_info = await asyncio.to_thread(get_bin_info, cc[:6])
+        except Exception:
+            bin_info = {}
+
+        bin_brand   = bin_info.get('scheme', bin_info.get('brand', 'Unknown')).title()
+        bin_type    = bin_info.get('type', bin_info.get('card_type', 'Unknown')).title()
+        bin_bank    = bin_info.get('bank', {}).get('name', 'Unknown') if isinstance(bin_info.get('bank'), dict) else bin_info.get('bank', 'Unknown')
+        bin_country = (bin_info.get('country', {}).get('emoji', '') if isinstance(bin_info.get('country'), dict)
+                       else '') + ' ' + (bin_info.get('country', {}).get('name', '') if isinstance(bin_info.get('country'), dict)
+                       else bin_info.get('country', ''))
+
+        # Determine icon
+        if status == 'error':
+            icon = '⚠️'
+            label = 'ERROR'
+        elif any(w in msg_raw.lower() for w in ('approved', 'charged', 'valid', '3ds', 'capture')):
+            icon = '✅'
+            label = 'APPROVED'
+        else:
+            icon = '❌'
+            label = 'DECLINED'
+
+        GATE_NAMES = {
+            'sk-based': 'SK+PK Based',
+            'shopify':  'Shopify Site',
+            'razorpay': 'Razorpay Direct',
+        }
+        gate_display = GATE_NAMES.get(gateway, gateway.upper())
+
+        resp = (
+            f"{icon} <b>ExGate — {gate_display}</b>\n\n"
+            f"<b>Card:</b> <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
+            f"<b>Status:</b> {label}\n"
+            f"<b>Response:</b> {html.escape(msg_raw)}\n\n"
+            f"<b>BIN:</b> {cc[:6]}\n"
+            f"<b>Brand:</b> {html.escape(str(bin_brand))}\n"
+            f"<b>Type:</b>  {html.escape(str(bin_type))}\n"
+            f"<b>Bank:</b>  {html.escape(str(bin_bank))}\n"
+            f"<b>Country:</b> {html.escape(str(bin_country).strip())}\n\n"
+            f"<b>Gateway:</b> {gate_display}\n"
+            f"<b>Time:</b> {elapsed}s\n"
+            f"<b>By:</b> <a href='tg://user?id={user.id}'>{html.escape(user.first_name)}</a>"
+        )
+
+        try:
+            await loading.delete()
+        except Exception:
+            pass
+
+        gif_type = 'approved' if label == 'APPROVED' else 'declined' if label == 'DECLINED' else 'error'
+        await _reply_with_gif(update.message, gif_type, resp)
+
+    except Exception as e:
+        await loading.edit_text(
+            f"❌ <b>ExGate error</b>\n\n{html.escape(str(e)[:200])}",
+            parse_mode=ParseMode.HTML
+        )
+
+
+# ============================================================================
 # TEMPORARY PHONE NUMBER
 # ============================================================================
 
@@ -16551,6 +16728,8 @@ def main():
     application.add_handler(CommandHandler("ipscore", ip_check_command))
     application.add_handler(CommandHandler("sk", sk_check_command))
     application.add_handler(CommandHandler("skinfo", sk_check_command))
+    application.add_handler(CommandHandler("exgate", gate_exgate))
+    application.add_handler(CommandHandler("xgate", gate_exgate))
     application.add_handler(CommandHandler("ckproxy", proxy_check_command))
     application.add_handler(CommandHandler("proxycheck", proxy_check_command))
     application.add_handler(CommandHandler("proxymode", lambda u, c: _proxy_toggle_mode(u.message, u.effective_user.id, " ".join(c.args).strip() if c.args else "")))

