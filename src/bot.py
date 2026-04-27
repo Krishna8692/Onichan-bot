@@ -17372,7 +17372,8 @@ def main():
     print("=" * 80)
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True
+        drop_pending_updates=True,
+        bootstrap_retries=-1,
     )
 
 if __name__ == "__main__":
