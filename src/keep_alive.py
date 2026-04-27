@@ -15,6 +15,8 @@ import bcrypt
 import requests as http_requests
 from datetime import datetime
 import asyncio
+import time
+import psutil as _psutil
 from modules.auto_hitter import charge_card as auto_hitter_charge, get_proxy_url, parse_card as auto_hitter_parse_card
 from modules.stripe_tls import get_checkout_info as tls_get_checkout_info
 from modules.web_panel.autohitter_v2_checker import v2_init_checkout, v2_charge_card
@@ -40,6 +42,7 @@ def _add_perf_headers(resp):
     return resp
 app.secret_key = os.environ.get("SESSION_SECRET", os.environ.get("FLASK_SECRET_KEY", "onichan-secret-key-2024"))
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+_APP_START_TIME = time.time()
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -410,7 +413,96 @@ def admin_dashboard():
     
     return render_template_string(f"""
     <html>
-    <head><title>Dashboard - Onichan Admin</title>{ADMIN_CSS}</head>
+    <head><title>Dashboard - Onichan Admin</title>{ADMIN_CSS}
+    <style>
+        .health-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }}
+        .health-card {{
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 16px 20px;
+            position: relative;
+        }}
+        .health-card .hc-label {{
+            font-size: 0.75em;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            opacity: 0.5;
+            margin-bottom: 6px;
+        }}
+        .health-card .hc-value {{
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #4ade80;
+        }}
+        .health-card .hc-dot {{
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+            display: inline-block;
+            margin-right: 6px;
+            animation: pulse 2s ease-in-out infinite;
+        }}
+        @keyframes pulse {{
+            0%,100% {{ opacity:1; }} 50% {{ opacity:0.3; }}
+        }}
+        .section-header {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 28px 0 14px;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            opacity: 0.5;
+        }}
+        .section-header::after {{
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255,255,255,0.1);
+        }}
+        .feed-panel {{
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            max-height: 340px;
+            overflow-y: auto;
+        }}
+        .feed-row {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.88em;
+            transition: background 0.15s;
+        }}
+        .feed-row:last-child {{ border-bottom: none; }}
+        .feed-row:hover {{ background: rgba(255,255,255,0.03); }}
+        .badge {{
+            padding: 2px 9px;
+            border-radius: 12px;
+            font-size: 0.78em;
+            font-weight: 700;
+            text-transform: uppercase;
+            min-width: 42px;
+            text-align: center;
+        }}
+        .badge-live   {{ background: rgba(74,222,128,0.15); color: #4ade80; }}
+        .badge-dead   {{ background: rgba(233,69,96,0.15);  color: #e94560; }}
+        .badge-error  {{ background: rgba(234,179,8,0.15);  color: #eab308; }}
+        .feed-gate  {{ font-weight: 600; min-width: 40px; }}
+        .feed-uid   {{ opacity: 0.5; font-size: 0.85em; flex: 1; }}
+        .feed-time  {{ opacity: 0.4; font-size: 0.8em; white-space: nowrap; }}
+        .feed-empty {{ padding: 28px; text-align: center; opacity: 0.4; }}
+    </style>
+    </head>
     <body>
         <button class="menu-toggle" onclick="toggleSidebar()">
             <span></span><span></span><span></span>
@@ -421,6 +513,7 @@ def admin_dashboard():
             <a href="/admin" class="active" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -444,6 +537,7 @@ def admin_dashboard():
                 <h1>Dashboard</h1>
                 <span>Welcome, Admin!</span>
             </div>
+
             <div class="stats-grid">
                 <div class="stat-card">
                     <h3>{stats['total_users']}</h3>
@@ -478,7 +572,71 @@ def admin_dashboard():
                     <p>Owners</p>
                 </div>
             </div>
+
+            <div class="section-header"><span class="hc-dot"></span> System Health</div>
+            <div class="health-grid">
+                <div class="health-card">
+                    <div class="hc-label">Uptime</div>
+                    <div class="hc-value" id="health-uptime">—</div>
+                </div>
+                <div class="health-card">
+                    <div class="hc-label">Memory</div>
+                    <div class="hc-value" id="health-memory">—</div>
+                </div>
+                <div class="health-card">
+                    <div class="hc-label">Checks / min</div>
+                    <div class="hc-value" id="health-checks">—</div>
+                </div>
+                <div class="health-card">
+                    <div class="hc-label">Active Users (24h)</div>
+                    <div class="hc-value" id="health-active">—</div>
+                </div>
+            </div>
+
+            <div class="section-header"><span class="hc-dot" style="background:#a855f7;animation:pulse 1.5s ease-in-out infinite;"></span> Live Activity</div>
+            <div class="feed-panel" id="live-feed">
+                <div class="feed-empty">Loading activity…</div>
+            </div>
         </div>
+
+        <script>
+        function fmtAgo(s) {{
+            if (s < 60) return s + 's ago';
+            if (s < 3600) return Math.floor(s/60) + 'm ago';
+            return Math.floor(s/3600) + 'h ago';
+        }}
+        function fetchHealth() {{
+            fetch('/admin/health-data').then(r => r.json()).then(d => {{
+                document.getElementById('health-uptime').textContent  = d.uptime_label;
+                document.getElementById('health-memory').textContent  = d.memory_mb + ' MB';
+                document.getElementById('health-checks').textContent  = d.checks_last_min;
+                document.getElementById('health-active').textContent  = d.active_users_24h;
+            }}).catch(() => {{}});
+        }}
+        function fetchFeed() {{
+            fetch('/admin/live-feed').then(r => r.json()).then(rows => {{
+                const el = document.getElementById('live-feed');
+                if (!rows.length) {{
+                    el.innerHTML = '<div class="feed-empty">No checks in the last 24 hours.</div>';
+                    return;
+                }}
+                el.innerHTML = rows.map(r => {{
+                    const res = (r.result || 'error').toLowerCase();
+                    const badgeCls = res === 'live' ? 'badge-live' : res.startsWith('dead') ? 'badge-dead' : 'badge-error';
+                    const label = res === 'live' ? 'LIVE' : res.startsWith('dead') ? 'DIE' : 'ERR';
+                    return '<div class="feed-row">'
+                        + '<span class="badge ' + badgeCls + '">' + label + '</span>'
+                        + '<span class="feed-gate">' + (r.gate || '?').toUpperCase() + '</span>'
+                        + '<span class="feed-uid">uid:' + (r.user_id || '?') + '</span>'
+                        + '<span class="feed-time">' + fmtAgo(r.seconds_ago) + '</span>'
+                        + '</div>';
+                }}).join('');
+            }}).catch(() => {{}});
+        }}
+        fetchHealth(); fetchFeed();
+        setInterval(fetchHealth, 5000);
+        setInterval(fetchFeed, 3000);
+        </script>
     </body>
     </html>
     """)
@@ -530,6 +688,7 @@ def admin_users():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" class="active" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -661,6 +820,7 @@ def admin_premium():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" class="active" onclick="closeSidebar()">Premium</a>
@@ -790,6 +950,7 @@ def admin_owners():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" class="active" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -980,6 +1141,7 @@ def admin_permissions():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" class="active" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -1072,6 +1234,7 @@ def admin_payments():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -1187,6 +1350,7 @@ def admin_banned():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -1249,6 +1413,7 @@ def admin_cards():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -1408,6 +1573,7 @@ def admin_settings():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -2975,6 +3141,7 @@ def admin_gates():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" class="active" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -3064,6 +3231,249 @@ def admin_gates_toggle():
         return jsonify({'ok': False, 'error': 'Invalid gate'}), 400
     set_gate_offline(gate, offline)
     return jsonify({'ok': True, 'gate': gate, 'offline': offline})
+
+
+def _fmt_uptime(seconds):
+    seconds = int(seconds)
+    d, r = divmod(seconds, 86400)
+    h, r = divmod(r, 3600)
+    m, s = divmod(r, 60)
+    if d:
+        return f"{d}d {h}h {m}m"
+    if h:
+        return f"{h}h {m}m {s}s"
+    return f"{m}m {s}s"
+
+
+@app.route('/admin/health-data')
+@admin_required
+def admin_health_data():
+    from modules.database import _execute_with_retry, is_db_connected
+    uptime_seconds = int(time.time() - _APP_START_TIME)
+    try:
+        proc = _psutil.Process()
+        memory_mb = round(proc.memory_info().rss / 1024 / 1024, 1)
+    except Exception:
+        memory_mb = 0
+    checks_last_min = 0
+    active_users_24h = 0
+    if is_db_connected():
+        def _health_op(conn):
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM gate_analytics WHERE created_at >= NOW() - INTERVAL '1 minute'")
+                c1 = (cur.fetchone() or [0])[0] or 0
+                cur.execute("SELECT COUNT(DISTINCT user_id) FROM gate_analytics WHERE created_at >= NOW() - INTERVAL '24 hours'")
+                c2 = (cur.fetchone() or [0])[0] or 0
+                return c1, c2
+        result = _execute_with_retry(_health_op)
+        if result:
+            checks_last_min, active_users_24h = result
+    return jsonify({
+        'uptime_seconds': uptime_seconds,
+        'uptime_label': _fmt_uptime(uptime_seconds),
+        'memory_mb': memory_mb,
+        'checks_last_min': checks_last_min,
+        'active_users_24h': active_users_24h
+    })
+
+
+@app.route('/admin/live-feed')
+@admin_required
+def admin_live_feed():
+    from modules.database import _execute_with_retry, is_db_connected
+    rows = []
+    if is_db_connected():
+        def _feed_op(conn):
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT gate, user_id, result,
+                           EXTRACT(EPOCH FROM (NOW() - created_at))::INTEGER AS seconds_ago
+                    FROM gate_analytics
+                    WHERE created_at >= NOW() - INTERVAL '24 hours'
+                    ORDER BY created_at DESC
+                    LIMIT 25
+                """)
+                return [{'gate': r[0], 'user_id': r[1], 'result': r[2], 'seconds_ago': int(r[3] or 0)}
+                        for r in cur.fetchall()]
+        rows = _execute_with_retry(_feed_op) or []
+    return jsonify(rows)
+
+
+@app.route('/admin/user-profile')
+@admin_required
+def admin_user_profile():
+    from config import DB_OWNER, DB_PREMIUM, DB_FREE, DB_BANNED
+    from modules.database import _execute_with_retry, is_db_connected
+    from modules.credits import get_balance, get_transaction_history
+
+    uid_raw = request.args.get('uid', '').strip()
+    profile = None
+    error_msg = None
+
+    sidebar = f"""
+        <div class="sidebar-overlay" onclick="closeSidebar()"></div>
+        <div class="sidebar">
+            <h2>Onichan Admin</h2>
+            <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" class="active" onclick="closeSidebar()">User Search</a>
+            <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
+            <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
+            <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
+            <a href="/admin/payments" onclick="closeSidebar()">Payments</a>
+            <a href="/admin/banned" onclick="closeSidebar()">Banned</a>
+            <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
+            <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
+            <a href="/tools/checker" onclick="closeSidebar()">CC Checker</a>
+            <a href="/tools/generator" onclick="closeSidebar()">Generator</a>
+            <a href="/admin/autohitter" onclick="closeSidebar()">Auto Hitter</a>
+            <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
+            <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
+            <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
+            <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
+            <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
+            <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
+        </div>"""
+
+    profile_html = ''
+    if uid_raw:
+        try:
+            uid = int(uid_raw)
+        except ValueError:
+            error_msg = 'Invalid user ID — must be a number.'
+            uid = None
+
+        if uid:
+            owners = read_file_lines(DB_OWNER)
+            premium = read_file_lines(DB_PREMIUM)
+            free_users = read_file_lines(DB_FREE)
+            banned = read_file_lines(DB_BANNED)
+
+            uid_str = str(uid)
+            rank = None
+            premium_expiry = 'N/A'
+
+            if any(l.split()[0] == uid_str for l in owners if l.split()):
+                rank = 'Owner'
+            elif any(l.split()[0] == uid_str for l in banned if l.split()):
+                rank = 'Banned'
+            else:
+                for line in premium:
+                    parts = line.split()
+                    if parts and parts[0] == uid_str:
+                        rank = 'Premium'
+                        premium_expiry = parts[1] if len(parts) > 1 else 'N/A'
+                        break
+                if rank is None and any(l.split()[0] == uid_str for l in free_users if l.split()):
+                    rank = 'Free'
+
+            if rank is None:
+                error_msg = f'User <code>{uid}</code> not found in any user database.'
+            else:
+                rank_colors = {
+                    'Owner': '#f59e0b', 'Premium': '#a855f7',
+                    'Free': '#3b82f6', 'Banned': '#e94560'
+                }
+                rank_color = rank_colors.get(rank, '#888')
+
+                balance = get_balance(uid)
+                txns = get_transaction_history(uid, limit=20)
+
+                total_checks = 0
+                if is_db_connected():
+                    def _ck_op(conn):
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT COUNT(*) FROM gate_analytics WHERE user_id = %s", (uid,))
+                            return (cur.fetchone() or [0])[0] or 0
+                    total_checks = _execute_with_retry(_ck_op) or 0
+
+                txn_rows = ''
+                for t in txns:
+                    amt = t['amount']
+                    amt_color = '#4ade80' if amt > 0 else '#e94560'
+                    amt_str = f"+{amt}" if amt > 0 else str(amt)
+                    at = t['at'].strftime('%Y-%m-%d %H:%M') if hasattr(t['at'], 'strftime') else str(t['at'])
+                    txn_rows += f"""<tr>
+                        <td style="color:{amt_color};font-weight:bold;">{amt_str}</td>
+                        <td>{t['type']}</td>
+                        <td style="opacity:0.8;">{t['description'] or '—'}</td>
+                        <td style="opacity:0.6;">{at}</td>
+                    </tr>"""
+
+                txn_table = f"""
+                <div class="card" style="margin-top:20px;">
+                    <h2>Credit Transactions (last 20)</h2>
+                    {'<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid rgba(255,255,255,0.15);padding-bottom:8px;"><th style="text-align:left;padding:8px 4px;">Amount</th><th style="text-align:left;padding:8px 4px;">Type</th><th style="text-align:left;padding:8px 4px;">Description</th><th style="text-align:left;padding:8px 4px;">Time</th></tr></thead><tbody>' + txn_rows + '</tbody></table>' if txn_rows else '<p style="opacity:0.6;">No transactions found.</p>'}
+                </div>""" if txn_rows or not txns else '<div class="card" style="margin-top:20px;"><p style="opacity:0.6;">No transactions found.</p></div>'
+
+                profile_html = f"""
+                <div class="card" style="border-left: 4px solid {rank_color}; margin-top: 20px;">
+                    <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+                        <div>
+                            <span style="background:{rank_color};color:#0a0a1a;padding:4px 14px;border-radius:20px;font-weight:bold;font-size:0.9em;">{rank}</span>
+                        </div>
+                        <div>
+                            <h2 style="margin:0;">User <code style="font-size:0.85em;">{uid}</code></h2>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="margin-top:20px;">
+                        <div class="stat-card">
+                            <h3>{balance}</h3>
+                            <p>Credits</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>{total_checks}</h3>
+                            <p>Total Checks</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 style="font-size:1.2em;">{premium_expiry}</h3>
+                            <p>Premium Expiry</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 style="color:{rank_color};">{rank}</h3>
+                            <p>Rank</p>
+                        </div>
+                    </div>
+                </div>
+                {txn_table}"""
+
+    error_html = f'<div class="card" style="border-left:4px solid #e94560;margin-top:20px;"><p style="color:#e94560;">{error_msg}</p></div>' if error_msg else ''
+
+    return render_template_string(f"""
+    <html>
+    <head><title>User Search - Onichan Admin</title>{ADMIN_CSS}</head>
+    <body>
+        <button class="menu-toggle" onclick="toggleSidebar()">
+            <span></span><span></span><span></span>
+        </button>
+        {sidebar}
+        <div class="main">
+            <div class="header">
+                <h1>User Search</h1>
+                <span>Look up any user by ID</span>
+            </div>
+            <div class="card">
+                <h2>Search User</h2>
+                <form method="GET" action="/admin/user-profile" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                    <div style="flex:1;min-width:200px;">
+                        <label style="display:block;margin-bottom:6px;opacity:0.7;font-size:0.9em;">Telegram User ID</label>
+                        <input type="text" name="uid" placeholder="e.g. 123456789"
+                               value="{uid_raw}"
+                               style="width:100%;padding:12px;border:none;border-radius:8px;background:rgba(255,255,255,0.1);color:#fff;font-size:1em;"
+                               required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="padding:12px 28px;">Search</button>
+                </form>
+            </div>
+            {error_html}
+            {profile_html}
+        </div>
+    </body>
+    </html>
+    """)
+
 
 def user_required(f):
     @wraps(f)
@@ -8633,6 +9043,7 @@ TOOLS_SIDEBAR = """
     <a href="/tools/cleaner" {cleaner_active} onclick="closeSidebar()">CC Cleaner</a>
     <hr style="border-color: rgba(255,255,255,0.1); margin: 15px 0;">
     <a href="/admin/users" onclick="closeSidebar()">Users</a>
+    <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
     <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
     <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
     <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
@@ -10035,6 +10446,7 @@ def admin_ccshop():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -10453,6 +10865,7 @@ def admin_ccshop_purchases():
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
@@ -11704,6 +12117,7 @@ def _admin_proxy_sidebar(active='proxyshop'):
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
             <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
