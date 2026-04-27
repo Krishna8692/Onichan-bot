@@ -7985,8 +7985,8 @@ async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gate_mb3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass Braintree check with 5 batches and 1s delay"""
     from modules.gate_status import is_gate_offline, offline_message
-    if is_gate_offline("b3"):
-        await update.message.reply_text(offline_message("b3"), parse_mode=ParseMode.HTML)
+    if is_gate_offline("mb3"):
+        await update.message.reply_text(offline_message("mb3"), parse_mode=ParseMode.HTML)
         return
     import time
     from modules.bin_lookup import format_mass_card_result
@@ -8551,8 +8551,8 @@ async def gate_rzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gate_mrzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass Razorpay Pages checker using external API"""
     from modules.gate_status import is_gate_offline, offline_message
-    if is_gate_offline("rzp"):
-        await update.message.reply_text(offline_message("rzp"), parse_mode=ParseMode.HTML)
+    if is_gate_offline("mrzp"):
+        await update.message.reply_text(offline_message("mrzp"), parse_mode=ParseMode.HTML)
         return
     import asyncio
     user = update.effective_user
@@ -9992,8 +9992,8 @@ async def gate_rz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gate_mrz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass Razorpay checker with 1 second delay"""
     from modules.gate_status import is_gate_offline, offline_message
-    if is_gate_offline("rz"):
-        await update.message.reply_text(offline_message("rz"), parse_mode=ParseMode.HTML)
+    if is_gate_offline("mrz"):
+        await update.message.reply_text(offline_message("mrz"), parse_mode=ParseMode.HTML)
         return
     import asyncio
     user = update.effective_user
@@ -10128,8 +10128,8 @@ async def gate_payu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gate_mpayu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass PayU checker with 1 second delay"""
     from modules.gate_status import is_gate_offline, offline_message
-    if is_gate_offline("payu"):
-        await update.message.reply_text(offline_message("payu"), parse_mode=ParseMode.HTML)
+    if is_gate_offline("mpayu"):
+        await update.message.reply_text(offline_message("mpayu"), parse_mode=ParseMode.HTML)
         return
     import asyncio
     user = update.effective_user

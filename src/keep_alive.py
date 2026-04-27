@@ -419,6 +419,7 @@ def admin_dashboard():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" class="active" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -435,7 +436,6 @@ def admin_dashboard():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -528,6 +528,7 @@ def admin_users():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" class="active" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -544,7 +545,6 @@ def admin_users():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -659,6 +659,7 @@ def admin_premium():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -675,7 +676,6 @@ def admin_premium():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -788,6 +788,7 @@ def admin_owners():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" class="active" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -804,7 +805,6 @@ def admin_owners():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -978,6 +978,7 @@ def admin_permissions():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" class="active" onclick="closeSidebar()">Permissions</a>
@@ -994,7 +995,6 @@ def admin_permissions():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1070,6 +1070,7 @@ def admin_payments():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -1086,7 +1087,6 @@ def admin_payments():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1185,6 +1185,7 @@ def admin_banned():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -1201,7 +1202,6 @@ def admin_banned():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1247,6 +1247,7 @@ def admin_cards():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -1254,7 +1255,6 @@ def admin_cards():
             <a href="/admin/payments" onclick="closeSidebar()">Payments</a>
             <a href="/admin/banned" onclick="closeSidebar()">Banned</a>
             <a href="/admin/cards" class="active" onclick="closeSidebar()">Approved Cards</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1406,6 +1406,7 @@ def admin_settings():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -1413,7 +1414,6 @@ def admin_settings():
             <a href="/admin/payments" onclick="closeSidebar()">Payments</a>
             <a href="/admin/banned" onclick="closeSidebar()">Banned</a>
             <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" class="active" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -10033,6 +10033,7 @@ def admin_ccshop():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -10047,7 +10048,6 @@ def admin_ccshop():
             <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
             <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
             <a href="/admin/ccshop" class="active" onclick="closeSidebar()">CC Shop</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -10451,6 +10451,7 @@ def admin_ccshop_purchases():
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -10465,7 +10466,6 @@ def admin_ccshop_purchases():
             <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
             <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
             <a href="/admin/ccshop" class="active" onclick="closeSidebar()">CC Shop</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -11702,6 +11702,7 @@ def _admin_proxy_sidebar(active='proxyshop'):
         <div class="sidebar">
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
             <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
@@ -11717,7 +11718,6 @@ def _admin_proxy_sidebar(active='proxyshop'):
             <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" {cls('proxyshop')} onclick="closeSidebar()">Proxy Shop</a>
-            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
