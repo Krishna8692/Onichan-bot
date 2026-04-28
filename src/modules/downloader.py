@@ -238,12 +238,16 @@ class SocialMediaDownloader:
             "ignoreerrors": False,
             "no_color": True,
             "geo_bypass": True,
+            "geo_bypass_country": "US",
             "socket_timeout": 30,
             "retries": 3,
+            "age_limit": None,
+            "skip_age_gate": True,
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
+                "Cookie": "VISITOR_INFO1_LIVE=; PREF=hl=en&gl=US",
             },
         }
 
@@ -412,8 +416,13 @@ async def get_available_qualities(url: str) -> List[Dict[str, Any]]:
         "extract_flat": False,
         "nocheckcertificate": True,
         "skip_download": True,
+        "geo_bypass": True,
+        "geo_bypass_country": "US",
+        "age_limit": None,
+        "skip_age_gate": True,
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Cookie": "VISITOR_INFO1_LIVE=; PREF=hl=en&gl=US",
         },
     }
     try:
