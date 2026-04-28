@@ -7776,12 +7776,26 @@ async def get_txt_content_from_reply(update, context) -> str:
     reply = msg.reply_to_message
     if reply.document and reply.document.file_name and reply.document.file_name.lower().endswith(".txt"):
         try:
+            loading_msg = await msg.reply_text("📁 <b>Loading cards from file...</b>", parse_mode=ParseMode.HTML)
+            context.user_data['_txt_loading_msg'] = loading_msg
             file = await context.bot.get_file(reply.document.file_id)
             content = await file.download_as_bytearray()
             return content.decode("utf-8", errors="ignore")
         except Exception:
-            pass
+            context.user_data.pop('_txt_loading_msg', None)
     return ""
+
+
+async def _get_or_edit_loading_msg(context, update, text, parse_mode=ParseMode.HTML):
+    """Edit the txt-file loading message if present, otherwise send a new reply. Returns the message object."""
+    loading_msg = context.user_data.pop('_txt_loading_msg', None)
+    if loading_msg:
+        try:
+            await loading_msg.edit_text(text, parse_mode=parse_mode)
+            return loading_msg
+        except Exception:
+            pass
+    return await update.message.reply_text(text, parse_mode=parse_mode)
 
 def get_mass_check_limit(user_id):
     """Get mass check limit for user"""
@@ -8708,7 +8722,7 @@ async def process_mass_ast(update: Update, context: ContextTypes.DEFAULT_TYPE, c
         cards = [f"{c[0]}|{c[1]}|{c[2]}|{c[3]}" for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"))
+            await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
             return
         
         if len(cards) > limit:
@@ -8718,11 +8732,11 @@ async def process_mass_ast(update: Update, context: ContextTypes.DEFAULT_TYPE, c
         approved = 0
         declined = 0
         
-        header = await update.message.reply_text(
+        header = await _get_or_edit_loading_msg(
+            context, update,
             f"🔄 <b>Mass Auto Stripe Auth</b>\n"
             f"Total: {total} | Batch: 5 | Delay: 1s\n"
             f"⏳ Processing...",
-            parse_mode=ParseMode.HTML
         )
         
         results = await mass_check_ast(cards, batch_size=5, delay=1.0)
@@ -8821,7 +8835,7 @@ async def process_mass_st(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"))
+            await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
             return
         
         if len(cards) > limit:
@@ -8832,11 +8846,11 @@ async def process_mass_st(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         declined_count = 0
         error_count = 0
         
-        header_msg = await update.message.reply_text(
+        header_msg = await _get_or_edit_loading_msg(
+            context, update,
             f"🔄 <b>Mass Stripe Auth Check</b>\n"
             f"Total: {total_cards}\n"
             f"⏳ Processing...",
-            parse_mode=ParseMode.HTML
         )
         
         for i, card in enumerate(cards):
@@ -9120,7 +9134,7 @@ async def gate_mrzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
 
     if not cards:
-        await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
+        await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
         return
 
     limit = get_mass_check_limit(user.id)
@@ -9131,13 +9145,13 @@ async def gate_mrzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['mass_check_gate'] = 'rzp'
     context.user_data['mass_check_stop'] = False
 
-    status_msg = await update.message.reply_text(
+    status_msg = await _get_or_edit_loading_msg(
+        context, update,
         f"🎀 <b>Mass Razorpay Pages Check</b>\n\n"
         f"📋 Cards: {len(cards)}\n"
         f"⚡ Gate: Razorpay Pages ₹{amount}\n"
         f"🌐 Site: {site.split('/')[-1]}\n"
         f"🔄 Processing 5 parallel with 1s delay...",
-        parse_mode=ParseMode.HTML
     )
 
     from modules.gate_checker import get_bin_info
@@ -9381,7 +9395,7 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"))
+            await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
             return
         
         if len(cards) > limit:
@@ -9392,12 +9406,12 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         declined_count = 0
         error_count = 0
         
-        header_msg = await update.message.reply_text(
+        header_msg = await _get_or_edit_loading_msg(
+            context, update,
             f"🔄 <b>Mass Braintree Auth Check</b>\n"
             f"Total: {total_cards}\n"
             f"⏱️ 5 batches, 1s delay\n"
             f"⏳ Processing...",
-            parse_mode=ParseMode.HTML
         )
         
         # Process in batches of 5 with 1 second delay
@@ -9557,18 +9571,18 @@ async def process_mass_rz(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"))
+            await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
             return
         
         if len(cards) > limit:
             cards = cards[:limit]
         
-        msg = await update.message.reply_text(
+        msg = await _get_or_edit_loading_msg(
+            context, update,
             f"🔄 <b>Mass Razorpay Check Started</b>\n\n"
             f"📊 Cards: {len(cards)}\n"
             f"⚡ Gate: Razorpay ₹1 (Nyvexis API)\n"
             f"🔄 Processing in 5 batches with 0.25s delay...",
-            parse_mode=ParseMode.HTML
         )
         
         approved = []
@@ -10310,7 +10324,7 @@ async def mass_str(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cards = [c.strip() for c in cards_text.replace('\n', ' ').split() if '|' in c]
     
     if not cards:
-        await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
+        await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
         return
     
     if len(cards) > 50:
@@ -10319,12 +10333,12 @@ async def mass_str(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data[f'mass_check_running_{user_id}'] = True
     
-    status_msg = await update.message.reply_text(
+    status_msg = await _get_or_edit_loading_msg(
+        context, update,
         f"🎀 <b>Mass Stripe Donation Check Started</b>\n\n"
         f"📋 Cards: {len(cards)}\n"
         f"⏱️ Delay: 1s between cards\n"
         f"🔄 Processing...",
-        parse_mode=ParseMode.HTML
     )
     
     from modules.str_gate import check_str
@@ -10530,7 +10544,7 @@ async def gate_mrz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cards = [c.strip() for c in cards_text.replace('\n', ' ').split() if '|' in c]
     
     if not cards:
-        await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
+        await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
         return
     
     if len(cards) > 50:
@@ -10539,7 +10553,7 @@ async def gate_mrz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data[f'mass_check_running_{user_id}'] = True
     
-    status_msg = await update.message.reply_text(ae(f"🎀 <b>Mass Check Started</b>\n\n📋 Cards: {len(cards)}\n⏱️ Delay: 1s between cards\n🔄 Processing..."), parse_mode=ParseMode.HTML)
+    status_msg = await _get_or_edit_loading_msg(context, update, ae(f"🎀 <b>Mass Check Started</b>\n\n📋 Cards: {len(cards)}\n⏱️ Delay: 1s between cards\n🔄 Processing..."))
     
     from modules.rz_gate import check_rz_async
     from modules.gate_checker import get_bin_info
@@ -10667,7 +10681,7 @@ async def gate_mpayu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cards = [c.strip() for c in cards_text.replace('\n', ' ').split() if '|' in c]
     
     if not cards:
-        await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
+        await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
         return
     
     if len(cards) > 50:
@@ -10676,7 +10690,7 @@ async def gate_mpayu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data[f'mass_check_running_{user_id}'] = True
     
-    status_msg = await update.message.reply_text(ae(f"🎀 <b>Mass PayU Check Started</b>\n\n📋 Cards: {len(cards)}\n⏱️ Delay: 1s between cards\n🔄 Processing..."), parse_mode=ParseMode.HTML)
+    status_msg = await _get_or_edit_loading_msg(context, update, ae(f"🎀 <b>Mass PayU Check Started</b>\n\n📋 Cards: {len(cards)}\n⏱️ Delay: 1s between cards\n🔄 Processing..."))
     
     from modules.payu_gate import check_payu_async
     from modules.gate_checker import get_bin_info
@@ -10781,7 +10795,7 @@ async def process_mass_pp(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"))
+            await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
             return
         
         if len(cards) > limit:
@@ -10795,11 +10809,11 @@ async def process_mass_pp(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         batch_size = 5
         total_batches = (total_cards + batch_size - 1) // batch_size
         
-        header_msg = await update.message.reply_text(
+        header_msg = await _get_or_edit_loading_msg(
+            context, update,
             f"🔄 <b>Mass PayPal $1 Check</b>\n"
             f"Total: {total_cards} | Batches: {total_batches} (x{batch_size})\n"
             f"⏳ Processing...",
-            parse_mode=ParseMode.HTML
         )
         
         for batch_idx in range(0, total_cards, batch_size):
@@ -11124,7 +11138,7 @@ async def process_mass_sh(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
 
         if not cards:
-            await update.message.reply_text("❌ No valid cards found!")
+            await _get_or_edit_loading_msg(context, update, "❌ No valid cards found!")
             return
 
         if len(cards) > limit:
@@ -11135,11 +11149,11 @@ async def process_mass_sh(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         declined_count = 0
         error_count = 0
 
-        header_msg = await update.message.reply_text(
+        header_msg = await _get_or_edit_loading_msg(
+            context, update,
             f"🛒 <b>Mass Shopify Check</b>\n"
             f"Total: {total_cards}\n"
             f"⏳ Processing...",
-            parse_mode=ParseMode.HTML
         )
 
         for i, card in enumerate(cards):
