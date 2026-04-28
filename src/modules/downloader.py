@@ -10,86 +10,80 @@ from typing import Optional, Dict, Any, List
 
 MAX_TG_MB = 49  # stay just under Telegram's 50MB bot limit
 
+async def upload_to_filehost(file_path: str) -> Optional[str]:
+    """
+    Upload a file to a free host and return the public download URL.
+    Tries gofile.io → catbox.moe → litterbox.catbox.moe in order.
+    """
+    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    filename = os.path.basename(file_path)
+
+    async with aiohttp.ClientSession() as session:
+        # --- gofile.io ---
+        try:
+            # Step 1: get best server
+            async with session.get("https://api.gofile.io/servers", timeout=aiohttp.ClientTimeout(total=10)) as r:
+                data = await r.json(content_type=None)
+                server = data["data"]["servers"][0]["name"]
+
+            # Step 2: upload
+            upload_url = f"https://{server}.gofile.io/uploadFile"
+            with open(file_path, "rb") as f:
+                form = aiohttp.FormData()
+                form.add_field("file", f, filename=filename)
+                async with session.post(upload_url, data=form, timeout=aiohttp.ClientTimeout(total=300)) as r:
+                    resp = await r.json(content_type=None)
+                    if resp.get("status") == "ok":
+                        link = resp["data"].get("downloadPage") or resp["data"].get("directLink")
+                        if link:
+                            print(f"[filehost] gofile.io ✓ → {link}")
+                            return link
+        except Exception as e:
+            print(f"[filehost] gofile.io failed: {e}")
+
+        # --- catbox.moe (permanent, max 200MB) ---
+        try:
+            with open(file_path, "rb") as f:
+                form = aiohttp.FormData()
+                form.add_field("reqtype", "fileupload")
+                form.add_field("userhash", "")
+                form.add_field("fileToUpload", f, filename=filename)
+                async with session.post(
+                    "https://catbox.moe/user/api.php",
+                    data=form,
+                    timeout=aiohttp.ClientTimeout(total=300)
+                ) as r:
+                    text = (await r.text()).strip()
+                    if text.startswith("https://"):
+                        print(f"[filehost] catbox.moe ✓ → {text}")
+                        return text
+        except Exception as e:
+            print(f"[filehost] catbox.moe failed: {e}")
+
+        # --- litterbox.catbox.moe (72-hour temp, max 1GB) ---
+        try:
+            with open(file_path, "rb") as f:
+                form = aiohttp.FormData()
+                form.add_field("reqtype", "fileupload")
+                form.add_field("time", "72h")
+                form.add_field("fileToUpload", f, filename=filename)
+                async with session.post(
+                    "https://litterbox.catbox.moe/resources/internals/api.php",
+                    data=form,
+                    timeout=aiohttp.ClientTimeout(total=300)
+                ) as r:
+                    text = (await r.text()).strip()
+                    if text.startswith("https://"):
+                        print(f"[filehost] litterbox ✓ → {text}")
+                        return text
+        except Exception as e:
+            print(f"[filehost] litterbox failed: {e}")
+
+    return None
+
+
 async def compress_video_to_limit(input_path: str, max_mb: int = MAX_TG_MB) -> Optional[str]:
-    """
-    Re-encode a video with ffmpeg so it fits within max_mb.
-    Returns the path to the compressed file, or None on failure.
-    """
-    try:
-        max_bytes = max_mb * 1024 * 1024
-
-        # Get video duration via ffprobe
-        probe = await asyncio.create_subprocess_exec(
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            input_path,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await probe.communicate()
-        duration = float(stdout.decode().strip())
-        if duration <= 0:
-            return None
-
-        # Target total bitrate (bits/s), reserve 128kbps for audio
-        target_total_bps = int((max_bytes * 8) / duration)
-        audio_bps = 128_000
-        video_bps = max(200_000, target_total_bps - audio_bps)
-
-        output_path = input_path.replace(".mp4", "_compressed.mp4")
-        if output_path == input_path:
-            output_path = input_path + "_compressed.mp4"
-
-        # 2-pass encoding for accurate size targeting
-        tmp_log = tempfile.mktemp()
-        loop = asyncio.get_event_loop()
-
-        def run_ffmpeg_pass(pass_num: int):
-            cmd = [
-                "ffmpeg", "-y", "-i", input_path,
-                "-c:v", "libx264",
-                "-b:v", str(video_bps),
-                "-pass", str(pass_num),
-                "-passlogfile", tmp_log,
-                "-an" if pass_num == 1 else "-c:a", "aac" if pass_num == 2 else "-an",
-                *([] if pass_num == 1 else ["-b:a", "128k"]),
-                "-movflags", "+faststart",
-                "-f", "mp4" if pass_num == 2 else "null",
-                output_path if pass_num == 2 else "/dev/null",
-            ]
-            result = subprocess.run(cmd, capture_output=True, timeout=300)
-            return result.returncode
-
-        rc1 = await loop.run_in_executor(None, run_ffmpeg_pass, 1)
-        if rc1 != 0:
-            # Fallback: single-pass CRF encode
-            def run_crf():
-                cmd = [
-                    "ffmpeg", "-y", "-i", input_path,
-                    "-c:v", "libx264", "-crf", "28",
-                    "-c:a", "aac", "-b:a", "96k",
-                    "-movflags", "+faststart",
-                    output_path,
-                ]
-                return subprocess.run(cmd, capture_output=True, timeout=300).returncode
-            await loop.run_in_executor(None, run_crf)
-        else:
-            await loop.run_in_executor(None, run_ffmpeg_pass, 2)
-
-        # Clean up pass log files
-        for ext in ("", ".log", "-0.log", "-0.log.mbtree"):
-            try:
-                os.remove(tmp_log + ext)
-            except Exception:
-                pass
-
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            compressed_mb = os.path.getsize(output_path) / (1024 * 1024)
-            print(f"[compress] {os.path.getsize(input_path)//(1024*1024)}MB → {compressed_mb:.1f}MB")
-            return output_path
-
-    except Exception as e:
-        print(f"[compress] error: {e}")
+    """Kept for compatibility but no longer used."""
     return None
 
 SUPPORTED_PLATFORMS = {
