@@ -4229,22 +4229,78 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📦 <b>Size:</b> {file_size:.1f}MB\n\n"
             f"<i>Downloaded by @Onichanbabybot</i>"
         )
-        
-        with open(file_path, 'rb') as f:
-            if audio_only:
-                await update.message.reply_audio(
-                    audio=f,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                    title=result['title'][:64] if result['title'] else "Audio"
-                )
-            else:
-                await update.message.reply_video(
-                    video=f,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                    supports_streaming=True
-                )
+
+        media_type = result.get("type", "video")
+        files = result.get("files")
+        audio_path = result.get("audio_path")
+
+        if media_type == "picker" and files and len(files) > 1:
+            # Instagram carousel / multi-photo post — send as media group
+            from telegram import InputMediaPhoto, InputMediaVideo
+            media_group = []
+            for i, item in enumerate(files[:10]):  # Telegram max 10 per group
+                item_path = item["path"]
+                item_type = item.get("type", "photo")
+                item_size = os.path.getsize(item_path) / (1024 * 1024)
+                if item_size > 50:
+                    continue
+                cap = caption if i == 0 else None
+                if item_type == "video":
+                    media_group.append(InputMediaVideo(
+                        open(item_path, "rb"),
+                        caption=cap,
+                        parse_mode=ParseMode.HTML if cap else None,
+                        supports_streaming=True
+                    ))
+                else:
+                    media_group.append(InputMediaPhoto(
+                        open(item_path, "rb"),
+                        caption=cap,
+                        parse_mode=ParseMode.HTML if cap else None,
+                    ))
+            if media_group:
+                await update.message.reply_media_group(media=media_group)
+            # If there is original audio (photo with music), send it separately
+            if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
+                with open(audio_path, "rb") as af:
+                    await update.message.reply_audio(
+                        audio=af,
+                        caption=f"🎵 <b>Original Audio</b>\n<i>Downloaded by @Onichanbabybot</i>",
+                        parse_mode=ParseMode.HTML,
+                        title=result["title"][:64] if result["title"] else "Audio"
+                    )
+        else:
+            with open(file_path, "rb") as f:
+                if audio_only:
+                    await update.message.reply_audio(
+                        audio=f,
+                        caption=caption,
+                        parse_mode=ParseMode.HTML,
+                        title=result["title"][:64] if result["title"] else "Audio"
+                    )
+                elif file_path.endswith((".jpg", ".jpeg", ".png")):
+                    # Single photo (e.g. Instagram photo post)
+                    await update.message.reply_photo(
+                        photo=f,
+                        caption=caption,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    # Attach audio if available (photo with music)
+                    if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
+                        with open(audio_path, "rb") as af:
+                            await update.message.reply_audio(
+                                audio=af,
+                                caption=f"🎵 <b>Original Audio</b>\n<i>Downloaded by @Onichanbabybot</i>",
+                                parse_mode=ParseMode.HTML,
+                                title=result["title"][:64] if result["title"] else "Audio"
+                            )
+                else:
+                    await update.message.reply_video(
+                        video=f,
+                        caption=caption,
+                        parse_mode=ParseMode.HTML,
+                        supports_streaming=True
+                    )
         
         await loading_msg.delete()
         downloader.cleanup()
