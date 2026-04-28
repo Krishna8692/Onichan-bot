@@ -4194,7 +4194,7 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         try:
             result, downloader = await download_media(url, audio_only=True)
-            await _send_download_result(update, loading_msg, result, downloader, platform, emoji)
+            await _send_download_result(update, context, loading_msg, result, downloader, platform, emoji)
         except Exception as e:
             await loading_msg.edit_text(f"❌ <b>Error</b>\n\n{str(e)[:200]}", parse_mode=ParseMode.HTML)
         return
@@ -4244,7 +4244,7 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def _send_download_result(update, loading_msg, result, downloader, platform, emoji):
+async def _send_download_result(update, context, loading_msg, result, downloader, platform, emoji):
     """Shared helper: send the downloaded file to the user."""
     from telegram import InputMediaPhoto, InputMediaVideo
 
@@ -4278,8 +4278,10 @@ async def _send_download_result(update, loading_msg, result, downloader, platfor
             return
 
         # pref == "ask" → show the choice keyboard
-        token = _py_secrets.token_urlsafe(8)
-        context.bot_data[f"dldel_{token}"] = {
+        # token_hex never contains '_', so split("_", 2) parses cleanly
+        token = _py_secrets.token_hex(8)
+        session_key = f"dldel_{token}"
+        context.bot_data[session_key] = {
             "user_id": user.id if user else 0,
             "file_path": file_path,
             "file_size": file_size,
@@ -4289,7 +4291,38 @@ async def _send_download_result(update, loading_msg, result, downloader, platfor
             "duration": result.get("duration"),
             "downloader": downloader,
             "chat_id": update.effective_chat.id if update.effective_chat else None,
+            "created_at": time.time(),
         }
+        # Auto-expire after 30 minutes: drop the bot_data entry, delete the
+        # downloaded file, and let the user know the prompt is dead.
+        async def _expire_dldel_session(key=session_key, msg=loading_msg):
+            try:
+                await asyncio.sleep(1800)
+                stale = context.bot_data.pop(key, None)
+                if not stale:
+                    return  # already consumed
+                stale_path = stale.get("file_path")
+                stale_dl = stale.get("downloader")
+                if stale_dl:
+                    try:
+                        stale_dl.cleanup()
+                    except Exception:
+                        pass
+                elif stale_path and os.path.exists(stale_path):
+                    try:
+                        os.remove(stale_path)
+                    except Exception:
+                        pass
+                try:
+                    await msg.edit_text(
+                        "⌛ <b>Download choice expired</b>\n\nThe file was discarded. Please run /download again.",
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception:
+                    pass
+            except asyncio.CancelledError:
+                pass
+        asyncio.create_task(_expire_dldel_session())
 
         buttons = []
         if direct_available:
@@ -4410,7 +4443,7 @@ async def download_quality_callback(update: Update, context: ContextTypes.DEFAUL
 
     try:
         result, downloader = await download_media(url, audio_only=audio_only, quality=quality)
-        await _send_download_result(update, query.message, result, downloader, platform, emoji)
+        await _send_download_result(update, context, query.message, result, downloader, platform, emoji)
     except Exception as e:
         await query.message.edit_text(f"❌ <b>Error</b>\n\n{str(e)[:200]}", parse_mode=ParseMode.HTML)
     finally:
@@ -4517,10 +4550,12 @@ async def download_delivery_callback(update: Update, context: ContextTypes.DEFAU
     await query.answer()
 
     data = query.data  # dldel_{token}_{action}
-    parts = data.split("_")
+    parts = data.split("_", 2)
     if len(parts) != 3:
         return
     _, token, action = parts
+    if action not in ("link", "direct", "cancel"):
+        return
 
     session = context.bot_data.get(f"dldel_{token}")
     if not session:
@@ -17796,12 +17831,20 @@ def main():
         except Exception as _pe:
             print(f"⚠️ Pyrogram startup error: {_pe}")
 
+    async def _on_shutdown(app):
+        # Cleanly close the Pyrogram client so its session file isn't left mid-write
+        try:
+            await pyro_uploader.stop()
+        except Exception:
+            pass
+
     application = (
         Application.builder()
         .token(BOT_TOKEN)
         .concurrent_updates(True)  # Handle multiple users simultaneously
         .request(request)
         .post_init(_on_startup)
+        .post_shutdown(_on_shutdown)
         .build()
     )
 
