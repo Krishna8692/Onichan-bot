@@ -3490,7 +3490,204 @@ def user_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def get_user_sidebar(active_page, page_title="Onichan"):
+def _user_is_owner():
+    """Check if the current user-panel session belongs to an owner."""
+    uid = session.get('user_id')
+    if not uid:
+        return False
+    from config import DB_OWNER
+    owners = read_file_lines(DB_OWNER)
+    return str(uid) in [o.split()[0] for o in owners if o.split()]
+
+def user_owner_required(f):
+    """Decorator: requires user-panel login AND owner status. Returns JSON errors."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('user_id'):
+            return jsonify({'success': False, 'message': 'Not logged in'}), 401
+        if not _user_is_owner():
+            return jsonify({'success': False, 'message': 'Owner access only'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OWNER CONTROL PANEL ENDPOINTS  (user-panel session, owner only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_KNOWN_GATES = [
+    'anh','asd','ast','atf','auz','b3','b3n','bt1','bt3d','bu',
+    'dep','exgate','kill','mb3','mpayu','mrz','mrzp','payu','pp','ppv',
+    'rz','rzp','se1','sh','sh10','sh13','sh6','sh8','sor','sq',
+    'st','st1','st12','st5','stm','str','wah',
+]
+
+@app.route('/user/admin/gate-status', methods=['GET'])
+@user_owner_required
+def user_admin_gate_status():
+    from modules.gate_status import get_all_gate_status
+    status = get_all_gate_status()
+    return jsonify({'success': True, 'gates': {g: bool(status.get(g, False)) for g in _KNOWN_GATES}})
+
+@app.route('/user/admin/gate-toggle', methods=['POST'])
+@user_owner_required
+def user_admin_gate_toggle():
+    from modules.gate_status import set_gate_offline
+    data = request.get_json() or {}
+    gate = data.get('gate', '').strip().lower()
+    offline = bool(data.get('offline', False))
+    if not gate:
+        return jsonify({'success': False, 'message': 'Missing gate name'}), 400
+    set_gate_offline(gate, offline)
+    return jsonify({'success': True, 'gate': gate, 'offline': offline})
+
+@app.route('/user/admin/gate-all', methods=['POST'])
+@user_owner_required
+def user_admin_gate_all():
+    from modules.gate_status import set_gate_offline
+    data = request.get_json() or {}
+    offline = bool(data.get('offline', False))
+    for g in _KNOWN_GATES:
+        set_gate_offline(g, offline)
+    return jsonify({'success': True, 'offline': offline, 'count': len(_KNOWN_GATES)})
+
+@app.route('/user/admin/credits', methods=['POST'])
+@user_owner_required
+def user_admin_credits():
+    from modules.credits import add_credits
+    data = request.get_json() or {}
+    try:
+        target_uid = int(data.get('user_id', 0))
+        amount = int(data.get('amount', 0))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'Invalid user_id or amount'}), 400
+    if target_uid <= 0 or amount <= 0:
+        return jsonify({'success': False, 'message': 'user_id and amount must be positive'}), 400
+    ok = add_credits(target_uid, amount, tx_type='admin_gift',
+                     description=f'Admin grant by {session.get("user_id")}')
+    if ok:
+        return jsonify({'success': True, 'message': f'Added {amount} credits to {target_uid}'})
+    return jsonify({'success': False, 'message': 'DB error — credits not added'}), 500
+
+@app.route('/user/admin/ban', methods=['POST'])
+@user_owner_required
+def user_admin_ban():
+    from config import DB_BANNED, DB_FREE, DB_PREMIUM
+    data = request.get_json() or {}
+    try:
+        target_uid = str(int(data.get('user_id', 0)))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'Invalid user_id'}), 400
+    if target_uid == '0':
+        return jsonify({'success': False, 'message': 'Invalid user_id'}), 400
+    banned = read_file_lines(DB_BANNED)
+    if target_uid not in banned:
+        banned.append(target_uid)
+        write_file_lines(DB_BANNED, banned)
+    write_file_lines(DB_FREE, [l for l in read_file_lines(DB_FREE) if not l.startswith(target_uid)])
+    write_file_lines(DB_PREMIUM, [l for l in read_file_lines(DB_PREMIUM) if not l.startswith(target_uid)])
+    return jsonify({'success': True, 'message': f'User {target_uid} banned'})
+
+@app.route('/user/admin/unban', methods=['POST'])
+@user_owner_required
+def user_admin_unban():
+    from config import DB_BANNED
+    data = request.get_json() or {}
+    try:
+        target_uid = str(int(data.get('user_id', 0)))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'Invalid user_id'}), 400
+    write_file_lines(DB_BANNED, [l for l in read_file_lines(DB_BANNED) if l != target_uid])
+    return jsonify({'success': True, 'message': f'User {target_uid} unbanned'})
+
+@app.route('/user/admin/approve', methods=['POST'])
+@user_owner_required
+def user_admin_approve():
+    from config import DB_PENDING, DB_FREE
+    data = request.get_json() or {}
+    try:
+        target_uid = str(int(data.get('user_id', 0)))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'Invalid user_id'}), 400
+    write_file_lines(DB_PENDING, [l for l in read_file_lines(DB_PENDING) if not l.startswith(target_uid)])
+    free = read_file_lines(DB_FREE)
+    if target_uid not in free:
+        free.append(target_uid)
+        write_file_lines(DB_FREE, free)
+    return jsonify({'success': True, 'message': f'User {target_uid} approved'})
+
+@app.route('/user/admin/premium', methods=['POST'])
+@user_owner_required
+def user_admin_premium():
+    from config import DB_PREMIUM
+    from datetime import datetime as _dt, timedelta as _td
+    data = request.get_json() or {}
+    try:
+        target_uid = str(int(data.get('user_id', 0)))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'Invalid user_id'}), 400
+    plan = data.get('plan', '1_month')
+    days = {'1_week': 7, '2_weeks': 14, '1_month': 30, '3_months': 90}.get(plan, 30)
+    expiry = (_dt.utcnow() + _td(days=days)).strftime('%Y-%m-%d')
+    premium = [l for l in read_file_lines(DB_PREMIUM) if not l.startswith(target_uid)]
+    premium.append(f'{target_uid} {expiry}')
+    write_file_lines(DB_PREMIUM, premium)
+    return jsonify({'success': True, 'message': f'Premium ({plan}) granted to {target_uid} until {expiry}'})
+
+@app.route('/user/admin/broadcast', methods=['POST'])
+@user_owner_required
+def user_admin_broadcast():
+    from config import DB_FREE, DB_PREMIUM, DB_OWNER, BOT_TOKEN
+    data = request.get_json() or {}
+    message = data.get('message', '').strip()
+    if not message:
+        return jsonify({'success': False, 'message': 'Message cannot be empty'}), 400
+    if not BOT_TOKEN:
+        return jsonify({'success': False, 'message': 'BOT_TOKEN not configured on server'}), 503
+    all_ids = set()
+    for fp in [DB_FREE, DB_PREMIUM, DB_OWNER]:
+        for line in read_file_lines(fp):
+            uid = line.split()[0] if line.split() else ''
+            if uid.isdigit():
+                all_ids.add(uid)
+    sent = failed = 0
+    for uid in all_ids:
+        try:
+            r = http_requests.post(
+                f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+                json={'chat_id': uid, 'text': message, 'parse_mode': 'HTML'},
+                timeout=5
+            )
+            if r.ok:
+                sent += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+    return jsonify({'success': True, 'message': f'Sent: {sent}, Failed: {failed}'})
+
+@app.route('/user/admin/pending-list', methods=['GET'])
+@user_owner_required
+def user_admin_pending_list():
+    from config import DB_PENDING
+    pending = read_file_lines(DB_PENDING)
+    return jsonify({'success': True, 'pending': pending})
+
+@app.route('/user/admin/stats', methods=['GET'])
+@user_owner_required
+def user_admin_stats():
+    from config import DB_OWNER, DB_PREMIUM, DB_FREE, DB_BANNED, DB_PENDING
+    from modules.gate_status import get_all_gate_status
+    return jsonify({
+        'success': True,
+        'owners':  len(read_file_lines(DB_OWNER)),
+        'premium': len(read_file_lines(DB_PREMIUM)),
+        'free':    len(read_file_lines(DB_FREE)),
+        'banned':  len(read_file_lines(DB_BANNED)),
+        'pending': len(read_file_lines(DB_PENDING)),
+        'gates':   {g: bool(get_all_gate_status().get(g, False)) for g in _KNOWN_GATES},
+    })
+
+def get_user_sidebar(active_page, page_title="Onichan", is_admin=False):
     """Generate anime-themed sidebar HTML with mobile support"""
     
     def link(key, name, url):
@@ -3644,6 +3841,7 @@ def get_user_sidebar(active_page, page_title="Onichan"):
             {link('help', '❓ Help & Support', '/user/help')}
             </div>
         </div>
+        {'<div class="nav-section"><div class="nav-section-title" data-key="adminctrl" onclick="toggleNavSection(this)" role="button" tabindex="0">⚡ Admin<span class="caret">▾</span></div><div class="nav-section-body"><a href="/user#admin-controls" onclick="closeMobileMenu()">Admin Controls</a></div></div>' if is_admin else ''}
         <a href="/user/logout" style="margin-top: auto;">Logout</a>
     </aside>
     {bottom_nav}
@@ -4694,7 +4892,8 @@ def user_dashboard():
     user_info = get_user_info(user_id)
     payments = get_user_payments(user_id)
     history = get_user_check_history(user_id, 5)
-    
+    is_admin = user_info['type'] == 'owner'
+
     type_badge = ""
     if user_info['type'] == 'owner':
         type_badge = '<span class="premium-badge">OWNER</span>'
@@ -4702,22 +4901,344 @@ def user_dashboard():
         type_badge = '<span class="premium-badge">PREMIUM</span>'
     else:
         type_badge = '<span class="free-badge">FREE</span>'
-    
+
     history_html = ""
     for h in history:
         history_html += f"<tr><td>{h[:100]}...</td></tr>" if len(h) > 100 else f"<tr><td>{h}</td></tr>"
-    
+
     pending_html = ""
     for p in payments['pending']:
         parts = p.split('|')
         if len(parts) >= 6:
             pending_html += f"<tr><td>{parts[3]}</td><td>${parts[4]}</td><td>{parts[5]}</td><td>Pending</td></tr>"
-    
+
+    # ── Admin-only section ───────────────────────────────────────────────────
+    admin_section_html = ""
+    if is_admin:
+        from config import DB_OWNER, DB_PREMIUM, DB_FREE, DB_BANNED, DB_PENDING
+        from modules.gate_status import get_all_gate_status
+        gate_statuses = get_all_gate_status()
+
+        # live stats bar
+        n_owners   = len(read_file_lines(DB_OWNER))
+        n_premium  = len(read_file_lines(DB_PREMIUM))
+        n_free     = len(read_file_lines(DB_FREE))
+        n_banned   = len(read_file_lines(DB_BANNED))
+        n_pending  = len(read_file_lines(DB_PENDING))
+        total_users = n_owners + n_premium + n_free
+
+        # pending list
+        pending_users = read_file_lines(DB_PENDING)
+        _prows = []
+        for _pu in pending_users[:30]:
+            _puid = _pu.split()[0] if _pu.split() else _pu
+            _prow = ('<tr><td style="font-family:monospace">' + _pu + '</td><td>'
+                     + '<button class="acp-btn acp-btn-success" onclick=\'cpAction("approve",{"user_id":"' + _puid + '"},this)\'>Approve</button>'
+                     + '<button class="acp-btn acp-btn-danger" style="margin-left:6px" onclick=\'cpAction("ban",{"user_id":"' + _puid + '"},this)\'>Ban</button>'
+                     + '</td></tr>')
+            _prows.append(_prow)
+        pending_rows = "".join(_prows) or '<tr><td colspan="2" style="color:#aaa;text-align:center">No pending users</td></tr>'
+
+        # gate grid
+        gate_rows = ""
+        for gate in _KNOWN_GATES:
+            offline = bool(gate_statuses.get(gate, False))
+            status_label = "OFFLINE" if offline else "ONLINE"
+            status_cls   = "acp-gate-off" if offline else "acp-gate-on"
+            check_attr   = "checked" if not offline else ""
+            gate_rows += f"""
+            <div class="acp-gate-card">
+                <span class="acp-gate-name">{gate.upper()}</span>
+                <span class="acp-gate-badge {status_cls}">{status_label}</span>
+                <label class="acp-toggle" title="Toggle gate">
+                    <input type="checkbox" {check_attr} onchange="toggleGate('{gate}',this)">
+                    <span class="acp-slider"></span>
+                </label>
+            </div>"""
+
+        admin_section_html = f"""
+<style>
+/* ── Admin Control Panel ──────────────────────────────────── */
+#admin-controls{{scroll-margin-top:80px}}
+.acp-stat-bar{{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}}
+.acp-stat{{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 18px;min-width:90px;text-align:center;flex:1}}
+.acp-stat .acp-sv{{font-size:1.5rem;font-weight:700;color:#e94560}}
+.acp-stat .acp-sk{{font-size:.75rem;color:#aaa;margin-top:2px}}
+.acp-section-title{{font-size:1rem;font-weight:700;letter-spacing:.05em;margin:18px 0 10px;color:#e94560;text-transform:uppercase}}
+.acp-gate-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:8px}}
+.acp-gate-card{{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 8px;display:flex;flex-direction:column;align-items:center;gap:5px}}
+.acp-gate-name{{font-size:.8rem;font-weight:700;color:#fff;font-family:monospace;letter-spacing:.05em}}
+.acp-gate-badge{{font-size:.65rem;padding:2px 7px;border-radius:20px;font-weight:700}}
+.acp-gate-on{{background:#1a7a3a;color:#4fffb0}}
+.acp-gate-off{{background:#7a1a1a;color:#ff6b6b}}
+/* toggle switch */
+.acp-toggle{{position:relative;display:inline-block;width:40px;height:22px}}
+.acp-toggle input{{opacity:0;width:0;height:0}}
+.acp-slider{{position:absolute;cursor:pointer;inset:0;background:#555;border-radius:22px;transition:.25s}}
+.acp-slider:before{{content:'';position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.25s}}
+.acp-toggle input:checked+.acp-slider{{background:#27ae60}}
+.acp-toggle input:checked+.acp-slider:before{{transform:translateX(18px)}}
+/* user-action form */
+.acp-form-row{{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:6px}}
+.acp-form-row input,.acp-form-row select{{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:7px 10px;font-size:.85rem;min-width:120px;outline:none}}
+.acp-form-row select option{{background:#1a1a2e;color:#fff}}
+.acp-btn{{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;transition:.2s}}
+.acp-btn-primary{{background:#e94560;color:#fff}}.acp-btn-primary:hover{{background:#c73652}}
+.acp-btn-success{{background:#27ae60;color:#fff}}.acp-btn-success:hover{{background:#1e8449}}
+.acp-btn-danger{{background:#c0392b;color:#fff}}.acp-btn-danger:hover{{background:#a93226}}
+.acp-btn-warning{{background:#e67e22;color:#fff}}.acp-btn-warning:hover{{background:#ca6f1e}}
+.acp-btn-info{{background:#2980b9;color:#fff}}.acp-btn-info:hover{{background:#2471a3}}
+.acp-btn-outline{{background:transparent;color:#e94560;border:1px solid #e94560}}.acp-btn-outline:hover{{background:#e94560;color:#fff}}
+.acp-result{{margin-top:8px;font-size:.82rem;padding:7px 12px;border-radius:8px;display:none}}
+.acp-result.ok{{background:rgba(39,174,96,.2);color:#4fffb0;border:1px solid rgba(39,174,96,.3)}}
+.acp-result.err{{background:rgba(192,57,43,.2);color:#ff6b6b;border:1px solid rgba(192,57,43,.3)}}
+.acp-gate-bulk{{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}}
+textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:10px;font-size:.85rem;resize:vertical;min-height:90px;outline:none;box-sizing:border-box}}
+.acp-pending-table{{width:100%;border-collapse:collapse;font-size:.82rem}}
+.acp-pending-table th,.acp-pending-table td{{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.07);text-align:left}}
+.acp-pending-table th{{color:#e94560;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}}
+</style>
+
+<div id="admin-controls" class="card" style="border:1px solid rgba(233,69,96,.25);background:rgba(233,69,96,.04)">
+  <h2 style="color:#e94560;display:flex;align-items:center;gap:8px">⚡ Admin Controls</h2>
+
+  <!-- Live Stats Bar -->
+  <div class="acp-stat-bar">
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-total">{total_users}</div><div class="acp-sk">Total Users</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-premium">{n_premium}</div><div class="acp-sk">Premium</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-free">{n_free}</div><div class="acp-sk">Free</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-banned">{n_banned}</div><div class="acp-sk">Banned</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-pending">{n_pending}</div><div class="acp-sk">Pending</div></div>
+    <div class="acp-stat" style="cursor:pointer" onclick="refreshStats(this)"><div class="acp-sv">↻</div><div class="acp-sk">Refresh</div></div>
+  </div>
+
+  <!-- Gate Controls -->
+  <div class="acp-section-title">Checker Gates</div>
+  <div class="acp-gate-bulk">
+    <button class="acp-btn acp-btn-success" onclick="setAllGates(false,this)">Enable All Gates</button>
+    <button class="acp-btn acp-btn-danger"  onclick="setAllGates(true,this)">Disable All Gates</button>
+  </div>
+  <div class="acp-gate-grid">{gate_rows}</div>
+  <div class="acp-result" id="gate-bulk-result"></div>
+
+  <!-- User Quick Actions -->
+  <div class="acp-section-title">User Actions</div>
+  <div style="display:grid;gap:12px">
+
+    <div>
+      <div style="font-size:.8rem;color:#aaa;margin-bottom:5px">Add Credits</div>
+      <div class="acp-form-row">
+        <input id="ac-uid" type="number" placeholder="User ID" min="1">
+        <input id="ac-amt" type="number" placeholder="Amount" min="1" value="100">
+        <button class="acp-btn acp-btn-primary" onclick="cpAction('credits',{{user_id:document.getElementById('ac-uid').value,amount:document.getElementById('ac-amt').value}},this,'ac-res')">Add Credits</button>
+      </div>
+      <div class="acp-result" id="ac-res"></div>
+    </div>
+
+    <div>
+      <div style="font-size:.8rem;color:#aaa;margin-bottom:5px">Grant Premium</div>
+      <div class="acp-form-row">
+        <input id="pm-uid" type="number" placeholder="User ID" min="1">
+        <select id="pm-plan">
+          <option value="1_week">1 Week</option>
+          <option value="2_weeks">2 Weeks</option>
+          <option value="1_month" selected>1 Month</option>
+          <option value="3_months">3 Months</option>
+        </select>
+        <button class="acp-btn acp-btn-success" onclick="cpAction('premium',{{user_id:document.getElementById('pm-uid').value,plan:document.getElementById('pm-plan').value}},this,'pm-res')">Grant Premium</button>
+      </div>
+      <div class="acp-result" id="pm-res"></div>
+    </div>
+
+    <div>
+      <div style="font-size:.8rem;color:#aaa;margin-bottom:5px">Ban / Unban / Approve User</div>
+      <div class="acp-form-row">
+        <input id="bu-uid" type="number" placeholder="User ID" min="1">
+        <button class="acp-btn acp-btn-danger"  onclick="cpAction('ban',   {{user_id:document.getElementById('bu-uid').value}},this,'bu-res')">Ban</button>
+        <button class="acp-btn acp-btn-info"    onclick="cpAction('unban', {{user_id:document.getElementById('bu-uid').value}},this,'bu-res')">Unban</button>
+        <button class="acp-btn acp-btn-warning" onclick="cpAction('approve',{{user_id:document.getElementById('bu-uid').value}},this,'bu-res')">Approve</button>
+      </div>
+      <div class="acp-result" id="bu-res"></div>
+    </div>
+
+  </div>
+
+  <!-- Broadcast -->
+  <div class="acp-section-title">Broadcast Message</div>
+  <textarea class="acp-bcast" id="bc-msg" placeholder="HTML supported — e.g. <b>Hello!</b>"></textarea>
+  <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
+    <button class="acp-btn acp-btn-danger" onclick="sendBroadcast()">Send to All Users</button>
+    <span id="bc-counter" style="font-size:.78rem;color:#aaa">0 chars</span>
+  </div>
+  <div class="acp-result" id="bc-res"></div>
+
+  <!-- Pending Approvals -->
+  <div class="acp-section-title">Pending Approvals <span id="pending-badge" style="background:#e94560;color:#fff;font-size:.7rem;padding:2px 8px;border-radius:20px;margin-left:6px">{n_pending}</span></div>
+  <table class="acp-pending-table">
+    <thead><tr><th>User / Request</th><th>Actions</th></tr></thead>
+    <tbody id="pending-tbody">{pending_rows}</tbody>
+  </table>
+  <button class="acp-btn acp-btn-outline" style="margin-top:8px" onclick="refreshPending()">Refresh List</button>
+
+</div>
+
+<script>
+(function(){{
+  // character counter for broadcast
+  var ta=document.getElementById('bc-msg');
+  if(ta) ta.addEventListener('input',function(){{
+    var c=document.getElementById('bc-counter');
+    if(c) c.textContent=ta.value.length+' chars';
+  }});
+
+  // gate toggles
+  window.toggleGate=function(gate, el){{
+    var offline=!el.checked; // checkbox checked = gate ONLINE
+    var card=el.closest('.acp-gate-card');
+    var badge=card.querySelector('.acp-gate-badge');
+    fetch('/user/admin/gate-toggle',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{gate:gate,offline:offline}})}})
+      .then(function(r){{return r.json();}})
+      .then(function(d){{
+        if(d.success){{
+          badge.textContent=offline?'OFFLINE':'ONLINE';
+          badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');
+        }} else {{
+          el.checked=!el.checked; // revert
+          alert('Error: '+d.message);
+        }}
+      }}).catch(function(){{el.checked=!el.checked;}});
+  }};
+
+  window.setAllGates=function(offline,btn){{
+    btn.disabled=true; btn.textContent='Working...';
+    var r=document.getElementById('gate-bulk-result');
+    fetch('/user/admin/gate-all',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{offline:offline}})}})
+      .then(function(res){{return res.json();}})
+      .then(function(d){{
+        btn.disabled=false; btn.textContent=offline?'Disable All Gates':'Enable All Gates';
+        if(d.success){{
+          document.querySelectorAll('.acp-gate-card').forEach(function(card){{
+            var badge=card.querySelector('.acp-gate-badge');
+            var toggle=card.querySelector('input[type=checkbox]');
+            if(badge){{badge.textContent=offline?'OFFLINE':'ONLINE'; badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');}}
+            if(toggle) toggle.checked=!offline;
+          }});
+          showResult(r, (offline?'All gates disabled':'All gates enabled'), true);
+        }} else {{ showResult(r,'Error: '+d.message,false); }}
+      }}).catch(function(){{btn.disabled=false; showResult(r,'Request failed',false);}});
+  }};
+
+  function showResult(el,msg,ok){{
+    if(!el) return;
+    el.style.display='block'; el.textContent=msg;
+    el.className='acp-result '+(ok?'ok':'err');
+    setTimeout(function(){{if(el) el.style.display='none';}},5000);
+  }}
+
+  window.cpAction=function(action, payload, btn, resId){{
+    if(!resId) resId=action+'-res';
+    var r=document.getElementById(resId);
+    if(btn){{btn.disabled=true;}}
+    fetch('/user/admin/'+action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(payload)}})
+      .then(function(res){{return res.json();}})
+      .then(function(d){{
+        if(btn) btn.disabled=false;
+        showResult(r, d.message||JSON.stringify(d), d.success);
+        if(d.success && (action==='approve'||action==='ban')) refreshPending();
+      }}).catch(function(){{
+        if(btn) btn.disabled=false;
+        showResult(r,'Request failed',false);
+      }});
+  }};
+
+  window.sendBroadcast=function(){{
+    var msg=document.getElementById('bc-msg').value.trim();
+    if(!msg){{alert('Message is empty');return;}}
+    if(!confirm('Broadcast to ALL users?')) return;
+    var r=document.getElementById('bc-res');
+    cpAction('broadcast',{{message:msg}},null,'bc-res');
+  }};
+
+  window.refreshStats=function(cell){{
+    var sv=cell.querySelector('.acp-sv');
+    if(sv){{sv.textContent='...';}}
+    fetch('/user/admin/stats').then(function(r){{return r.json();}}).then(function(d){{
+      if(!d.success)return;
+      var map={{'acp-s-total':d.owners+d.premium+d.free,'acp-s-premium':d.premium,'acp-s-free':d.free,'acp-s-banned':d.banned,'acp-s-pending':d.pending}};
+      for(var k in map){{var el=document.getElementById(k);if(el)el.textContent=map[k];}}
+      if(sv){{sv.textContent='✓';setTimeout(function(){{sv.textContent='↻';}},1500);}}
+      // update gate badges
+      for(var g in d.gates){{
+        var card=document.querySelector('[data-gate="'+g+'"]');
+        if(!card) continue;
+        var badge=card.querySelector('.acp-gate-badge');
+        var toggle=card.querySelector('input[type=checkbox]');
+        var offline=d.gates[g];
+        if(badge){{badge.textContent=offline?'OFFLINE':'ONLINE'; badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');}}
+        if(toggle) toggle.checked=!offline;
+      }}
+    }}).catch(function(){{if(sv)sv.textContent='↻';}});
+  }};
+
+  window.refreshPending=function(){{
+    fetch('/user/admin/pending-list').then(function(r){{return r.json();}}).then(function(d){{
+      if(!d.success) return;
+      var tbody=document.getElementById('pending-tbody');
+      var badge=document.getElementById('pending-badge');
+      if(badge) badge.textContent=d.pending.length;
+      if(!tbody) return;
+      if(d.pending.length===0){{
+        tbody.innerHTML='<tr><td colspan="2" style="color:#aaa;text-align:center">No pending users</td></tr>';
+        return;
+      }}
+      tbody.innerHTML=d.pending.slice(0,30).map(function(u){{
+        var uid=u.split(' ')[0]||u;
+        return '<tr><td style="font-family:monospace">'+u+'</td><td>'
+          +'<button class="acp-btn acp-btn-success" onclick="cpAction(\'approve\',{{user_id:\''+uid+'\'}},this)">Approve</button>'
+          +' <button class="acp-btn acp-btn-danger" onclick="cpAction(\'ban\',{{user_id:\''+uid+'\'}},this)">Ban</button>'
+          +'</td></tr>';
+      }}).join('');
+    }});
+  }};
+
+  // add data-gate attr to each card for refreshStats
+  document.querySelectorAll('.acp-gate-card').forEach(function(card){{
+    var name=card.querySelector('.acp-gate-name');
+    if(name) card.setAttribute('data-gate',name.textContent.toLowerCase());
+  }});
+}})();
+</script>
+"""
+
+    # pre-compute conditional blocks (no backslashes allowed in f-string expressions on Py 3.11)
+    _user_type  = user_info['type']
+    _prem_exp   = user_info['premium_expiry'] or 'N/A'
+    _npending   = len(payments['pending'])
+    _hist_inner = history_html if history_html else '<tr><td>No checks yet</td></tr>'
+    if pending_html:
+        _payments_card = (
+            '<div class="card"><h2>Pending Payments</h2>'
+            '<table><tr><th>Plan</th><th>Amount</th><th>Crypto</th><th>Status</th></tr>'
+            + pending_html +
+            '</table><a href="/user/payments" class="btn btn-primary" style="margin-top:15px;">View All Payments</a></div>'
+        )
+    else:
+        _payments_card = ''
+    if _user_type == 'free':
+        _upgrade_banner = (
+            '<div class="alert alert-info">Upgrade to Premium for unlimited checks and faster processing!'
+            '<a href="/user/premium" class="btn btn-primary" style="margin-left:15px;">Get Premium</a></div>'
+        )
+    else:
+        _upgrade_banner = ''
+
+    _sidebar = get_user_sidebar('dashboard', 'Dashboard', is_admin=is_admin)
+
     return render_template_string(f"""
     <html>
     <head><title>Dashboard - Onichan User Panel</title>{USER_CSS}</head>
     <body>
-        {get_user_sidebar('dashboard', 'Dashboard')}
+        {_sidebar}
         <div class="main">
             <div class="header">
                 <h1>Welcome Back!</h1>
@@ -4735,46 +5256,23 @@ def user_dashboard():
                 </a>
             </div>
             <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>{user_id}</h3>
-                    <p>Your User ID</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{user_info['type'].upper()}</h3>
-                    <p>Account Type</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{user_info['premium_expiry'] or 'N/A'}</h3>
-                    <p>Premium Expiry</p>
-                </div>
-                <div class="stat-card">
-                    <h3>{len(payments['pending'])}</h3>
-                    <p>Pending Payments</p>
-                </div>
+                <div class="stat-card"><h3>{user_id}</h3><p>Your User ID</p></div>
+                <div class="stat-card"><h3>{_user_type}</h3><p>Account Type</p></div>
+                <div class="stat-card"><h3>{_prem_exp}</h3><p>Premium Expiry</p></div>
+                <div class="stat-card"><h3>{_npending}</h3><p>Pending Payments</p></div>
             </div>
-            
-            {f'''<div class="card">
-                <h2>Pending Payments</h2>
-                <table>
-                    <tr><th>Plan</th><th>Amount</th><th>Crypto</th><th>Status</th></tr>
-                    {pending_html}
-                </table>
-                <a href="/user/payments" class="btn btn-primary" style="margin-top: 15px;">View All Payments</a>
-            </div>''' if pending_html else ''}
-            
+
+            {_payments_card}
+
             <div class="card">
                 <h2>Recent Check History</h2>
-                <table>
-                    <tr><th>Check Info</th></tr>
-                    {history_html if history_html else '<tr><td>No checks yet</td></tr>'}
-                </table>
+                <table><tr><th>Check Info</th></tr>{_hist_inner}</table>
                 <a href="/user/history" class="btn btn-primary" style="margin-top: 15px;">View Full History</a>
             </div>
-            
-            {f'''<div class="alert alert-info">
-                Upgrade to Premium for unlimited checks and faster processing!
-                <a href="/user/premium" class="btn btn-primary" style="margin-left: 15px;">Get Premium</a>
-            </div>''' if user_info['type'] == 'free' else ''}
+
+            {_upgrade_banner}
+
+            {admin_section_html}
         </div>
     </body>
     </html>
