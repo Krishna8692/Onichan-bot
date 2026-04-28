@@ -3514,33 +3514,33 @@ def user_owner_required(f):
 # OWNER CONTROL PANEL ENDPOINTS  (user-panel session, owner only)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_KNOWN_GATES = [
-    'anh','asd','ast','atf','auz','b3','b3n','bt1','bt3d','bu',
-    'dep','exgate','kill','mb3','mpayu','mrz','mrzp','payu','pp','ppv',
-    'rz','rzp','se1','sh','sh10','sh13','sh6','sh8','sor','sq',
-    'st','st1','st12','st5','stm','str','wah',
-]
+_KNOWN_GATES = [g for g, _ in GATE_LIST]  # canonical gate IDs from GATE_LIST
 
-@app.route('/user/admin/gate-status', methods=['GET'])
+# Free-tier gates (no premium required in the bot)
+_FREE_GATES  = {'sq','bu','pp','sor','st','st1','dep','rz','rzp','exgate','kill','wah'}
+# Premium gates = all others in GATE_LIST
+
+@app.route('/admin/control/gate-status', methods=['GET'])
 @user_owner_required
 def user_admin_gate_status():
     from modules.gate_status import get_all_gate_status
     status = get_all_gate_status()
     return jsonify({'success': True, 'gates': {g: bool(status.get(g, False)) for g in _KNOWN_GATES}})
 
-@app.route('/user/admin/gate-toggle', methods=['POST'])
+@app.route('/admin/control/gate-toggle', methods=['POST'])
 @user_owner_required
 def user_admin_gate_toggle():
     from modules.gate_status import set_gate_offline
     data = request.get_json() or {}
     gate = data.get('gate', '').strip().lower()
     offline = bool(data.get('offline', False))
-    if not gate:
-        return jsonify({'success': False, 'message': 'Missing gate name'}), 400
+    valid_gates = {g for g, _ in GATE_LIST}
+    if not gate or gate not in valid_gates:
+        return jsonify({'success': False, 'message': 'Invalid gate name'}), 400
     set_gate_offline(gate, offline)
     return jsonify({'success': True, 'gate': gate, 'offline': offline})
 
-@app.route('/user/admin/gate-all', methods=['POST'])
+@app.route('/admin/control/gate-all', methods=['POST'])
 @user_owner_required
 def user_admin_gate_all():
     from modules.gate_status import set_gate_offline
@@ -3550,7 +3550,7 @@ def user_admin_gate_all():
         set_gate_offline(g, offline)
     return jsonify({'success': True, 'offline': offline, 'count': len(_KNOWN_GATES)})
 
-@app.route('/user/admin/credits', methods=['POST'])
+@app.route('/admin/control/credits', methods=['POST'])
 @user_owner_required
 def user_admin_credits():
     from modules.credits import add_credits
@@ -3568,7 +3568,7 @@ def user_admin_credits():
         return jsonify({'success': True, 'message': f'Added {amount} credits to {target_uid}'})
     return jsonify({'success': False, 'message': 'DB error — credits not added'}), 500
 
-@app.route('/user/admin/ban', methods=['POST'])
+@app.route('/admin/control/ban', methods=['POST'])
 @user_owner_required
 def user_admin_ban():
     from config import DB_BANNED, DB_FREE, DB_PREMIUM
@@ -3583,11 +3583,11 @@ def user_admin_ban():
     if target_uid not in banned:
         banned.append(target_uid)
         write_file_lines(DB_BANNED, banned)
-    write_file_lines(DB_FREE, [l for l in read_file_lines(DB_FREE) if not l.startswith(target_uid)])
-    write_file_lines(DB_PREMIUM, [l for l in read_file_lines(DB_PREMIUM) if not l.startswith(target_uid)])
+    write_file_lines(DB_FREE,    [l for l in read_file_lines(DB_FREE)    if l.split()[0] != target_uid if l.split()])
+    write_file_lines(DB_PREMIUM, [l for l in read_file_lines(DB_PREMIUM) if l.split()[0] != target_uid if l.split()])
     return jsonify({'success': True, 'message': f'User {target_uid} banned'})
 
-@app.route('/user/admin/unban', methods=['POST'])
+@app.route('/admin/control/unban', methods=['POST'])
 @user_owner_required
 def user_admin_unban():
     from config import DB_BANNED
@@ -3599,7 +3599,7 @@ def user_admin_unban():
     write_file_lines(DB_BANNED, [l for l in read_file_lines(DB_BANNED) if l != target_uid])
     return jsonify({'success': True, 'message': f'User {target_uid} unbanned'})
 
-@app.route('/user/admin/approve', methods=['POST'])
+@app.route('/admin/control/approve', methods=['POST'])
 @user_owner_required
 def user_admin_approve():
     from config import DB_PENDING, DB_FREE
@@ -3608,14 +3608,14 @@ def user_admin_approve():
         target_uid = str(int(data.get('user_id', 0)))
     except (ValueError, TypeError):
         return jsonify({'success': False, 'message': 'Invalid user_id'}), 400
-    write_file_lines(DB_PENDING, [l for l in read_file_lines(DB_PENDING) if not l.startswith(target_uid)])
+    write_file_lines(DB_PENDING, [l for l in read_file_lines(DB_PENDING) if l.split()[0] != target_uid if l.split()])
     free = read_file_lines(DB_FREE)
     if target_uid not in free:
         free.append(target_uid)
         write_file_lines(DB_FREE, free)
     return jsonify({'success': True, 'message': f'User {target_uid} approved'})
 
-@app.route('/user/admin/premium', methods=['POST'])
+@app.route('/admin/control/premium', methods=['POST'])
 @user_owner_required
 def user_admin_premium():
     from config import DB_PREMIUM
@@ -3628,12 +3628,12 @@ def user_admin_premium():
     plan = data.get('plan', '1_month')
     days = {'1_week': 7, '2_weeks': 14, '1_month': 30, '3_months': 90}.get(plan, 30)
     expiry = (_dt.utcnow() + _td(days=days)).strftime('%Y-%m-%d')
-    premium = [l for l in read_file_lines(DB_PREMIUM) if not l.startswith(target_uid)]
+    premium = [l for l in read_file_lines(DB_PREMIUM) if l.split()[0] != target_uid if l.split()]
     premium.append(f'{target_uid} {expiry}')
     write_file_lines(DB_PREMIUM, premium)
     return jsonify({'success': True, 'message': f'Premium ({plan}) granted to {target_uid} until {expiry}'})
 
-@app.route('/user/admin/broadcast', methods=['POST'])
+@app.route('/admin/control/broadcast', methods=['POST'])
 @user_owner_required
 def user_admin_broadcast():
     from config import DB_FREE, DB_PREMIUM, DB_OWNER, BOT_TOKEN
@@ -3665,26 +3665,60 @@ def user_admin_broadcast():
             failed += 1
     return jsonify({'success': True, 'message': f'Sent: {sent}, Failed: {failed}'})
 
-@app.route('/user/admin/pending-list', methods=['GET'])
+@app.route('/admin/control/pending-list', methods=['GET'])
 @user_owner_required
 def user_admin_pending_list():
     from config import DB_PENDING
     pending = read_file_lines(DB_PENDING)
     return jsonify({'success': True, 'pending': pending})
 
-@app.route('/user/admin/stats', methods=['GET'])
+@app.route('/admin/control/stats', methods=['GET'])
 @user_owner_required
 def user_admin_stats():
-    from config import DB_OWNER, DB_PREMIUM, DB_FREE, DB_BANNED, DB_PENDING
+    from config import DB_OWNER, DB_PREMIUM, DB_FREE, DB_BANNED, DB_PENDING, DB_PAYMENTS
     from modules.gate_status import get_all_gate_status
+    from modules.database import _execute_with_retry, is_db_connected
+    # health metrics (same logic as /admin/health-data)
+    uptime_seconds = int(time.time() - _APP_START_TIME)
+    try:
+        memory_mb = round(_psutil.Process().memory_info().rss / 1024 / 1024, 1)
+    except Exception:
+        memory_mb = 0
+    checks_last_min = 0
+    active_users_24h = 0
+    if is_db_connected():
+        def _h(conn):
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM gate_analytics WHERE created_at >= NOW() - INTERVAL '1 minute'")
+                c1 = (cur.fetchone() or [0])[0] or 0
+                cur.execute("SELECT COUNT(DISTINCT user_id) FROM gate_analytics WHERE created_at >= NOW() - INTERVAL '24 hours'")
+                c2 = (cur.fetchone() or [0])[0] or 0
+                return c1, c2
+        res = _execute_with_retry(_h)
+        if res:
+            checks_last_min, active_users_24h = res
+    # revenue (sum of parts[4] from DB_PAYMENTS)
+    revenue = 0.0
+    for line in read_file_lines(DB_PAYMENTS):
+        parts = line.split('|')
+        if len(parts) >= 5:
+            try:
+                revenue += float(parts[4])
+            except (ValueError, TypeError):
+                pass
     return jsonify({
         'success': True,
-        'owners':  len(read_file_lines(DB_OWNER)),
-        'premium': len(read_file_lines(DB_PREMIUM)),
-        'free':    len(read_file_lines(DB_FREE)),
-        'banned':  len(read_file_lines(DB_BANNED)),
-        'pending': len(read_file_lines(DB_PENDING)),
-        'gates':   {g: bool(get_all_gate_status().get(g, False)) for g in _KNOWN_GATES},
+        'owners':          len(read_file_lines(DB_OWNER)),
+        'premium':         len(read_file_lines(DB_PREMIUM)),
+        'free':            len(read_file_lines(DB_FREE)),
+        'banned':          len(read_file_lines(DB_BANNED)),
+        'pending':         len(read_file_lines(DB_PENDING)),
+        'revenue':         round(revenue, 2),
+        'uptime_label':    _fmt_uptime(uptime_seconds),
+        'memory_mb':       memory_mb,
+        'checks_last_min': checks_last_min,
+        'active_users_24h': active_users_24h,
+        'gates':           {g: bool(get_all_gate_status().get(g, False)) for g in _KNOWN_GATES},
     })
 
 def get_user_sidebar(active_page, page_title="Onichan", is_admin=False):
@@ -4915,17 +4949,50 @@ def user_dashboard():
     # ── Admin-only section ───────────────────────────────────────────────────
     admin_section_html = ""
     if is_admin:
-        from config import DB_OWNER, DB_PREMIUM, DB_FREE, DB_BANNED, DB_PENDING
+        from config import DB_OWNER, DB_PREMIUM, DB_FREE, DB_BANNED, DB_PENDING, DB_PAYMENTS
         from modules.gate_status import get_all_gate_status
+        from modules.database import _execute_with_retry, is_db_connected
         gate_statuses = get_all_gate_status()
 
-        # live stats bar
+        # user counts
         n_owners   = len(read_file_lines(DB_OWNER))
         n_premium  = len(read_file_lines(DB_PREMIUM))
         n_free     = len(read_file_lines(DB_FREE))
         n_banned   = len(read_file_lines(DB_BANNED))
         n_pending  = len(read_file_lines(DB_PENDING))
         total_users = n_owners + n_premium + n_free
+
+        # revenue from DB_PAYMENTS (same data as /admin/payments)
+        _revenue = 0.0
+        for _pl in read_file_lines(DB_PAYMENTS):
+            _pp = _pl.split('|')
+            if len(_pp) >= 5:
+                try:
+                    _revenue += float(_pp[4])
+                except (ValueError, TypeError):
+                    pass
+        revenue_str = f'${_revenue:.2f}'
+
+        # system health (same logic as /admin/health-data)
+        _uptime_sec = int(time.time() - _APP_START_TIME)
+        try:
+            _mem_mb = round(_psutil.Process().memory_info().rss / 1024 / 1024, 1)
+        except Exception:
+            _mem_mb = 0
+        _chk_min = 0
+        _active24 = 0
+        if is_db_connected():
+            def _hq(conn):
+                with conn.cursor() as cur:
+                    cur.execute("SELECT COUNT(*) FROM gate_analytics WHERE created_at >= NOW() - INTERVAL '1 minute'")
+                    c1 = (cur.fetchone() or [0])[0] or 0
+                    cur.execute("SELECT COUNT(DISTINCT user_id) FROM gate_analytics WHERE created_at >= NOW() - INTERVAL '24 hours'")
+                    c2 = (cur.fetchone() or [0])[0] or 0
+                    return c1, c2
+            _hres = _execute_with_retry(_hq)
+            if _hres:
+                _chk_min, _active24 = _hres
+        uptime_str = _fmt_uptime(_uptime_sec)
 
         # pending list
         pending_users = read_file_lines(DB_PENDING)
@@ -4939,48 +5006,52 @@ def user_dashboard():
             _prows.append(_prow)
         pending_rows = "".join(_prows) or '<tr><td colspan="2" style="color:#aaa;text-align:center">No pending users</td></tr>'
 
-        # gate grid
-        gate_rows = ""
-        for gate in _KNOWN_GATES:
-            offline = bool(gate_statuses.get(gate, False))
-            status_label = "OFFLINE" if offline else "ONLINE"
-            status_cls   = "acp-gate-off" if offline else "acp-gate-on"
-            check_attr   = "checked" if not offline else ""
-            gate_rows += f"""
-            <div class="acp-gate-card">
-                <span class="acp-gate-name">{gate.upper()}</span>
-                <span class="acp-gate-badge {status_cls}">{status_label}</span>
-                <label class="acp-toggle" title="Toggle gate">
-                    <input type="checkbox" {check_attr} onchange="toggleGate('{gate}',this)">
-                    <span class="acp-slider"></span>
-                </label>
-            </div>"""
+        # gate grid — grouped Free / Premium, with labels from GATE_LIST
+        free_gate_rows = ""
+        prem_gate_rows = ""
+        for _gid, _glabel in GATE_LIST:
+            _offline = bool(gate_statuses.get(_gid, False))
+            _sl = "OFFLINE" if _offline else "ONLINE"
+            _sc = "acp-gate-off" if _offline else "acp-gate-on"
+            _ca = "checked" if not _offline else ""
+            _card = (
+                '<div class="acp-gate-card" data-gate="' + _gid + '">'
+                + '<span class="acp-gate-name">' + _gid.upper() + '</span>'
+                + '<span class="acp-gate-lbl">' + _glabel + '</span>'
+                + '<span class="acp-gate-badge ' + _sc + '">' + _sl + '</span>'
+                + '<label class="acp-toggle" title="Toggle ' + _gid + '">'
+                + '<input type="checkbox" ' + _ca + ' onchange="toggleGate(\'' + _gid + '\',this)">'
+                + '<span class="acp-slider"></span></label></div>'
+            )
+            if _gid in _FREE_GATES:
+                free_gate_rows += _card
+            else:
+                prem_gate_rows += _card
 
         admin_section_html = f"""
 <style>
 /* ── Admin Control Panel ──────────────────────────────────── */
 #admin-controls{{scroll-margin-top:80px}}
-.acp-stat-bar{{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}}
-.acp-stat{{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 18px;min-width:90px;text-align:center;flex:1}}
-.acp-stat .acp-sv{{font-size:1.5rem;font-weight:700;color:#e94560}}
-.acp-stat .acp-sk{{font-size:.75rem;color:#aaa;margin-top:2px}}
-.acp-section-title{{font-size:1rem;font-weight:700;letter-spacing:.05em;margin:18px 0 10px;color:#e94560;text-transform:uppercase}}
-.acp-gate-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:8px}}
-.acp-gate-card{{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 8px;display:flex;flex-direction:column;align-items:center;gap:5px}}
-.acp-gate-name{{font-size:.8rem;font-weight:700;color:#fff;font-family:monospace;letter-spacing:.05em}}
-.acp-gate-badge{{font-size:.65rem;padding:2px 7px;border-radius:20px;font-weight:700}}
+.acp-stat-bar{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}}
+.acp-stat{{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:8px 14px;min-width:80px;text-align:center;flex:1}}
+.acp-stat .acp-sv{{font-size:1.3rem;font-weight:700;color:#e94560}}
+.acp-stat .acp-sk{{font-size:.7rem;color:#aaa;margin-top:2px}}
+.acp-section-title{{font-size:.95rem;font-weight:700;letter-spacing:.05em;margin:18px 0 8px;color:#e94560;text-transform:uppercase;border-bottom:1px solid rgba(233,69,96,.2);padding-bottom:5px}}
+.acp-gate-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:8px}}
+.acp-gate-card{{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}}
+.acp-gate-name{{font-size:.85rem;font-weight:700;color:#a78bfa;font-family:monospace}}
+.acp-gate-lbl{{font-size:.65rem;color:rgba(255,255,255,.5);line-height:1.2}}
+.acp-gate-badge{{font-size:.62rem;padding:2px 7px;border-radius:20px;font-weight:700}}
 .acp-gate-on{{background:#1a7a3a;color:#4fffb0}}
 .acp-gate-off{{background:#7a1a1a;color:#ff6b6b}}
-/* toggle switch */
 .acp-toggle{{position:relative;display:inline-block;width:40px;height:22px}}
 .acp-toggle input{{opacity:0;width:0;height:0}}
 .acp-slider{{position:absolute;cursor:pointer;inset:0;background:#555;border-radius:22px;transition:.25s}}
 .acp-slider:before{{content:'';position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.25s}}
 .acp-toggle input:checked+.acp-slider{{background:#27ae60}}
 .acp-toggle input:checked+.acp-slider:before{{transform:translateX(18px)}}
-/* user-action form */
 .acp-form-row{{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:6px}}
-.acp-form-row input,.acp-form-row select{{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:7px 10px;font-size:.85rem;min-width:120px;outline:none}}
+.acp-form-row input,.acp-form-row select{{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:7px 10px;font-size:.85rem;min-width:110px;outline:none}}
 .acp-form-row select option{{background:#1a1a2e;color:#fff}}
 .acp-btn{{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;transition:.2s}}
 .acp-btn-primary{{background:#e94560;color:#fff}}.acp-btn-primary:hover{{background:#c73652}}
@@ -4992,24 +5063,30 @@ def user_dashboard():
 .acp-result{{margin-top:8px;font-size:.82rem;padding:7px 12px;border-radius:8px;display:none}}
 .acp-result.ok{{background:rgba(39,174,96,.2);color:#4fffb0;border:1px solid rgba(39,174,96,.3)}}
 .acp-result.err{{background:rgba(192,57,43,.2);color:#ff6b6b;border:1px solid rgba(192,57,43,.3)}}
-.acp-gate-bulk{{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}}
+.acp-gate-bulk{{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}}
 textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:10px;font-size:.85rem;resize:vertical;min-height:90px;outline:none;box-sizing:border-box}}
 .acp-pending-table{{width:100%;border-collapse:collapse;font-size:.82rem}}
 .acp-pending-table th,.acp-pending-table td{{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.07);text-align:left}}
 .acp-pending-table th{{color:#e94560;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}}
+.acp-tier-label{{font-size:.75rem;font-weight:700;letter-spacing:.06em;margin:8px 0 4px;color:#a78bfa;text-transform:uppercase}}
 </style>
 
 <div id="admin-controls" class="card" style="border:1px solid rgba(233,69,96,.25);background:rgba(233,69,96,.04)">
   <h2 style="color:#e94560;display:flex;align-items:center;gap:8px">⚡ Admin Controls</h2>
 
-  <!-- Live Stats Bar -->
+  <!-- Live Stats Bar – user counts + health metrics + revenue -->
   <div class="acp-stat-bar">
     <div class="acp-stat"><div class="acp-sv" id="acp-s-total">{total_users}</div><div class="acp-sk">Total Users</div></div>
     <div class="acp-stat"><div class="acp-sv" id="acp-s-premium">{n_premium}</div><div class="acp-sk">Premium</div></div>
     <div class="acp-stat"><div class="acp-sv" id="acp-s-free">{n_free}</div><div class="acp-sk">Free</div></div>
     <div class="acp-stat"><div class="acp-sv" id="acp-s-banned">{n_banned}</div><div class="acp-sk">Banned</div></div>
     <div class="acp-stat"><div class="acp-sv" id="acp-s-pending">{n_pending}</div><div class="acp-sk">Pending</div></div>
-    <div class="acp-stat" style="cursor:pointer" onclick="refreshStats(this)"><div class="acp-sv">↻</div><div class="acp-sk">Refresh</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-revenue">{revenue_str}</div><div class="acp-sk">Revenue</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-uptime">{uptime_str}</div><div class="acp-sk">Uptime</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-mem">{_mem_mb} MB</div><div class="acp-sk">Memory</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-chk">{_chk_min}</div><div class="acp-sk">Checks/min</div></div>
+    <div class="acp-stat"><div class="acp-sv" id="acp-s-active">{_active24}</div><div class="acp-sk">Active 24h</div></div>
+    <div class="acp-stat" style="cursor:pointer" onclick="refreshStats(this)"><div class="acp-sv" id="acp-s-refresh">↻</div><div class="acp-sk">Refresh</div></div>
   </div>
 
   <!-- Gate Controls -->
@@ -5018,7 +5095,10 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
     <button class="acp-btn acp-btn-success" onclick="setAllGates(false,this)">Enable All Gates</button>
     <button class="acp-btn acp-btn-danger"  onclick="setAllGates(true,this)">Disable All Gates</button>
   </div>
-  <div class="acp-gate-grid">{gate_rows}</div>
+  <div class="acp-tier-label">Free Tier</div>
+  <div class="acp-gate-grid" id="acp-free-gates">{free_gate_rows}</div>
+  <div class="acp-tier-label">Premium Tier</div>
+  <div class="acp-gate-grid" id="acp-prem-gates">{prem_gate_rows}</div>
   <div class="acp-result" id="gate-bulk-result"></div>
 
   <!-- User Quick Actions -->
@@ -5065,7 +5145,7 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
 
   <!-- Broadcast -->
   <div class="acp-section-title">Broadcast Message</div>
-  <textarea class="acp-bcast" id="bc-msg" placeholder="HTML supported — e.g. <b>Hello!</b>"></textarea>
+  <textarea class="acp-bcast" id="bc-msg" placeholder="HTML supported — e.g. &lt;b&gt;Hello!&lt;/b&gt;"></textarea>
   <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
     <button class="acp-btn acp-btn-danger" onclick="sendBroadcast()">Send to All Users</button>
     <span id="bc-counter" style="font-size:.78rem;color:#aaa">0 chars</span>
@@ -5084,35 +5164,30 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
 
 <script>
 (function(){{
-  // character counter for broadcast
   var ta=document.getElementById('bc-msg');
   if(ta) ta.addEventListener('input',function(){{
     var c=document.getElementById('bc-counter');
     if(c) c.textContent=ta.value.length+' chars';
   }});
 
-  // gate toggles
-  window.toggleGate=function(gate, el){{
-    var offline=!el.checked; // checkbox checked = gate ONLINE
+  window.toggleGate=function(gate,el){{
+    var offline=!el.checked;
     var card=el.closest('.acp-gate-card');
     var badge=card.querySelector('.acp-gate-badge');
-    fetch('/user/admin/gate-toggle',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{gate:gate,offline:offline}})}})
+    fetch('/admin/control/gate-toggle',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{gate:gate,offline:offline}})}})
       .then(function(r){{return r.json();}})
       .then(function(d){{
         if(d.success){{
           badge.textContent=offline?'OFFLINE':'ONLINE';
           badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');
-        }} else {{
-          el.checked=!el.checked; // revert
-          alert('Error: '+d.message);
-        }}
+        }}else{{el.checked=!el.checked;alert('Error: '+d.message);}}
       }}).catch(function(){{el.checked=!el.checked;}});
   }};
 
   window.setAllGates=function(offline,btn){{
     btn.disabled=true; btn.textContent='Working...';
     var r=document.getElementById('gate-bulk-result');
-    fetch('/user/admin/gate-all',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{offline:offline}})}})
+    fetch('/admin/control/gate-all',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{offline:offline}})}})
       .then(function(res){{return res.json();}})
       .then(function(d){{
         btn.disabled=false; btn.textContent=offline?'Disable All Gates':'Enable All Gates';
@@ -5120,31 +5195,31 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
           document.querySelectorAll('.acp-gate-card').forEach(function(card){{
             var badge=card.querySelector('.acp-gate-badge');
             var toggle=card.querySelector('input[type=checkbox]');
-            if(badge){{badge.textContent=offline?'OFFLINE':'ONLINE'; badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');}}
+            if(badge){{badge.textContent=offline?'OFFLINE':'ONLINE';badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');}}
             if(toggle) toggle.checked=!offline;
           }});
-          showResult(r, (offline?'All gates disabled':'All gates enabled'), true);
-        }} else {{ showResult(r,'Error: '+d.message,false); }}
-      }}).catch(function(){{btn.disabled=false; showResult(r,'Request failed',false);}});
+          showResult(r,offline?'All gates disabled':'All gates enabled',true);
+        }}else{{showResult(r,'Error: '+d.message,false);}}
+      }}).catch(function(){{btn.disabled=false;showResult(r,'Request failed',false);}});
   }};
 
   function showResult(el,msg,ok){{
-    if(!el) return;
-    el.style.display='block'; el.textContent=msg;
+    if(!el)return;
+    el.style.display='block';el.textContent=msg;
     el.className='acp-result '+(ok?'ok':'err');
-    setTimeout(function(){{if(el) el.style.display='none';}},5000);
+    setTimeout(function(){{if(el)el.style.display='none';}},5000);
   }}
 
-  window.cpAction=function(action, payload, btn, resId){{
+  window.cpAction=function(action,payload,btn,resId){{
     if(!resId) resId=action+'-res';
     var r=document.getElementById(resId);
-    if(btn){{btn.disabled=true;}}
-    fetch('/user/admin/'+action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(payload)}})
+    if(btn) btn.disabled=true;
+    fetch('/admin/control/'+action,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(payload)}})
       .then(function(res){{return res.json();}})
       .then(function(d){{
         if(btn) btn.disabled=false;
-        showResult(r, d.message||JSON.stringify(d), d.success);
-        if(d.success && (action==='approve'||action==='ban')) refreshPending();
+        showResult(r,d.message||JSON.stringify(d),d.success);
+        if(d.success&&(action==='approve'||action==='ban')) refreshPending();
       }}).catch(function(){{
         if(btn) btn.disabled=false;
         showResult(r,'Request failed',false);
@@ -5155,38 +5230,39 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
     var msg=document.getElementById('bc-msg').value.trim();
     if(!msg){{alert('Message is empty');return;}}
     if(!confirm('Broadcast to ALL users?')) return;
-    var r=document.getElementById('bc-res');
     cpAction('broadcast',{{message:msg}},null,'bc-res');
   }};
 
   window.refreshStats=function(cell){{
-    var sv=cell.querySelector('.acp-sv');
-    if(sv){{sv.textContent='...';}}
-    fetch('/user/admin/stats').then(function(r){{return r.json();}}).then(function(d){{
+    var sv=document.getElementById('acp-s-refresh');
+    if(sv) sv.textContent='...';
+    fetch('/admin/control/stats').then(function(r){{return r.json();}}).then(function(d){{
       if(!d.success)return;
-      var map={{'acp-s-total':d.owners+d.premium+d.free,'acp-s-premium':d.premium,'acp-s-free':d.free,'acp-s-banned':d.banned,'acp-s-pending':d.pending}};
-      for(var k in map){{var el=document.getElementById(k);if(el)el.textContent=map[k];}}
+      var m={{'acp-s-total':d.owners+d.premium+d.free,'acp-s-premium':d.premium,'acp-s-free':d.free,
+              'acp-s-banned':d.banned,'acp-s-pending':d.pending,
+              'acp-s-revenue':'$'+d.revenue,'acp-s-uptime':d.uptime_label,
+              'acp-s-mem':d.memory_mb+' MB','acp-s-chk':d.checks_last_min,'acp-s-active':d.active_users_24h}};
+      for(var k in m){{var el=document.getElementById(k);if(el)el.textContent=m[k];}}
       if(sv){{sv.textContent='✓';setTimeout(function(){{sv.textContent='↻';}},1500);}}
-      // update gate badges
       for(var g in d.gates){{
         var card=document.querySelector('[data-gate="'+g+'"]');
-        if(!card) continue;
+        if(!card)continue;
         var badge=card.querySelector('.acp-gate-badge');
         var toggle=card.querySelector('input[type=checkbox]');
         var offline=d.gates[g];
-        if(badge){{badge.textContent=offline?'OFFLINE':'ONLINE'; badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');}}
+        if(badge){{badge.textContent=offline?'OFFLINE':'ONLINE';badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');}}
         if(toggle) toggle.checked=!offline;
       }}
     }}).catch(function(){{if(sv)sv.textContent='↻';}});
   }};
 
   window.refreshPending=function(){{
-    fetch('/user/admin/pending-list').then(function(r){{return r.json();}}).then(function(d){{
-      if(!d.success) return;
+    fetch('/admin/control/pending-list').then(function(r){{return r.json();}}).then(function(d){{
+      if(!d.success)return;
       var tbody=document.getElementById('pending-tbody');
       var badge=document.getElementById('pending-badge');
       if(badge) badge.textContent=d.pending.length;
-      if(!tbody) return;
+      if(!tbody)return;
       if(d.pending.length===0){{
         tbody.innerHTML='<tr><td colspan="2" style="color:#aaa;text-align:center">No pending users</td></tr>';
         return;
@@ -5194,18 +5270,12 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
       tbody.innerHTML=d.pending.slice(0,30).map(function(u){{
         var uid=u.split(' ')[0]||u;
         return '<tr><td style="font-family:monospace">'+u+'</td><td>'
-          +'<button class="acp-btn acp-btn-success" onclick="cpAction(\'approve\',{{user_id:\''+uid+'\'}},this)">Approve</button>'
-          +' <button class="acp-btn acp-btn-danger" onclick="cpAction(\'ban\',{{user_id:\''+uid+'\'}},this)">Ban</button>'
+          +'<button class="acp-btn acp-btn-success" onclick=\'cpAction("approve",{{"user_id":"'+uid+'"}},this)\'>Approve</button>'
+          +' <button class="acp-btn acp-btn-danger" onclick=\'cpAction("ban",{{"user_id":"'+uid+'"}},this)\'>Ban</button>'
           +'</td></tr>';
       }}).join('');
     }});
   }};
-
-  // add data-gate attr to each card for refreshStats
-  document.querySelectorAll('.acp-gate-card').forEach(function(card){{
-    var name=card.querySelector('.acp-gate-name');
-    if(name) card.setAttribute('data-gate',name.textContent.toLowerCase());
-  }});
 }})();
 </script>
 """
@@ -5257,7 +5327,7 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
             </div>
             <div class="stats-grid">
                 <div class="stat-card"><h3>{user_id}</h3><p>Your User ID</p></div>
-                <div class="stat-card"><h3>{_user_type}</h3><p>Account Type</p></div>
+                <div class="stat-card"><h3>{_user_type.upper()}</h3><p>Account Type</p></div>
                 <div class="stat-card"><h3>{_prem_exp}</h3><p>Premium Expiry</p></div>
                 <div class="stat-card"><h3>{_npending}</h3><p>Pending Payments</p></div>
             </div>
