@@ -10912,9 +10912,75 @@ async def gate_se1(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # PREMIUM GATES - Shopify
 def _format_shopify_result(cc, mm, yy, cvv, result, bin_info, elapsed, username):
-    """Format Shopify result using unified Onichan branding"""
-    from modules.gate_checker import _onichan_format
-    return _onichan_format(result, cc, mm, yy, cvv, bin_info, "Shopify", elapsed, username)
+    """Format Shopify result — preserves full API response text (no lossy normalization)"""
+    import re as _re
+    from config import SUPPORT_USERNAME
+
+    card_display = f"{cc}|{mm}|{yy}|{cvv}"
+
+    # Strip the "Approved - " / "Declined - " / "Response - " prefix that
+    # check_shopify_netherex_gate prepends, so we get the raw API message.
+    raw_msg = result.get("message", "Unknown")
+    for _pfx in ("Approved - ", "Declined - ", "Response - "):
+        if raw_msg.startswith(_pfx):
+            raw_msg = raw_msg[len(_pfx):]
+            break
+
+    # Light cleanup — no response_clean_map (preserve original text like "Charged ₹50")
+    raw_msg = _re.sub(r'<[^>]+>', '', raw_msg)
+    raw_msg = _re.sub(r'\s+', ' ', raw_msg).strip()
+    raw_msg = raw_msg.replace('_', ' ')
+    if raw_msg.islower():
+        raw_msg = raw_msg.title()
+    if len(raw_msg) > 80:
+        raw_msg = raw_msg[:77] + "..."
+
+    rl = raw_msg.lower()
+    _decline_kw = ['declined', 'error', 'failed', 'invalid', 'expired', 'denied',
+                   'rejected', 'incorrect', 'not found', 'do not honor', 'insufficient',
+                   'lost card', 'stolen', 'blocked', 'restricted']
+    _approve_kw = ['approved', 'success', 'valid', 'charged', 'authorized', 'captured',
+                   'paid', 'insufficient funds', '3d secure', '3ds', 'cvv incorrect',
+                   'card valid', 'authenticated']
+    _is_declined = any(k in rl for k in _decline_kw)
+    _is_approved = any(k in rl for k in _approve_kw) and not _is_declined
+
+    if _is_approved:
+        status_line = "Approved ✅"
+    elif result.get("status") == "error":
+        status_line = "Error ⚠️"
+    else:
+        status_line = "Declined ❌"
+
+    brand = bin_info.get('brand', 'Unknown')
+    card_type = bin_info.get('type', '')
+    level = bin_info.get('level', '')
+    _seen = {brand.upper()}
+    _net = [brand]
+    if card_type and card_type.upper() not in ('UNKNOWN', '') and card_type.upper() not in _seen:
+        _seen.add(card_type.upper()); _net.append(card_type)
+    if level and level.upper() not in ('UNKNOWN', '') and level.upper() not in _seen:
+        _net.append(level)
+    network_line = " • ".join(_net)
+
+    country = bin_info.get('country', 'Unknown')
+    bank = bin_info.get('bank', 'Unknown')
+    bin_code = bin_info.get('bin', cc[:6])
+    sep = "━━━━━━━━━━━━━━━━━━━━"
+
+    return (
+        f"💜 <b>ONICHAN • SHOPIFY</b>\n{sep}\n"
+        f"💳 <code>{card_display}</code>\n{sep}\n"
+        f"📉 <b>Status</b>   : {status_line}\n"
+        f"💬 <b>Response</b> : {raw_msg}\n{sep}\n"
+        f"🔢 <b>BIN</b>      : {bin_code}\n"
+        f"💠 <b>Network</b>  : {network_line}\n"
+        f"🏦 <b>Bank</b>     : {bank}\n"
+        f"🌍 <b>Country</b>  : {country}\n{sep}\n"
+        f"⏱ <b>Time</b>     : {elapsed:.2f}s\n"
+        f"👤 <b>User</b>     : @{username}\n"
+        f"⚡ <b>Powered</b>  : @{SUPPORT_USERNAME}"
+    )
 
 @require_premium
 async def gate_sh(update: Update, context: ContextTypes.DEFAULT_TYPE):
