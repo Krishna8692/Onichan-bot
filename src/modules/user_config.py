@@ -305,6 +305,28 @@ def clear_user_email(user_id):
     return True
 
 
+def get_delivery_pref(user_id):
+    """Get user's preferred delivery method for large files: 'ask', 'link', or 'direct'."""
+    configs = load_all_configs()
+    user_id_str = str(user_id)
+    if user_id_str in configs:
+        return configs[user_id_str].get('delivery_pref', 'ask')
+    return 'ask'
+
+
+def set_delivery_pref(user_id, pref):
+    """Set user's preferred delivery method. pref must be 'ask', 'link', or 'direct'."""
+    if pref not in ('ask', 'link', 'direct'):
+        return False
+    configs = load_all_configs()
+    user_id_str = str(user_id)
+    if user_id_str not in configs:
+        configs[user_id_str] = {'site': None, 'proxy': None, 'sites': [], 'proxies': []}
+    configs[user_id_str]['delivery_pref'] = pref
+    save_all_configs(configs)
+    return True
+
+
 def get_captcha_key(user_id):
     """Get user's captcha solver API key"""
     configs = load_all_configs()

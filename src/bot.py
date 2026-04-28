@@ -4152,6 +4152,9 @@ async def fake_address_generator(update: Update, context: ContextTypes.DEFAULT_T
 # ============================================================================
 
 from modules.downloader import download_media, get_available_qualities, upload_to_filehost, get_platform, get_platform_emoji, format_duration, SUPPORTED_PLATFORMS
+from modules import pyro_uploader
+from modules.user_config import get_delivery_pref, set_delivery_pref
+import secrets as _py_secrets
 
 @require_approval
 async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4258,32 +4261,65 @@ async def _send_download_result(update, loading_msg, result, downloader, platfor
     file_size = os.path.getsize(file_path) / (1024 * 1024)
 
     if file_size > 49 and not file_path.endswith((".jpg", ".jpeg", ".png", ".mp3", ".m4a")):
-        await loading_msg.edit_text(
-            f"📁 <b>File is {file_size:.1f}MB — uploading to file host...</b>\n\n"
-            f"⏳ Telegram has a 50MB bot limit, so we're uploading to a free host instead.\n"
-            f"You'll get a direct download link.",
-            parse_mode=ParseMode.HTML
+        user = update.effective_user
+        pref = get_delivery_pref(user.id) if user else "ask"
+        direct_available = pyro_uploader.is_configured()
+
+        # Auto-route based on saved preference
+        if pref == "link":
+            await _deliver_via_link(loading_msg, result, downloader, platform, emoji, file_path, file_size)
+            return
+        if pref == "direct" and direct_available:
+            await _deliver_via_direct(update, loading_msg, result, downloader, platform, emoji, file_path, file_size)
+            return
+        if pref == "direct" and not direct_available:
+            # Direct preference but not configured → fall back to link
+            await _deliver_via_link(loading_msg, result, downloader, platform, emoji, file_path, file_size)
+            return
+
+        # pref == "ask" → show the choice keyboard
+        token = _py_secrets.token_urlsafe(8)
+        context.bot_data[f"dldel_{token}"] = {
+            "user_id": user.id if user else 0,
+            "file_path": file_path,
+            "file_size": file_size,
+            "platform": platform,
+            "emoji": emoji,
+            "title": result.get("title") or "Video",
+            "duration": result.get("duration"),
+            "downloader": downloader,
+            "chat_id": update.effective_chat.id if update.effective_chat else None,
+        }
+
+        buttons = []
+        if direct_available:
+            buttons.append([
+                InlineKeyboardButton("📤 Send Directly in Chat", callback_data=f"dldel_{token}_direct"),
+            ])
+        buttons.append([
+            InlineKeyboardButton("🔗 Get Download Link", callback_data=f"dldel_{token}_link"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("❌ Cancel", callback_data=f"dldel_{token}_cancel"),
+        ])
+
+        info_line = (
+            "📤 <b>Send Directly</b> — file appears natively in chat (up to 2GB), with thumbnail and streaming\n"
+            "🔗 <b>Get Link</b> — uploads to a free file host and sends you the URL"
+        ) if direct_available else (
+            "🔗 <b>Get Link</b> — uploads to a free file host and sends you the URL\n"
+            "<i>(Direct send requires TG_API_ID / TG_API_HASH to be configured.)</i>"
         )
-        host_url = await upload_to_filehost(file_path)
-        if host_url:
-            duration_text = format_duration(result["duration"]) if result["duration"] else "Unknown"
-            await loading_msg.edit_text(
-                f"{emoji} <b>{platform.title()}</b>\n\n"
-                f"📌 <b>Title:</b> {result['title']}\n"
-                f"⏱ <b>Duration:</b> {duration_text}\n"
-                f"📦 <b>Size:</b> {file_size:.1f}MB\n\n"
-                f"🔗 <b>Download Link:</b>\n{host_url}\n\n"
-                f"<i>Link hosted on gofile.io / catbox.moe • Downloaded by @Onichanbabybot</i>",
-                parse_mode=ParseMode.HTML
-            )
-        else:
-            await loading_msg.edit_text(
-                f"❌ <b>Upload Failed</b>\n\n"
-                f"File is {file_size:.1f}MB and could not be uploaded to any file host.\n"
-                f"Please try selecting a lower quality.",
-                parse_mode=ParseMode.HTML
-            )
-        downloader.cleanup()
+
+        await loading_msg.edit_text(
+            f"{emoji} <b>{platform.title()} — {result.get('title', 'Video')[:60]}</b>\n\n"
+            f"📦 File is <b>{file_size:.1f}MB</b> — over Telegram's 49MB bot limit.\n\n"
+            f"How would you like to receive it?\n\n"
+            f"{info_line}\n\n"
+            f"<i>Tip: use /dlpref to set a default and skip this prompt next time.</i>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
         return
 
     await loading_msg.edit_text(f"📤 <b>Uploading to Telegram...</b>", parse_mode=ParseMode.HTML)
@@ -4379,6 +4415,200 @@ async def download_quality_callback(update: Update, context: ContextTypes.DEFAUL
         await query.message.edit_text(f"❌ <b>Error</b>\n\n{str(e)[:200]}", parse_mode=ParseMode.HTML)
     finally:
         context.bot_data.pop(f"dlurl_{user.id}", None)
+
+
+# ── Large-file delivery helpers ─────────────────────────────────────────────
+
+async def _deliver_via_link(loading_msg, result, downloader, platform, emoji, file_path, file_size):
+    """Upload the file to a free file host and reply with the URL."""
+    await loading_msg.edit_text(
+        f"📁 <b>File is {file_size:.1f}MB — uploading to file host...</b>\n\n"
+        f"⏳ This may take a minute depending on size.",
+        parse_mode=ParseMode.HTML
+    )
+    host_url = await upload_to_filehost(file_path)
+    if host_url:
+        duration_text = format_duration(result["duration"]) if result.get("duration") else "Unknown"
+        await loading_msg.edit_text(
+            f"{emoji} <b>{platform.title()}</b>\n\n"
+            f"📌 <b>Title:</b> {result.get('title', 'Video')}\n"
+            f"⏱ <b>Duration:</b> {duration_text}\n"
+            f"📦 <b>Size:</b> {file_size:.1f}MB\n\n"
+            f"🔗 <b>Download Link:</b>\n{host_url}\n\n"
+            f"<i>Hosted on gofile.io / catbox.moe • Downloaded by @Onichanbabybot</i>",
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        await loading_msg.edit_text(
+            f"❌ <b>Upload Failed</b>\n\n"
+            f"File is {file_size:.1f}MB and could not be uploaded to any file host.\n"
+            f"Please try selecting a lower quality.",
+            parse_mode=ParseMode.HTML
+        )
+    if downloader:
+        downloader.cleanup()
+
+
+async def _deliver_via_direct(update, loading_msg, result, downloader, platform, emoji, file_path, file_size):
+    """Send the file natively in chat via Pyrogram (MTProto, up to 2GB)."""
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if chat_id is None:
+        await loading_msg.edit_text("❌ Could not determine chat for direct upload.")
+        if downloader:
+            downloader.cleanup()
+        return
+
+    await loading_msg.edit_text(
+        f"📤 <b>Sending {file_size:.1f}MB directly...</b>\n\n"
+        f"⏳ Uploading via MTProto — this can take a minute for large files.",
+        parse_mode=ParseMode.HTML
+    )
+
+    duration_text = format_duration(result["duration"]) if result.get("duration") else "Unknown"
+    caption = (
+        f"{emoji} <b>{platform.title()}</b>\n\n"
+        f"📌 <b>Title:</b> {result.get('title', 'Video')}\n"
+        f"⏱ <b>Duration:</b> {duration_text}\n"
+        f"📦 <b>Size:</b> {file_size:.1f}MB\n\n"
+        f"<i>Downloaded by @Onichanbabybot</i>"
+    )
+
+    ok = await pyro_uploader.send_video_direct(
+        chat_id=chat_id,
+        file_path=file_path,
+        caption=caption,
+        duration=result.get("duration"),
+        title=result.get("title"),
+    )
+
+    if ok:
+        try:
+            await loading_msg.delete()
+        except Exception:
+            pass
+    else:
+        # Fallback: try as document
+        ok2 = await pyro_uploader.send_document_direct(
+            chat_id=chat_id, file_path=file_path, caption=caption
+        )
+        if ok2:
+            try:
+                await loading_msg.delete()
+            except Exception:
+                pass
+        else:
+            # Final fallback: file host link
+            await loading_msg.edit_text(
+                "⚠️ Direct upload failed. Falling back to file host link...",
+                parse_mode=ParseMode.HTML
+            )
+            await _deliver_via_link(loading_msg, result, None, platform, emoji, file_path, file_size)
+            if downloader:
+                downloader.cleanup()
+            return
+
+    if downloader:
+        downloader.cleanup()
+
+
+async def download_delivery_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the link/direct/cancel choice for large files."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data  # dldel_{token}_{action}
+    parts = data.split("_")
+    if len(parts) != 3:
+        return
+    _, token, action = parts
+
+    session = context.bot_data.get(f"dldel_{token}")
+    if not session:
+        await query.edit_message_text("❌ Session expired. Please run /download again.")
+        return
+
+    user = update.effective_user
+    if user and session.get("user_id") and user.id != session["user_id"]:
+        await query.answer("This isn't your download session.", show_alert=True)
+        return
+
+    file_path = session["file_path"]
+    file_size = session["file_size"]
+    platform = session["platform"]
+    emoji = session["emoji"]
+    downloader = session.get("downloader")
+    fake_result = {
+        "title": session.get("title", "Video"),
+        "duration": session.get("duration"),
+        "success": True,
+        "file_path": file_path,
+    }
+
+    # Pop session up-front so a stalled upload can't double-fire
+    context.bot_data.pop(f"dldel_{token}", None)
+
+    if action == "cancel":
+        await query.edit_message_text("❌ Cancelled. File discarded.")
+        if downloader:
+            downloader.cleanup()
+        return
+
+    if action == "link":
+        await _deliver_via_link(query.message, fake_result, downloader, platform, emoji, file_path, file_size)
+    elif action == "direct":
+        if not pyro_uploader.is_configured():
+            await query.message.edit_text(
+                "⚠️ Direct send isn't configured. Falling back to file host link...",
+                parse_mode=ParseMode.HTML,
+            )
+            await _deliver_via_link(query.message, fake_result, downloader, platform, emoji, file_path, file_size)
+        else:
+            await _deliver_via_direct(update, query.message, fake_result, downloader, platform, emoji, file_path, file_size)
+
+
+@require_approval
+async def dlpref_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set or view the default delivery method for large files."""
+    user = update.effective_user
+    if not user:
+        return
+
+    arg = (context.args[0].lower() if context.args else "").strip()
+
+    if arg in ("ask", "link", "direct"):
+        if arg == "direct" and not pyro_uploader.is_configured():
+            await update.message.reply_text(
+                "⚠️ <b>Direct send isn't configured</b>\n\n"
+                "The bot owner needs to set <code>TG_API_ID</code> and "
+                "<code>TG_API_HASH</code> from https://my.telegram.org for this option to work.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        set_delivery_pref(user.id, arg)
+        labels = {
+            "ask": "Ask every time",
+            "link": "Always send a download link",
+            "direct": "Always send the file directly in chat",
+        }
+        await update.message.reply_text(
+            f"✅ <b>Delivery preference saved</b>\n\n"
+            f"Default for files over 49MB: <b>{labels[arg]}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    current = get_delivery_pref(user.id)
+    direct_status = "✅ Configured" if pyro_uploader.is_configured() else "❌ Not configured (needs TG_API_ID / TG_API_HASH)"
+    await update.message.reply_text(
+        "⚙️ <b>Large-File Delivery Preference</b>\n\n"
+        f"Current setting: <b>{current}</b>\n"
+        f"Direct send: {direct_status}\n\n"
+        "<b>Usage:</b>\n"
+        "<code>/dlpref ask</code> — choose every time (default)\n"
+        "<code>/dlpref link</code> — always send a download link\n"
+        "<code>/dlpref direct</code> — always send the file directly in chat (up to 2GB)",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 # ============================================================================
@@ -17555,6 +17785,17 @@ def main():
         from config import TON_WALLET
         await _ton_monitor.start_monitor(TON_WALLET, app.bot, set_premium_sync)
 
+        # Boot the Pyrogram MTProto client for >50MB direct uploads (best-effort)
+        try:
+            if pyro_uploader.is_configured():
+                client = await pyro_uploader.get_client()
+                if client is None:
+                    print("⚠️ Pyrogram client unavailable — large files will use file host links")
+            else:
+                print("ℹ️ TG_API_ID / TG_API_HASH not set — direct >50MB upload disabled (file host fallback active)")
+        except Exception as _pe:
+            print(f"⚠️ Pyrogram startup error: {_pe}")
+
     application = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -17614,6 +17855,7 @@ def main():
     application.add_handler(CommandHandler("fake", fake_address_generator))
     application.add_handler(CommandHandler("download", download_command))
     application.add_handler(CommandHandler("dl", download_command))
+    application.add_handler(CommandHandler("dlpref", dlpref_command))
     application.add_handler(CommandHandler("tmail", tempmail_generate))
     application.add_handler(CommandHandler("tpno", temp_phone_command))
     application.add_handler(CommandHandler("ip", ip_check_command))
@@ -17890,6 +18132,7 @@ def main():
     application.add_handler(CallbackQueryHandler(discard_proxy_callback, pattern="^discardproxy_"))
     application.add_handler(CallbackQueryHandler(regenerate_cards_callback, pattern="^regen"))
     application.add_handler(CallbackQueryHandler(download_quality_callback, pattern="^dlq_"))
+    application.add_handler(CallbackQueryHandler(download_delivery_callback, pattern="^dldel_"))
     application.add_handler(CallbackQueryHandler(button_callback))
     
     application.add_handler(CommandHandler("address", cmd_address))

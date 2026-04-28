@@ -30,4 +30,6 @@ dependencies = [
     "twilio>=9.0.0",
     "waitress>=3.0.2",
     "yt-dlp>=2026.3.17",
+    "pyrogram>=2.0.106",
+    "tgcrypto>=1.2.5",
 ]
