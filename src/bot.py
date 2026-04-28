@@ -16822,12 +16822,19 @@ async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/withdraw <amount> <asset> <chain> <address>"""
+    """/withdraw <amount> <ASSET> <recipient> [chain]
+
+    `recipient` may be @username, a numeric Telegram id, or a wallet address.
+    `chain` is only needed to disambiguate EVM addresses (ethereum/bsc/polygon/…).
+    """
     user = update.effective_user
-    if len(context.args) < 4:
+    if len(context.args) < 3:
         await update.message.reply_text(
-            "Usage: <code>/withdraw &lt;amount&gt; &lt;ASSET&gt; &lt;chain&gt; &lt;address&gt;</code>\n"
-            "Example: <code>/withdraw 0.5 ETH ethereum 0xabc...</code>\n\n"
+            "Usage: <code>/withdraw &lt;amount&gt; &lt;ASSET&gt; &lt;recipient&gt; [chain]</code>\n\n"
+            "Examples:\n"
+            "• <code>/withdraw 5 USDT_TRC20 TXYZ…abc</code>\n"
+            "• <code>/withdraw 0.1 ETH 0xabc… ethereum</code>\n"
+            "• <code>/withdraw 10 USDT_TRC20 @alice</code> (instant internal)\n\n"
             "Or use the web wallet for a friendlier interface.",
             parse_mode=ParseMode.HTML)
         return
@@ -16839,51 +16846,125 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Invalid amount")
         return
     asset = context.args[1].upper()
-    chain = context.args[2].lower()
-    address = context.args[3].strip()
+    raw_recipient = context.args[2].strip()
+    chain_hint = (context.args[3].lower() if len(context.args) >= 4 else None)
 
     try:
-        from keep_alive import _wallet_txn
-        insufficient = False
+        from modules.chain_config import (
+            parse_recipient, chain_label, explorer_addr_url,
+            chain_supports_asset, asset_compatible_chains,
+        )
+        from keep_alive import (
+            _wallet_txn, _resolve_recipient, _credit_balance,
+            _debit_balance, _log_wallet_tx,
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Wallet module error: {e}")
+        return
+
+    parsed = parse_recipient(raw_recipient, asset=asset, chain_hint=chain_hint)
+    if parsed.get('error'):
+        await update.message.reply_text(f"❌ {parsed['error']}")
+        return
+    kind = parsed.get('kind')
+
+    # ── Internal transfer ──────────────────────────────────────────────
+    if kind in ('tg_id', 'tg_username'):
+        rec_q = ('@' + parsed['username']) if kind == 'tg_username' else str(parsed['telegram_id'])
+        rec = _resolve_recipient(rec_q)
+        if not rec:
+            await update.message.reply_text(
+                f"❌ Recipient {rec_q} not found. They must use the bot at least once.")
+            return
+        rec_id = int(rec['user_id'])
+        if rec_id == user.id:
+            await update.message.reply_text("❌ Cannot send to yourself")
+            return
+        try:
+            with _wallet_txn() as conn:
+                if not _debit_balance(user.id, asset, amount, conn=conn):
+                    await update.message.reply_text(f"❌ Insufficient {asset} balance")
+                    return
+                _credit_balance(rec_id, asset, amount, conn=conn)
+                _log_wallet_tx(conn=conn, telegram_id=user.id, counterparty_id=rec_id,
+                               tx_type='transfer_out', asset=asset, amount=amount,
+                               status='confirmed')
+                _log_wallet_tx(conn=conn, telegram_id=rec_id, counterparty_id=user.id,
+                               tx_type='transfer_in', asset=asset, amount=amount,
+                               status='confirmed')
+        except Exception as e:
+            await update.message.reply_text(f"❌ Transfer failed: {e}")
+            return
+        rec_label = f"@{rec.get('username')}" if rec.get('username') else f"#{rec_id}"
+        await update.message.reply_text(
+            f"✅ Sent <b>{amount} {asset}</b> to {rec_label} (instant, internal).",
+            parse_mode=ParseMode.HTML)
+        try:
+            sender_label = f"@{user.username}" if user.username else f"User #{user.id}"
+            await context.bot.send_message(
+                chat_id=rec_id,
+                text=(f"💰 <b>Crypto Received!</b>\n"
+                      f"━━━━━━━━━━━━━━━━━━\n"
+                      f"💎 {amount} {asset}\n"
+                      f"👤 From: {sender_label}"),
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+        return
+
+    # ── On-chain withdrawal ────────────────────────────────────────────
+    if kind != 'address':
+        await update.message.reply_text("❌ Could not interpret recipient.")
+        return
+
+    chain = parsed.get('chain')
+    candidates = parsed.get('candidates') or []
+    address = parsed['address']
+    if not chain:
+        await update.message.reply_text(
+            f"❌ Address is valid on multiple networks: {', '.join(candidates)}.\n"
+            f"Re-run as: <code>/withdraw {amount} {asset} {address} &lt;chain&gt;</code>",
+            parse_mode=ParseMode.HTML)
+        return
+    if not chain_supports_asset(chain, asset):
+        compat = asset_compatible_chains(asset)
+        await update.message.reply_text(
+            f"❌ {asset} cannot be withdrawn on {chain_label(chain)}.\n"
+            f"Compatible: {', '.join(compat) if compat else '(none)'}")
+        return
+
+    try:
         wid = None
         with _wallet_txn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """UPDATE wallet_balances SET balance = balance - %s, updated_at = NOW()
-                        WHERE telegram_id = %s AND asset = %s AND balance >= %s
-                        RETURNING balance""",
-                    (str(amount), user.id, asset, str(amount))
-                )
-                if cur.fetchone() is None:
-                    insufficient = True
-                    raise RuntimeError("INSUFFICIENT")
-                cur.execute(
-                    """INSERT INTO wallet_transactions
-                         (telegram_id, tx_type, chain, asset, amount, address, status)
-                       VALUES (%s, 'withdraw', %s, %s, %s, %s, 'pending') RETURNING id""",
-                    (user.id, chain, asset, str(amount), address)
-                )
-                row = cur.fetchone()
-                wid = row['id'] if hasattr(row, 'get') else (row[0] if row else None)
-    except RuntimeError as e:
-        if str(e) == "INSUFFICIENT" or insufficient:
-            await update.message.reply_text(f"❌ Insufficient {asset} balance")
-            return
-        await update.message.reply_text(f"❌ Withdrawal failed: {e}")
-        return
+            if not _debit_balance(user.id, asset, amount, conn=conn):
+                await update.message.reply_text(f"❌ Insufficient {asset} balance")
+                return
+            wid = _log_wallet_tx(
+                conn=conn, telegram_id=user.id, tx_type='withdraw',
+                chain=chain, asset=asset, amount=amount,
+                address=address, status='pending',
+            )
     except Exception as e:
         await update.message.reply_text(f"❌ Withdrawal failed: {e}")
         return
+
     short = f"{address[:10]}…{address[-6:]}" if len(address) > 22 else address
+    addr_url = explorer_addr_url(chain, address)
+    keyboard = None
+    if addr_url:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔍 View Address on Explorer", url=addr_url)
+        ]])
     await update.message.reply_text(
         f"⏳ <b>Withdrawal Queued #{wid}</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💎 {amount} {asset}\n"
-        f"🔗 {chain}\n"
+        f"🔗 {chain_label(chain)}\n"
         f"📤 To: <code>{short}</code>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"⌛ You'll be notified when broadcast.",
-        parse_mode=ParseMode.HTML)
+        f"⌛ Broadcasting on the next worker tick (≤45s).",
+        parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
 async def cmd_confirmwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -16913,14 +16994,22 @@ async def cmd_confirmwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await update.message.reply_text(f"✅ Marked #{wid} confirmed (tx: {tx_hash[:14]}…)")
         try:
+            from modules.chain_config import explorer_tx_url, chain_label
+            tx_url = explorer_tx_url(row['chain'], tx_hash)
+            kb = None
+            if tx_url:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔍 View Transaction on Explorer", url=tx_url)
+                ]])
             await context.bot.send_message(
                 chat_id=int(row['telegram_id']),
                 text=(f"✅ <b>Withdrawal Sent!</b>\n"
                       f"━━━━━━━━━━━━━━━━━━\n"
                       f"💎 {row['amount']} {row['asset']}\n"
-                      f"🔗 {row['chain']}\n"
-                      f"🔍 <code>{tx_hash}</code>"),
-                parse_mode=ParseMode.HTML)
+                      f"🔗 {chain_label(row['chain'])}\n"
+                      f"🆔 <code>{tx_hash}</code>"),
+                parse_mode=ParseMode.HTML, reply_markup=kb)
         except Exception:
             pass
     except Exception as e:
@@ -17931,68 +18020,195 @@ def main():
 
     # ── Withdrawal worker ──────────────────────────────────────────────
     def _withdrawal_worker():
-        """Polls pending withdrawals; notifies owner with approval buttons."""
+        """
+        Polls pending withdrawals and actually broadcasts them on-chain.
+
+          - EVM + Tron rows are signed & broadcast automatically.
+          - Other chains (sol/ton/btc) are escalated to the owner for manual
+            /confirmwd, since their broadcasters aren't wired up yet.
+          - Hard failures refund the user; soft failures (insufficient hot
+            balance, RPC outage) leave the row pending and ping the owner.
+        """
         import time as _time
         import requests as req
         _time.sleep(75)
         if not BOT_TOKEN:
             return
         OWNER_UID = 1857417752
-        notified = set()
-        print("[Wallet] ⬆️ Withdrawal worker started")
+        notified_manual = set()  # wids escalated to owner
+        print("[Wallet] ⬆️ Withdrawal broadcaster started")
+
+        def _send_owner(text):
+            try:
+                req.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": OWNER_UID, "text": text,
+                          "parse_mode": "HTML",
+                          "disable_web_page_preview": True},
+                    timeout=10,
+                )
+            except Exception:
+                pass
+
+        def _send_user(uid, text, tx_url=None):
+            payload = {"chat_id": int(uid), "text": text,
+                       "parse_mode": "HTML",
+                       "disable_web_page_preview": True}
+            if tx_url:
+                payload["reply_markup"] = {"inline_keyboard": [[
+                    {"text": "🔍 View Transaction on Explorer", "url": tx_url}
+                ]]}
+            try:
+                req.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json=payload, timeout=10,
+                )
+            except Exception:
+                pass
+
         while True:
             try:
                 from modules.database import _execute_with_retry, is_db_connected
+                from modules import onchain_broadcaster as ob
+                from modules.chain_config import (
+                    explorer_tx_url, chain_label,
+                )
                 if not is_db_connected():
                     _time.sleep(60)
                     continue
-                rows = _execute_with_retry(
-                    """SELECT id, telegram_id, chain, asset, amount, address, created_at
-                         FROM wallet_transactions
-                        WHERE tx_type = 'withdraw' AND status = 'pending'
-                        ORDER BY created_at LIMIT 25""",
-                    fetch=True
+
+                # Atomically claim a batch of pending rows by flipping to
+                # 'broadcasting'. Prevents double-spend if the worker is
+                # restarted mid-flight.
+                claimed = _execute_with_retry(
+                    """UPDATE wallet_transactions
+                          SET status = 'broadcasting'
+                        WHERE id IN (
+                            SELECT id FROM wallet_transactions
+                             WHERE tx_type = 'withdraw' AND status = 'pending'
+                             ORDER BY created_at
+                             LIMIT 10
+                             FOR UPDATE SKIP LOCKED
+                        )
+                        RETURNING id, telegram_id, chain, asset, amount, address""",
+                    fetch=True,
                 ) or []
-                for r in rows:
+
+                for r in claimed:
                     wid = r['id']
-                    if wid in notified:
-                        continue
-                    notified.add(wid)
-                    user_id = r['telegram_id']
+                    user_id = int(r['telegram_id'])
                     chain = r['chain']
                     asset = r['asset']
                     amount = r['amount']
                     addr = r['address']
-                    short = f"{addr[:10]}…{addr[-8:]}" if len(addr) > 22 else addr
-                    text = (
-                        f"⏳ <b>Withdrawal Request #{wid}</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━\n"
-                        f"👤 User: <code>{user_id}</code>\n"
-                        f"💎 Amount: <b>{amount} {asset}</b>\n"
-                        f"🔗 Network: {chain}\n"
-                        f"📤 To: <code>{short}</code>\n"
-                        f"━━━━━━━━━━━━━━━━━━\n"
-                        f"Reply with /confirmwd {wid} &lt;tx_hash&gt; after broadcasting,\n"
-                        f"or /rejectwd {wid} &lt;reason&gt; to refund."
-                    )
-                    keyboard = {"inline_keyboard": [[
-                        {"text": "❌ Reject + Refund", "callback_data": f"wdrej:{wid}"},
-                    ]]}
-                    try:
-                        req.post(
-                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                            json={"chat_id": OWNER_UID, "text": text,
-                                  "parse_mode": "HTML",
-                                  "reply_markup": keyboard,
-                                  "disable_web_page_preview": True},
-                            timeout=10,
+
+                    if not ob.is_auto_broadcastable(chain):
+                        # Park back to pending and escalate to owner once.
+                        _execute_with_retry(
+                            "UPDATE wallet_transactions SET status='pending' WHERE id=%s",
+                            (wid,),
                         )
-                        print(f"[Wallet] Owner notified of withdrawal #{wid} ({amount} {asset})")
-                    except Exception as ne:
-                        print(f"[Wallet] Owner notify failed for #{wid}: {ne}")
+                        if wid not in notified_manual:
+                            notified_manual.add(wid)
+                            short = f"{addr[:10]}…{addr[-8:]}" if len(addr) > 22 else addr
+                            _send_owner(
+                                f"⚠️ <b>Manual Withdrawal #{wid}</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━\n"
+                                f"👤 User: <code>{user_id}</code>\n"
+                                f"💎 {amount} {asset}\n"
+                                f"🔗 {chain_label(chain)}\n"
+                                f"📤 <code>{short}</code>\n"
+                                f"━━━━━━━━━━━━━━━━━━\n"
+                                f"This chain has no auto-broadcaster yet.\n"
+                                f"Send manually then /confirmwd {wid} &lt;tx_hash&gt;\n"
+                                f"or /rejectwd {wid} &lt;reason&gt; to refund."
+                            )
+                        continue
+
+                    print(f"[Wallet] Broadcasting #{wid}: {amount} {asset} on {chain} → {addr[:18]}…")
+                    tx_hash, err = ob.broadcast(chain, asset, addr, amount)
+
+                    if err is None and tx_hash:
+                        _execute_with_retry(
+                            """UPDATE wallet_transactions
+                                  SET status='confirmed', tx_hash=%s
+                                WHERE id=%s""",
+                            (tx_hash, wid),
+                        )
+                        url = explorer_tx_url(chain, tx_hash)
+                        _send_user(
+                            user_id,
+                            (f"✅ <b>Withdrawal Sent!</b>\n"
+                             f"━━━━━━━━━━━━━━━━━━\n"
+                             f"💎 {amount} {asset}\n"
+                             f"🔗 {chain_label(chain)}\n"
+                             f"🆔 <code>{tx_hash}</code>"),
+                            tx_url=url,
+                        )
+                        print(f"[Wallet] ✅ Broadcast #{wid} → {tx_hash}")
+                        continue
+
+                    # Soft failures: leave row pending, ping owner once.
+                    if err in ('insufficient_hot_balance', 'hd_unavailable'):
+                        _execute_with_retry(
+                            "UPDATE wallet_transactions SET status='pending' WHERE id=%s",
+                            (wid,),
+                        )
+                        if wid not in notified_manual:
+                            notified_manual.add(wid)
+                            _send_owner(
+                                f"🚨 <b>Withdrawal #{wid} blocked: {err}</b>\n"
+                                f"💎 {amount} {asset} on {chain_label(chain)}\n"
+                                f"Refill the hot wallet and it will retry automatically."
+                            )
+                        print(f"[Wallet] ⏸ #{wid} parked: {err}")
+                        continue
+
+                    # Hard failure: refund and notify both sides.
+                    refunded = False
+                    try:
+                        from keep_alive import _wallet_txn
+                        with _wallet_txn() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    """UPDATE wallet_transactions
+                                          SET status='failed', note=%s
+                                        WHERE id=%s AND status='broadcasting'
+                                        RETURNING telegram_id""",
+                                    ((err or 'broadcast_error')[:200], wid),
+                                )
+                                if cur.fetchone():
+                                    cur.execute(
+                                        """INSERT INTO wallet_balances (telegram_id, asset, balance, updated_at)
+                                           VALUES (%s, %s, %s, NOW())
+                                           ON CONFLICT (telegram_id, asset) DO UPDATE
+                                             SET balance = wallet_balances.balance + EXCLUDED.balance,
+                                                 updated_at = NOW()""",
+                                        (user_id, asset, str(amount)),
+                                    )
+                                    refunded = True
+                    except Exception as e:
+                        print(f"[Wallet] Refund of #{wid} failed: {e}")
+
+                    if refunded:
+                        _send_user(
+                            user_id,
+                            (f"❌ <b>Withdrawal Failed</b>\n"
+                             f"━━━━━━━━━━━━━━━━━━\n"
+                             f"💎 {amount} {asset} refunded to your wallet.\n"
+                             f"📝 Reason: {err}"),
+                        )
+                    _send_owner(
+                        f"❌ <b>Withdrawal #{wid} failed</b>\n"
+                        f"💎 {amount} {asset} on {chain_label(chain)}\n"
+                        f"⚠️ {err}\n"
+                        + ("✅ User refunded." if refunded else "⚠️ Refund failed — investigate.")
+                    )
+                    print(f"[Wallet] ❌ #{wid} failed: {err}")
+
                 # Cap memory
-                if len(notified) > 5000:
-                    notified.clear()
+                if len(notified_manual) > 5000:
+                    notified_manual.clear()
             except Exception as e:
                 print(f"[Wallet] Withdrawal worker error: {e}")
             _time.sleep(45)

@@ -13755,20 +13755,68 @@ def api_wallet_transfer():
     return jsonify({"ok": True, "tx_id": out_id, "recipient": rec_label})
 
 
+@app.route('/api/wallet/parse-recipient', methods=['GET'])
+@user_required
+def api_wallet_parse_recipient():
+    """
+    Live UI helper. Classify a recipient string into one of:
+      - tg_id / tg_username (internal P2P)
+      - address (on-chain) with auto-detected `chain` (or `candidates` list when ambiguous)
+      - error
+    Optionally narrow by `?asset=USDT_TRC20`.
+    """
+    try:
+        from modules.chain_config import parse_recipient as _pr
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    raw = (request.args.get('q') or '').strip()
+    asset = (request.args.get('asset') or '').strip().upper() or None
+    chain_hint = (request.args.get('chain') or '').strip().lower() or None
+    parsed = _pr(raw, asset=asset, chain_hint=chain_hint)
+    # If it's a tg_username, opportunistically resolve to an id so the UI can
+    # show "✓ @alice (ID 12345)".
+    if parsed.get('kind') == 'tg_username':
+        rec = _resolve_recipient('@' + parsed['username'])
+        parsed['resolved'] = bool(rec)
+        if rec:
+            parsed['telegram_id'] = int(rec['user_id'])
+    elif parsed.get('kind') == 'tg_id':
+        rec = _resolve_recipient(str(parsed['telegram_id']))
+        parsed['resolved'] = bool(rec)
+        if rec:
+            parsed['username'] = rec.get('username') or ''
+    return jsonify(parsed)
+
+
 @app.route('/api/wallet/withdraw', methods=['POST'])
 @user_required
 def api_wallet_withdraw():
+    """
+    Smart withdraw endpoint.
+
+    Body:
+      asset      (required)  e.g. "ETH", "USDT_TRC20"
+      recipient  (preferred) "@user", numeric tg id, or a wallet address
+      chain      (optional)  used as a tiebreaker for ambiguous EVM addresses
+      address    (legacy)    if provided and recipient is not, treated as recipient
+      amount     (required)
+      note       (optional)  only used for internal transfers
+    """
+    from modules.chain_config import (
+        parse_recipient as _pr, chain_label as _cl,
+        explorer_addr_url as _eau, asset_compatible_chains as _aac,
+        chain_supports_asset as _csa,
+    )
     tg_id = int(session.get('user_id'))
     data = request.get_json(silent=True) or {}
     asset = (data.get('asset') or '').strip().upper()
-    chain = (data.get('chain') or _ASSET_TO_CHAIN.get(asset, '')).lower()
-    address = (data.get('address') or '').strip()
+    raw_recipient = (data.get('recipient') or data.get('address') or '').strip()
+    chain_hint = (data.get('chain') or '').strip().lower() or None
+    note = (data.get('note') or '').strip()[:200]
     amount_raw = data.get('amount')
 
-    if not asset or not chain or not address or amount_raw is None:
-        return jsonify({"error": "asset, chain, address, amount required"}), 400
-    if chain not in _SUPPORTED_CHAINS:
-        return jsonify({"error": f"Unsupported chain: {chain}"}), 400
+    if not asset or not raw_recipient or amount_raw is None:
+        return jsonify({"error": "asset, recipient, and amount are required"}), 400
     try:
         amount = float(amount_raw)
         if amount <= 0:
@@ -13776,38 +13824,135 @@ def api_wallet_withdraw():
     except Exception:
         return jsonify({"error": "Invalid amount"}), 400
 
+    parsed = _pr(raw_recipient, asset=asset, chain_hint=chain_hint)
+    if parsed.get('error'):
+        return jsonify({"error": parsed['error']}), 400
+
+    kind = parsed.get('kind')
+
+    # ── Internal P2P (Telegram username / id) ───────────────────────────────
+    if kind in ('tg_id', 'tg_username'):
+        rec_q = ('@' + parsed['username']) if kind == 'tg_username' else str(parsed['telegram_id'])
+        rec = _resolve_recipient(rec_q)
+        if not rec:
+            return jsonify({"error": f"Recipient '{rec_q}' not found. They must use the bot at least once."}), 404
+        rec_id = int(rec['user_id'])
+        if rec_id == tg_id:
+            return jsonify({"error": "Cannot send to yourself"}), 400
+        try:
+            with _wallet_txn() as conn:
+                if not _debit_balance(tg_id, asset, amount, conn=conn):
+                    return jsonify({"error": f"Insufficient {asset} balance"}), 400
+                _credit_balance(rec_id, asset, amount, conn=conn)
+                out_id = _log_wallet_tx(
+                    conn=conn, telegram_id=tg_id, counterparty_id=rec_id,
+                    tx_type='transfer_out', asset=asset, amount=amount,
+                    status='confirmed', note=note,
+                )
+                _log_wallet_tx(
+                    conn=conn, telegram_id=rec_id, counterparty_id=tg_id,
+                    tx_type='transfer_in', asset=asset, amount=amount,
+                    status='confirmed', note=note,
+                )
+        except Exception as e:
+            return jsonify({"error": f"Transfer failed: {e}"}), 500
+
+        sender_username = ''
+        try:
+            from modules.database import _execute_with_retry
+            srow = _execute_with_retry(
+                "SELECT username FROM users WHERE user_id = %s",
+                (tg_id,), fetch_one=True)
+            sender_username = (srow or {}).get('username') or ''
+        except Exception:
+            pass
+        sender_label = f"@{sender_username}" if sender_username else f"User #{tg_id}"
+        rec_label = f"@{rec.get('username')}" if rec.get('username') else f"User #{rec_id}"
+        _wallet_notify_user(
+            tg_id,
+            f"💸 <b>Transfer Sent</b>\n━━━━━━━━━━━━━━━━━━\n"
+            f"💎 <b>Amount:</b> {amount} {asset}\n"
+            f"👤 <b>To:</b> {rec_label}\n"
+            + (f"📝 <b>Note:</b> {note}\n" if note else "")
+            + "━━━━━━━━━━━━━━━━━━\n✅ Delivered instantly"
+        )
+        _wallet_notify_user(
+            rec_id,
+            f"💰 <b>Crypto Received!</b>\n━━━━━━━━━━━━━━━━━━\n"
+            f"💎 <b>Amount:</b> {amount} {asset}\n"
+            f"👤 <b>From:</b> {sender_label}\n"
+            + (f"📝 <b>Note:</b> {note}\n" if note else "")
+            + "━━━━━━━━━━━━━━━━━━\n✅ Credited to your wallet",
+            reply_markup={"inline_keyboard": [[
+                {"text": "💰 Open Wallet", "url": f"https://t.me/{os.environ.get('BOT_USERNAME', 'Onichanbabybot')}"}
+            ]]}
+        )
+        return jsonify({"ok": True, "tx_id": out_id, "kind": "internal", "recipient": rec_label})
+
+    # ── On-chain withdrawal ─────────────────────────────────────────────────
+    if kind != 'address':
+        return jsonify({"error": "Unrecognized recipient"}), 400
+
+    chain = parsed.get('chain')
+    candidates = parsed.get('candidates') or []
+    address = parsed['address']
+
+    if not chain:
+        # Ambiguous (e.g. EVM address) and caller didn't pick — return 409 with options
+        return jsonify({
+            "error": "This address is valid on multiple networks. Pick one and resubmit.",
+            "candidates": candidates,
+        }), 409
+
+    if not _csa(chain, asset):
+        compat = _aac(asset)
+        return jsonify({
+            "error": (f"{asset} cannot be withdrawn on {_cl(chain)}. "
+                      f"Compatible networks: {', '.join(compat) if compat else '(none)'}.")
+        }), 400
+
     try:
         with _wallet_txn() as conn:
             if not _debit_balance(tg_id, asset, amount, conn=conn):
                 return jsonify({"error": f"Insufficient {asset} balance"}), 400
             tx_id = _log_wallet_tx(
-                conn=conn,
-                telegram_id=tg_id, tx_type='withdraw',
+                conn=conn, telegram_id=tg_id, tx_type='withdraw',
                 chain=chain, asset=asset, amount=amount,
-                address=address, status='pending'
+                address=address, status='pending',
             )
     except Exception as e:
         return jsonify({"error": f"Withdraw failed: {e}"}), 500
 
     short = f"{address[:8]}…{address[-6:]}" if len(address) > 18 else address
+    addr_url = _eau(chain, address)
+    keyboard = {"inline_keyboard": [[
+        {"text": "🔍 View Address on Explorer", "url": addr_url}
+    ]]} if addr_url else None
     _wallet_notify_user(
         tg_id,
-        f"⏳ <b>Withdrawal Queued</b>\n"
+        f"⏳ <b>Withdrawal Queued #{tx_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💎 <b>Amount:</b> {amount} {asset}\n"
-        f"🔗 <b>Network:</b> {chain.title()}\n"
+        f"🔗 <b>Network:</b> {_cl(chain)}\n"
         f"📤 <b>To:</b> <code>{short}</code>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"⌛ Pending broadcast — you'll be notified when sent."
+        f"⌛ Pending broadcast — you'll get a confirmation link when it's sent.",
+        reply_markup=keyboard,
     )
 
-    return jsonify({"ok": True, "tx_id": tx_id, "status": "pending"})
+    return jsonify({"ok": True, "tx_id": tx_id, "kind": "onchain",
+                    "chain": chain, "status": "pending"})
 
 
 @app.route('/user/wallet')
 @user_required
 def user_wallet_page():
     bot_username = os.environ.get('BOT_USERNAME', 'Onichanbabybot')
+    try:
+        from modules.chain_config import to_frontend_json
+        chain_cfg_json = to_frontend_json()
+    except Exception:
+        chain_cfg_json = '{"chains":{},"assets":{}}'
     return render_template_string(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13987,24 +14132,30 @@ def user_wallet_page():
   <!-- ======== WITHDRAW ======== -->
   <div class="wlt-tab-pane" data-pane="withdraw">
     <div class="card">
-      <h2 style="margin-bottom:10px">Withdraw to External Wallet</h2>
-      <div class="alert alert-warn">⚠️ Triple-check the destination address. On-chain transfers are irreversible.</div>
+      <h2 style="margin-bottom:10px">Withdraw</h2>
+      <div class="alert alert-info">Send to <b>@username</b>, a <b>Telegram ID</b>, or a <b>wallet address</b>. The network is auto-detected.</div>
       <div class="form-group">
         <label>Asset</label>
         <select id="wd-asset"></select>
       </div>
       <div class="form-group">
+        <label>Recipient</label>
+        <input type="text" id="wd-recipient" placeholder="@username, Telegram ID, or wallet address" autocomplete="off">
+        <div id="wd-recipient-info" style="font-size:.78em;margin-top:5px;min-height:18px"></div>
+      </div>
+      <div class="form-group" id="wd-network-group" style="display:none">
         <label>Network</label>
         <select id="wd-chain"></select>
-      </div>
-      <div class="form-group">
-        <label>Destination Address</label>
-        <input type="text" id="wd-address" placeholder="Paste destination address" autocomplete="off">
+        <div style="font-size:.75em;color:rgba(255,255,255,.5);margin-top:5px">Pick the network this address lives on. Sending to the wrong network = lost funds.</div>
       </div>
       <div class="form-group">
         <label>Amount</label>
         <input type="number" id="wd-amount" placeholder="0.00" step="any" min="0">
         <div id="wd-balance-info" style="font-size:.78em;color:rgba(255,255,255,.5);margin-top:5px"></div>
+      </div>
+      <div class="form-group" id="wd-note-group" style="display:none">
+        <label>Note (optional, internal transfers only)</label>
+        <input type="text" id="wd-note" maxlength="200" placeholder="What's this for?">
       </div>
       <div id="wd-result" style="display:none"></div>
       <div class="btn-row">
@@ -14059,6 +14210,24 @@ var CHAIN_LABEL = {{
   avalanche:'Avalanche', solana:'Solana', tron:'Tron (TRC-20)',
   ton:'TON', bitcoin:'Bitcoin'
 }};
+// Chain registry shared with the backend (regex strings, explorer URL templates).
+var CHAIN_CFG = {chain_cfg_json};
+function explorerTxUrl(chain, hash) {{
+  var c = CHAIN_CFG.chains[chain]; if (!c || !hash) return '';
+  return c.explorer_tx.replace('{{tx}}', encodeURIComponent(hash));
+}}
+function explorerAddrUrl(chain, addr) {{
+  var c = CHAIN_CFG.chains[chain]; if (!c || !addr) return '';
+  return c.explorer_addr.replace('{{addr}}', encodeURIComponent(addr));
+}}
+function detectChainsFromAddress(s) {{
+  if (!s) return [];
+  var hits = [];
+  for (var name in CHAIN_CFG.chains) {{
+    try {{ if (new RegExp(CHAIN_CFG.chains[name].address_re).test(s)) hits.push(name); }} catch(e) {{}}
+  }}
+  return hits;
+}}
 var prices = {{}};
 var balances = {{}};      // {{ asset: balanceFloat }}
 var depositAddrs = {{}};  // {{ chain: address }}
@@ -14130,7 +14299,6 @@ function renderBalances() {{
 function populateAssetSelects() {{
   var sendSel = document.getElementById('send-asset');
   var wdSel = document.getElementById('wd-asset');
-  var wdChain = document.getElementById('wd-chain');
   var assets = Object.keys(ASSET_META);
   var sendHtml = '', wdHtml = '';
   assets.forEach(function(a){{
@@ -14141,17 +14309,8 @@ function populateAssetSelects() {{
   }});
   sendSel.innerHTML = sendHtml;
   wdSel.innerHTML = wdHtml;
-  var chainHtml = '';
-  Object.keys(CHAIN_LABEL).forEach(function(c){{ chainHtml += '<option value="'+c+'">'+CHAIN_LABEL[c]+'</option>'; }});
-  wdChain.innerHTML = chainHtml;
-  syncWithdrawChain();
   updateBalanceInfo();
-}}
-
-function syncWithdrawChain() {{
-  var asset = document.getElementById('wd-asset').value;
-  var meta = ASSET_META[asset];
-  if (meta && meta.chain) document.getElementById('wd-chain').value = meta.chain;
+  reparseWithdrawRecipient();
 }}
 
 function updateBalanceInfo() {{
@@ -14159,6 +14318,74 @@ function updateBalanceInfo() {{
   document.getElementById('send-balance-info').textContent = 'Available: ' + (balances[sa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + sa;
   var wa = document.getElementById('wd-asset').value;
   document.getElementById('wd-balance-info').textContent = 'Available: ' + (balances[wa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + wa;
+}}
+
+// === Smart withdraw recipient parser ===
+var wdParseTimer = null;
+var wdParsed = null;        // last parse result
+function setWdInfo(html, color) {{
+  var el = document.getElementById('wd-recipient-info');
+  el.innerHTML = html; el.style.color = color || 'rgba(255,255,255,.5)';
+}}
+function showNetworkPicker(candidates, selected) {{
+  var grp = document.getElementById('wd-network-group');
+  var sel = document.getElementById('wd-chain');
+  if (!candidates || candidates.length === 0) {{ grp.style.display = 'none'; return; }}
+  var html = '';
+  candidates.forEach(function(c){{
+    html += '<option value="'+c+'">'+(CHAIN_CFG.chains[c] && CHAIN_CFG.chains[c].label || c)+'</option>';
+  }});
+  sel.innerHTML = html;
+  if (selected && candidates.indexOf(selected) >= 0) sel.value = selected;
+  grp.style.display = 'block';
+}}
+function hideNetworkPicker() {{
+  document.getElementById('wd-network-group').style.display = 'none';
+}}
+function reparseWithdrawRecipient() {{
+  clearTimeout(wdParseTimer);
+  var raw = document.getElementById('wd-recipient').value.trim();
+  var asset = document.getElementById('wd-asset').value;
+  if (!raw) {{
+    wdParsed = null;
+    setWdInfo(''); hideNetworkPicker();
+    document.getElementById('wd-note-group').style.display = 'none';
+    return;
+  }}
+  setWdInfo('Checking…');
+  wdParseTimer = setTimeout(async function(){{
+    try {{
+      var url = '/api/wallet/parse-recipient?q='+encodeURIComponent(raw)+'&asset='+encodeURIComponent(asset);
+      var r = await fetch(url);
+      var d = await r.json();
+      wdParsed = d;
+      if (d.error) {{ setWdInfo('✗ '+d.error, '#fca5a5'); hideNetworkPicker(); document.getElementById('wd-note-group').style.display='none'; return; }}
+      if (d.kind === 'tg_id' || d.kind === 'tg_username') {{
+        if (d.resolved) {{
+          var label = d.username ? '@'+d.username : ('User #'+d.telegram_id);
+          setWdInfo('💬 Internal transfer to <b>'+label+'</b> — instant, zero fee', '#86efac');
+        }} else {{
+          setWdInfo('✗ Recipient not found — they must use the bot at least once', '#fca5a5');
+        }}
+        hideNetworkPicker();
+        document.getElementById('wd-note-group').style.display = 'block';
+      }} else if (d.kind === 'address') {{
+        document.getElementById('wd-note-group').style.display = 'none';
+        var cands = d.candidates || [];
+        if (cands.length === 0) {{
+          setWdInfo('✗ Address format not recognized', '#fca5a5');
+          hideNetworkPicker();
+        }} else if (cands.length === 1) {{
+          var label = (CHAIN_CFG.chains[cands[0]] && CHAIN_CFG.chains[cands[0]].label) || cands[0];
+          setWdInfo('🔗 On-chain to <b>'+label+'</b>', '#86efac');
+          hideNetworkPicker();
+        }} else {{
+          setWdInfo('🔗 Address valid on multiple networks — pick one below', '#fcd34d');
+          showNetworkPicker(cands, d.chain || cands[0]);
+        }}
+      }}
+    }} catch(e) {{ setWdInfo('Network check failed', '#fca5a5'); }}
+  }}, 250);
 }}
 
 async function ensureDeposits() {{
@@ -14236,7 +14463,8 @@ document.addEventListener('DOMContentLoaded', function(){{
     }}, 350);
   }});
   document.getElementById('send-asset').addEventListener('change', updateBalanceInfo);
-  document.getElementById('wd-asset').addEventListener('change', function(){{ syncWithdrawChain(); updateBalanceInfo(); }});
+  document.getElementById('wd-asset').addEventListener('change', function(){{ updateBalanceInfo(); reparseWithdrawRecipient(); }});
+  document.getElementById('wd-recipient').addEventListener('input', reparseWithdrawRecipient);
 }});
 
 // === Send (P2P) ===
@@ -14276,26 +14504,49 @@ async function doWithdraw() {{
   var btn = document.getElementById('wd-btn');
   var resEl = document.getElementById('wd-result');
   resEl.style.display = 'none';
-  var payload = {{
-    asset: document.getElementById('wd-asset').value,
-    chain: document.getElementById('wd-chain').value,
-    address: document.getElementById('wd-address').value.trim(),
-    amount: document.getElementById('wd-amount').value,
-  }};
-  if (!payload.address || !payload.amount) {{
-    showResult(resEl, 'error', 'Address and amount required'); return;
+  var recipient = document.getElementById('wd-recipient').value.trim();
+  var asset = document.getElementById('wd-asset').value;
+  var amount = document.getElementById('wd-amount').value;
+  var note = (document.getElementById('wd-note') || {{}}).value || '';
+  var chainPicker = document.getElementById('wd-network-group');
+  var chain = (chainPicker && chainPicker.style.display !== 'none')
+    ? document.getElementById('wd-chain').value : '';
+  if (!recipient || !amount) {{
+    showResult(resEl, 'error', 'Recipient and amount required'); return;
   }}
-  if (!confirm('Withdraw ' + payload.amount + ' ' + payload.asset + ' to ' + payload.address.slice(0,10)+'…'+payload.address.slice(-6) + ' on ' + payload.chain + '?\\n\\nThis is irreversible.')) return;
+  // Confirm with the right phrasing per route.
+  var kind = (wdParsed && wdParsed.kind) || '';
+  var confirmMsg;
+  if (kind === 'tg_id' || kind === 'tg_username') {{
+    confirmMsg = 'Send ' + amount + ' ' + asset + ' to ' + recipient + ' (instant, internal)?';
+  }} else {{
+    var shortAddr = recipient.length > 18 ? recipient.slice(0,10)+'…'+recipient.slice(-6) : recipient;
+    var net = chain ? (CHAIN_CFG.chains[chain] && CHAIN_CFG.chains[chain].label || chain) : '(auto)';
+    confirmMsg = 'Withdraw ' + amount + ' ' + asset + ' to ' + shortAddr + ' on ' + net + '?\\n\\nThis is irreversible.';
+  }}
+  if (!confirm(confirmMsg)) return;
   btn.disabled = true; btn.textContent = 'Submitting…';
+  var payload = {{ asset: asset, recipient: recipient, amount: amount, note: note }};
+  if (chain) payload.chain = chain;
   try {{
     var r = await fetch('/api/wallet/withdraw', {{
       method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(payload)
     }});
     var d = await r.json();
-    if (r.ok && d.ok) {{
-      showResult(resEl, 'success', '✓ Withdrawal queued (#'+d.tx_id+'). You will be notified once broadcast.');
+    if (r.status === 409 && d.candidates) {{
+      // Ambiguous EVM address — pop the picker and ask again.
+      showNetworkPicker(d.candidates, d.candidates[0]);
+      showResult(resEl, 'warn', d.error || 'Pick a network and try again.');
+    }} else if (r.ok && d.ok) {{
+      var msg = d.kind === 'internal'
+        ? '✓ Sent instantly to ' + (d.recipient || recipient)
+        : '✓ Withdrawal queued (#'+d.tx_id+'). You will be notified once broadcast.';
+      showResult(resEl, 'success', msg);
       document.getElementById('wd-amount').value = '';
-      document.getElementById('wd-address').value = '';
+      document.getElementById('wd-recipient').value = '';
+      if (document.getElementById('wd-note')) document.getElementById('wd-note').value = '';
+      hideNetworkPicker();
+      setWdInfo('');
       loadBalances(); loadHistory();
     }} else {{
       showResult(resEl, 'error', d.error || 'Withdrawal failed');
@@ -14333,9 +14584,20 @@ async function loadHistory() {{
       else if (tx.tx_type === 'withdraw') detail = 'To ' + (tx.address ? tx.address.slice(0,12)+'…'+tx.address.slice(-6) : '');
       if (tx.note) detail += ' • ' + tx.note;
       var dt = tx.created_at ? new Date(tx.created_at).toLocaleString() : '';
+      // Explorer link: prefer tx hash, fall back to address.
+      var expHtml = '';
+      if (tx.chain) {{
+        var txUrl = tx.tx_hash ? explorerTxUrl(tx.chain, tx.tx_hash) : '';
+        var addrUrl = tx.address ? explorerAddrUrl(tx.chain, tx.address) : '';
+        var link = txUrl || addrUrl;
+        if (link) {{
+          var title = txUrl ? 'View transaction on explorer' : 'View address on explorer';
+          expHtml = ' <a href="'+link+'" target="_blank" rel="noopener" title="'+title+'" style="text-decoration:none;opacity:.75;margin-left:4px">🔍</a>';
+        }}
+      }}
       html += '<div class="wlt-tx-row">'
         + '<div class="wlt-tx-icon '+iconCls+'">'+icon+'</div>'
-        + '<div class="wlt-tx-info"><div class="t">'+label+' '+tx.asset+'</div><div class="d">'+detail+' • '+dt+'</div></div>'
+        + '<div class="wlt-tx-info"><div class="t">'+label+' '+tx.asset+expHtml+'</div><div class="d">'+detail+' • '+dt+'</div></div>'
         + '<div><div class="wlt-tx-amt '+amtCls+'">'+sign+parseFloat(tx.amount).toLocaleString('en-US',{{maximumFractionDigits:8}})+'</div>'
         + '<div class="wlt-tx-status '+tx.status+'">'+tx.status+'</div></div>'
         + '</div>';
