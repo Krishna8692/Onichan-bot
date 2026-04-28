@@ -284,6 +284,10 @@ def _create_tables():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_wda_addr ON wallet_deposit_addresses(chain, address)")
 
+            # Atomic, race-safe HD derivation-index allocator.
+            # Each new user gets a unique index via nextval() — no SELECT MAX races.
+            cur.execute("CREATE SEQUENCE IF NOT EXISTS wallet_hd_index_seq START WITH 1")
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS cc_shop_stock (
                     id SERIAL PRIMARY KEY,

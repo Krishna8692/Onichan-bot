@@ -201,15 +201,13 @@ def _next_index_for_user(telegram_id: int) -> int:
     """
     Assign a globally-unique derivation index per Telegram user.
 
-    Strategy:
+    Concurrency-safe strategy:
       1. If this user already has any deposit address persisted, reuse that index
          (so all chains for the same user share the same derivation index).
-      2. Otherwise, allocate a fresh index = MAX(derivation_index across all users) + 1
-         (starting at 1; index 0 is reserved). This guarantees collision-free
-         per-user indices regardless of how many users join.
-
-    The allocation is performed inside a SERIALIZABLE-safe pattern by relying on the
-    UNIQUE(chain, address) constraint to detect race conditions and retry.
+      2. Otherwise, atomically allocate a fresh index via the dedicated PostgreSQL
+         sequence `wallet_hd_index_seq`. nextval() is guaranteed unique even under
+         heavy concurrency (no SELECT MAX race), so two simultaneous first-time
+         users will always get distinct indices.
     """
     try:
         from modules.database import _execute_with_retry
@@ -221,18 +219,17 @@ def _next_index_for_user(telegram_id: int) -> int:
         if row and row.get("derivation_index") is not None:
             idx = int(row["derivation_index"])
             return idx if idx > 0 else 1
-        # Allocate fresh: max+1 across all users
+        # Atomic allocation via Postgres sequence — race-safe by construction
         row = _execute_with_retry(
-            "SELECT COALESCE(MAX(derivation_index), 0) AS m FROM wallet_deposit_addresses",
+            "SELECT nextval('wallet_hd_index_seq') AS n",
             fetch_one=True
         )
-        next_idx = int((row or {}).get("m", 0)) + 1
+        next_idx = int((row or {}).get("n", 0))
         return next_idx if next_idx > 0 else 1
     except Exception as e:
         print(f"[HD Wallet] _next_index_for_user fallback: {e}")
-        # Defensive fallback: use telegram_id directly (still deterministic per user;
-        # collisions only possible across two users whose IDs share lower 31 bits, which
-        # never occurs for real Telegram IDs which are < 10^10).
+        # Defensive fallback: use telegram_id directly. Real Telegram IDs are unique
+        # 64-bit ints; truncating to 31 bits is unlikely to collide for our user base.
         return abs(int(telegram_id)) % 2_000_000_000 or 1
 
 
