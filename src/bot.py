@@ -7768,6 +7768,21 @@ def extract_cards_from_text(text):
     
     return cards
 
+async def get_txt_content_from_reply(update, context) -> str:
+    """Return decoded text content if the replied-to message contains a .txt file, else empty string."""
+    msg = update.message
+    if not (msg and msg.reply_to_message):
+        return ""
+    reply = msg.reply_to_message
+    if reply.document and reply.document.file_name and reply.document.file_name.lower().endswith(".txt"):
+        try:
+            file = await context.bot.get_file(reply.document.file_id)
+            content = await file.download_as_bytearray()
+            return content.decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+    return ""
+
 def get_mass_check_limit(user_id):
     """Get mass check limit for user"""
     if is_owner(user_id):
@@ -8654,19 +8669,20 @@ async def gate_ast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mass_ast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass Auto Stripe Auth check with 5 parallel batches"""
     user = update.effective_user
-    
-    if not context.args:
+
+    cards_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not cards_text:
         await update.message.reply_text(
             "📋 <b>Mass Auto Stripe Auth</b>\n\n"
             "Send cards: <code>/mast CC|MM|YY|CVV</code>\n"
             "One per line. Max 50 cards.\n"
-            "5 parallel + 1s delay between batches.",
+            "5 parallel + 1s delay between batches.\n"
+            "Or reply to a .txt file with this command.",
             parse_mode=ParseMode.HTML
         )
         context.user_data['awaiting_mass_ast'] = True
         return
-    
-    cards_text = ' '.join(context.args)
+
     await process_mass_ast(update, context, cards_text)
 
 async def process_mass_ast(update: Update, context: ContextTypes.DEFAULT_TYPE, cards_text: str):
@@ -8760,20 +8776,20 @@ async def gate_st(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mass_st(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass check Stripe Auth with 5 parallel batches and 0.25s delay"""
     user = update.effective_user
-    
-    if not context.args:
+
+    cards_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not cards_text:
         await update.message.reply_text(
             "📋 <b>MASS CHECK - Stripe Auth</b>\n\n"
             "Send cards in format:\n"
             "<code>CC|MM|YY|CVV</code>\n\n"
-            "One card per line. Max 50 cards.",
+            "One card per line. Max 50 cards.\n"
+            "Or reply to a .txt file with this command.",
             parse_mode=ParseMode.HTML
         )
         context.user_data['awaiting_mass_st'] = True
         return
-    
-    # If cards provided as args
-    cards_text = ' '.join(context.args)
+
     await process_mass_st(update, context, cards_text)
 
 async def process_mass_st(update: Update, context: ContextTypes.DEFAULT_TYPE, cards_text: str):
@@ -9066,8 +9082,12 @@ async def gate_mrzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args_text = ""
     if context.args:
         args_text = ' '.join(context.args)
-    elif update.message.reply_to_message and update.message.reply_to_message.text:
-        args_text = update.message.reply_to_message.text
+    else:
+        txt_content = await get_txt_content_from_reply(update, context)
+        if txt_content:
+            args_text = txt_content
+        elif update.message.reply_to_message and update.message.reply_to_message.text:
+            args_text = update.message.reply_to_message.text
 
     site = "https://pages.razorpay.com/iicdelhi"
     amount = "10"
@@ -9088,7 +9108,7 @@ async def gate_mrzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<b>Usage:</b>\n"
             "<code>/mrzp CC|MM|YY|CVV</code>\n"
             "<code>/mrzp CC|MM|YY|CVV https://pages.razorpay.com/xxx 50</code>\n\n"
-            "Or reply to a message with cards.\n"
+            "Or reply to a .txt file with cards.\n"
             "One card per line. Max 50 cards.\n\n"
             "Default site: pages.razorpay.com/iicdelhi\n"
             "Default amount: ₹10",
@@ -9315,20 +9335,21 @@ async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass check Braintree Auth with 5 batches and 1s delay"""
     user = update.effective_user
-    
-    if not context.args:
+
+    cards_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not cards_text:
         await update.message.reply_text(
             "📋 <b>MASS CHECK - Braintree Auth</b>\n\n"
             "Send cards in format:\n"
             "<code>CC|MM|YY|CVV</code>\n\n"
             "One card per line. Max 50 cards.\n"
-            "⏱️ 5 batches with 1s delay",
+            "⏱️ 5 batches with 1s delay\n"
+            "Or reply to a .txt file with this command.",
             parse_mode=ParseMode.HTML
         )
         context.user_data['awaiting_mass_b3'] = True
         return
-    
-    cards_text = ' '.join(context.args)
+
     await process_mass_b3(update, context, cards_text)
 
 async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, cards_text: str):
@@ -10273,18 +10294,19 @@ async def mass_str(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get(f'mass_check_running_{user_id}'):
         await update.message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress. Use /stop to cancel."), parse_mode=ParseMode.HTML)
         return
-    
-    if not context.args:
+
+    raw_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not raw_text:
         await update.message.reply_text(
             "📋 <b>MASS CHECK - Stripe $1 Donation</b>\n\n"
             "<b>Usage:</b>\n<code>/mstr CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\n"
-            "Or reply to a message with cards.\n"
+            "Or reply to a .txt file with cards.\n"
             "Max 50 cards per batch.",
             parse_mode=ParseMode.HTML
         )
         return
-    
-    cards_text = ' '.join(context.args)
+
+    cards_text = raw_text
     cards = [c.strip() for c in cards_text.replace('\n', ' ').split() if '|' in c]
     
     if not cards:
@@ -10498,12 +10520,13 @@ async def gate_mrz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get(f'mass_check_running_{user_id}'):
         await update.message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress."), parse_mode=ParseMode.HTML)
         return
-    
-    if not context.args:
-        await update.message.reply_text("📋 <b>MASS CHECK - Razorpay ₹1</b>\n\n<b>Usage:</b>\n<code>/mrz CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\nOr reply to a message with cards.", parse_mode=ParseMode.HTML)
+
+    raw_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not raw_text:
+        await update.message.reply_text("📋 <b>MASS CHECK - Razorpay ₹1</b>\n\n<b>Usage:</b>\n<code>/mrz CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\nOr reply to a .txt file with cards.", parse_mode=ParseMode.HTML)
         return
-    
-    cards_text = ' '.join(context.args)
+
+    cards_text = raw_text
     cards = [c.strip() for c in cards_text.replace('\n', ' ').split() if '|' in c]
     
     if not cards:
@@ -10634,12 +10657,13 @@ async def gate_mpayu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get(f'mass_check_running_{user_id}'):
         await update.message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress."), parse_mode=ParseMode.HTML)
         return
-    
-    if not context.args:
-        await update.message.reply_text("📋 <b>MASS CHECK - PayU ₹1</b>\n\n<b>Usage:</b>\n<code>/mpayu CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\nOr reply to a message with cards.", parse_mode=ParseMode.HTML)
+
+    raw_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not raw_text:
+        await update.message.reply_text("📋 <b>MASS CHECK - PayU ₹1</b>\n\n<b>Usage:</b>\n<code>/mpayu CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\nOr reply to a .txt file with cards.", parse_mode=ParseMode.HTML)
         return
-    
-    cards_text = ' '.join(context.args)
+
+    cards_text = raw_text
     cards = [c.strip() for c in cards_text.replace('\n', ' ').split() if '|' in c]
     
     if not cards:
@@ -10989,18 +11013,19 @@ async def mass_sh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mass check Shopify with 0.25s delay"""
     user = update.effective_user
 
-    if not context.args:
+    cards_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not cards_text:
         await update.message.reply_text(
             "📋 <b>MASS CHECK - Shopify</b> 🛒\n\n"
             "Send cards in format:\n"
             "<code>CC|MM|YY|CVV</code>\n\n"
-            "One card per line. Max 50 cards.",
+            "One card per line. Max 50 cards.\n"
+            "Or reply to a .txt file with this command.",
             parse_mode=ParseMode.HTML
         )
         context.user_data['awaiting_mass_sh'] = True
         return
 
-    cards_text = ' '.join(context.args)
     await process_mass_sh(update, context, cards_text)
 
 async def process_mass_sh(update: Update, context: ContextTypes.DEFAULT_TYPE, cards_text: str):
@@ -11235,17 +11260,22 @@ async def mass_check_shortcut(update: Update, context: ContextTypes.DEFAULT_TYPE
         cards_text = '\n'.join(lines[1:]) if len(lines) > 1 else ""
     
     if not cards_text.strip():
-        await update.message.reply_text(
-            f"❌ <b>No cards provided!</b>\n\n"
-            f"🎯 <b>Usage:</b>\n"
-            f"<code>/m{gate_name} 4242424242424242|12|25|123</code>\n\n"
-            f"<b>Or multiple cards (each on new line):</b>\n"
-            f"<code>/m{gate_name}</code>\n"
-            f"<code>4242424242424242|12|25|123</code>\n"
-            f"<code>5555555555554444|01|26|456</code>",
-            parse_mode=ParseMode.HTML
-        )
-        return
+        txt_content = await get_txt_content_from_reply(update, context)
+        if txt_content:
+            cards_text = txt_content
+        else:
+            await update.message.reply_text(
+                f"❌ <b>No cards provided!</b>\n\n"
+                f"🎯 <b>Usage:</b>\n"
+                f"<code>/m{gate_name} 4242424242424242|12|25|123</code>\n\n"
+                f"<b>Or reply to a .txt file of cards with this command.</b>\n\n"
+                f"<b>Or multiple cards (each on new line):</b>\n"
+                f"<code>/m{gate_name}</code>\n"
+                f"<code>4242424242424242|12|25|123</code>\n"
+                f"<code>5555555555554444|01|26|456</code>",
+                parse_mode=ParseMode.HTML
+            )
+            return
     
     # Route to specific mass check processor based on gate
     if gate_name == 'pp':
