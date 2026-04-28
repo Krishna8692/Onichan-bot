@@ -70,7 +70,7 @@ def generate_cards(bin_number, count=10, custom_month=None, custom_year=None, cu
                 if custom_month:
                     mm = str(custom_month).zfill(2)
                 if custom_year:
-                    yy = str(custom_year)[-2:]
+                    _yr = str(custom_year).strip(); yy = f"20{_yr[-2:]}" if len(_yr) <= 2 else _yr[-4:]
                 
                 cvv_length = 4 if is_amex(bin_number) else 3
                 if custom_cvv and custom_cvv.lower() != 'xxx' and custom_cvv.lower() != 'xxxx':
@@ -90,7 +90,7 @@ def generate_cards(bin_number, count=10, custom_month=None, custom_year=None, cu
                 cc = generate_card_number_local(bin_number)
                 if custom_month and custom_year:
                     mm = str(custom_month).zfill(2)
-                    yy = str(custom_year)[-2:]
+                    _yr = str(custom_year).strip(); yy = f"20{_yr[-2:]}" if len(_yr) <= 2 else _yr[-4:]
                 else:
                     mm, yy = generate_expiry_date()
                 
@@ -113,7 +113,7 @@ def generate_cards(bin_number, count=10, custom_month=None, custom_year=None, cu
             cc = generate_card_number_local(bin_number)
             if custom_month and custom_year:
                 mm = str(custom_month).zfill(2)
-                yy = str(custom_year)[-2:]
+                _yr = str(custom_year).strip(); yy = f"20{_yr[-2:]}" if len(_yr) <= 2 else _yr[-4:]
             else:
                 mm, yy = generate_expiry_date()
             
@@ -176,18 +176,19 @@ def generate_card_number_local(bin_number):
     return card_number
 
 def generate_expiry_date(custom_month=None, custom_year=None):
-    """Generate expiry date (MM|YY format)"""
+    """Generate expiry date — returns (MM, YYYY) with 4-digit year."""
     if custom_month and custom_year:
         mm = str(custom_month).zfill(2)
-        yy = str(custom_year)[-2:]
+        yr = str(custom_year).strip()
+        yy = f"20{yr[-2:]}" if len(yr) <= 2 else yr[-4:]
         return mm, yy
-    
+
     current_date = datetime.now()
-    future_date = current_date + timedelta(days=random.randint(365, 1825))
-    
+    future_date  = current_date + timedelta(days=random.randint(365, 1825))
+
     mm = str(future_date.month).zfill(2)
-    yy = str(future_date.year)[-2:]
-    
+    yy = str(future_date.year)
+
     return mm, yy
 
 def generate_cvv(custom_cvv=None, length=3):

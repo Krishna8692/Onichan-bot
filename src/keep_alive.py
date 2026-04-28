@@ -4,7 +4,7 @@ This creates a simple web server to keep the Replit alive
 Also handles CoinPayments webhooks and Admin Panel
 """
 
-from flask import Flask, request, jsonify, redirect, session, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, redirect, session, render_template_string, send_from_directory, make_response
 from threading import Thread
 from functools import wraps
 import os
@@ -9196,142 +9196,204 @@ def user_payu():
 @app.route('/user/cleaner', methods=['GET', 'POST'])
 @user_required
 def user_cleaner():
-    """User CC Cleaner page"""
-    result_html = ""
-    cleaned_cards = ""
-    
+    """User CC Cleaner - Extract, filter, and download cards from junk text or file"""
+    from modules.cc_cleaner import (
+        extract_cards_from_junk, remove_duplicates, filter_by_bin,
+        filter_by_country, filter_by_brand, sort_cards, get_statistics, cards_to_text
+    )
+    import html as _html
+
+    result_block  = ""
+    stats_block   = ""
+    input_text_v  = ""
+    total_cards   = 0
+    cleaned_text  = ""
+    error_msg     = ""
+
     if request.method == 'POST':
-        text = request.form.get('text', '').strip()
-        action = request.form.get('action', 'extract')
-        
-        if not text:
-            result_html = '<div class="alert alert-danger">Please enter text to process</div>'
-        else:
+        # ── Gather input ─────────────────────────────────────────────────────
+        input_text_v = request.form.get('text', '').strip()
+        bin_filter   = [x.strip() for x in request.form.get('bin_filter', '').split(',') if x.strip()]
+        ctry_filter  = [x.strip().upper() for x in request.form.get('country_filter', '').split(',') if x.strip()]
+        brand_filter = request.form.getlist('brand_filter')
+        rem_exp      = request.form.get('remove_expired', '1') == '1'
+
+        # File upload takes priority over textarea
+        uploaded = request.files.get('file_upload')
+        if uploaded and uploaded.filename:
             try:
-                from modules.cc_cleaner import extract_cards_from_junk, clean_and_format_cards, remove_duplicates, get_statistics
-                
-                if action == 'extract':
-                    cards = extract_cards_from_junk(text)
-                    if cards:
-                        cleaned_cards = '\\n'.join([f"{c['cc']}|{c['mm']}|{c['yy']}|{c['cvv']}" for c in cards])
-                        result_html = f'''
-                        <div class="result-box" style="background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(16,185,129,0.2)); border: 1px solid #22c55e; padding: 20px; border-radius: 10px; margin-top: 20px;">
-                            <h3 style="color: #22c55e; margin-bottom: 15px;">Extracted {len(cards)} Cards</h3>
-                            <textarea style="width: 100%; height: 200px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333; border-radius: 5px; padding: 10px; font-family: monospace;">{cleaned_cards}</textarea>
+                input_text_v = uploaded.read().decode('utf-8', errors='ignore')
+            except Exception as ue:
+                error_msg = f"File read error: {str(ue)[:80]}"
+
+        if not input_text_v and not error_msg:
+            error_msg = "Please paste text or upload a .txt file."
+
+        if input_text_v and not error_msg:
+            try:
+                raw    = extract_cards_from_junk(input_text_v, remove_expired=rem_exp)
+                cards  = remove_duplicates(raw)
+                dupes  = len(raw) - len(cards)
+
+                if bin_filter:
+                    cards = filter_by_bin(cards, bin_filter)
+                if ctry_filter:
+                    cards = filter_by_country(cards, ctry_filter)
+                if brand_filter:
+                    cards = filter_by_brand(cards, brand_filter)
+
+                cards      = sort_cards(cards, by='brand')
+                stats      = get_statistics(cards)
+                total_cards = len(cards)
+
+                if not cards:
+                    error_msg = "No valid cards found after applying filters."
+                else:
+                    cleaned_text = cards_to_text(cards, use_4digit_year=True)
+                    session['cleaner_cards_user'] = cleaned_text
+
+                    brand_rows = "".join(
+                        f'<span class="stat-pill">{b}: <b>{c}</b></span>'
+                        for b, c in sorted(stats['by_brand'].items(), key=lambda x: -x[1])
+                    )
+                    stats_block = f"""
+                    <div class="stats-bar">
+                      <span class="stat-pill hi">✅ {total_cards} cards</span>
+                      <span class="stat-pill">🗑 {dupes} dupes removed</span>
+                      <span class="stat-pill">🔢 {stats['unique_bins']} unique BINs</span>
+                      {brand_rows}
+                    </div>"""
+
+                    preview_html = _html.escape(cleaned_text)
+                    result_block = f"""
+                    <div class="result-card">
+                      <div class="result-header">
+                        <span>💳 Cleaned Cards — {total_cards} results</span>
+                        <div class="result-actions">
+                          <button onclick="copyCards()" class="btn-sm btn-copy">📋 Copy</button>
+                          <a href="/user/cleaner/download" class="btn-sm btn-dl">⬇ Download .txt</a>
                         </div>
-                        '''
-                    else:
-                        result_html = '<div class="alert alert-danger">No valid cards found in the text</div>'
-                
-                elif action == 'clean':
-                    cards = clean_and_format_cards(text)
-                    if cards:
-                        cleaned_cards = '\\n'.join(cards)
-                        result_html = f'''
-                        <div class="result-box" style="background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(16,185,129,0.2)); border: 1px solid #22c55e; padding: 20px; border-radius: 10px; margin-top: 20px;">
-                            <h3 style="color: #22c55e; margin-bottom: 15px;">Cleaned {len(cards)} Cards</h3>
-                            <textarea style="width: 100%; height: 200px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333; border-radius: 5px; padding: 10px; font-family: monospace;">{cleaned_cards}</textarea>
-                        </div>
-                        '''
-                    else:
-                        result_html = '<div class="alert alert-danger">No valid cards to clean</div>'
-                
-                elif action == 'dedupe':
-                    cards = remove_duplicates(text)
-                    if cards:
-                        cleaned_cards = '\\n'.join(cards)
-                        result_html = f'''
-                        <div class="result-box" style="background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(16,185,129,0.2)); border: 1px solid #22c55e; padding: 20px; border-radius: 10px; margin-top: 20px;">
-                            <h3 style="color: #22c55e; margin-bottom: 15px;">{len(cards)} Unique Cards</h3>
-                            <textarea style="width: 100%; height: 200px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #333; border-radius: 5px; padding: 10px; font-family: monospace;">{cleaned_cards}</textarea>
-                        </div>
-                        '''
-                    else:
-                        result_html = '<div class="alert alert-danger">No cards found to deduplicate</div>'
-                
-                elif action == 'stats':
-                    stats = get_statistics(text)
-                    result_html = f'''
-                    <div class="result-box" style="background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2)); border: 1px solid #6366f1; padding: 20px; border-radius: 10px; margin-top: 20px;">
-                        <h3 style="color: #a78bfa; margin-bottom: 15px;">Card Statistics</h3>
-                        <p><strong>Total Cards:</strong> {stats.get('total', 0)}</p>
-                        <p><strong>Unique Cards:</strong> {stats.get('unique', 0)}</p>
-                        <p><strong>Duplicates:</strong> {stats.get('duplicates', 0)}</p>
-                        <p><strong>Visa:</strong> {stats.get('visa', 0)}</p>
-                        <p><strong>Mastercard:</strong> {stats.get('mastercard', 0)}</p>
-                        <p><strong>AMEX:</strong> {stats.get('amex', 0)}</p>
-                        <p><strong>Discover:</strong> {stats.get('discover', 0)}</p>
-                        <p><strong>Other:</strong> {stats.get('other', 0)}</p>
-                    </div>
-                    '''
-            except Exception as e:
-                result_html = f'<div class="alert alert-danger">Error: {str(e)[:100]}</div>'
-    
-    return render_template_string(f"""
-    <html>
-    <head><title>CC Cleaner - Onichan</title>{USER_CSS}</head>
-    <body>
-        {get_user_sidebar('cleaner', 'CC Cleaner')}
-        <div class="main">
-            <div class="header">
-                <h1>CC Cleaner & Extractor</h1>
-            </div>
-            
-            <div class="card">
-                <h2>Extract Cards</h2>
-                <p style="opacity: 0.7; margin-bottom: 20px;">Extract card numbers from junk text</p>
-                <form method="POST">
-                    <input type="hidden" name="action" value="extract">
-                    <div class="form-group">
-                        <label>Paste Text With Cards</label>
-                        <textarea name="text" rows="6" placeholder="Paste any text containing card numbers..." required style="width: 100%; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid #333; border-radius: 8px; padding: 12px;"></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Extract Cards</button>
-                </form>
-            </div>
-            
-            <div class="card">
-                <h2>Clean & Format</h2>
-                <p style="opacity: 0.7; margin-bottom: 20px;">Clean and format cards to CC|MM|YY|CVV</p>
-                <form method="POST">
-                    <input type="hidden" name="action" value="clean">
-                    <div class="form-group">
-                        <label>Cards (any format)</label>
-                        <textarea name="text" rows="6" placeholder="4111111111111111 12/25 123&#10;5500000000000004|01|26|999" required style="width: 100%; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid #333; border-radius: 8px; padding: 12px;"></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Clean Cards</button>
-                </form>
-            </div>
-            
-            <div class="card">
-                <h2>Remove Duplicates</h2>
-                <form method="POST">
-                    <input type="hidden" name="action" value="dedupe">
-                    <div class="form-group">
-                        <label>Cards List</label>
-                        <textarea name="text" rows="6" placeholder="Paste cards to remove duplicates..." required style="width: 100%; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid #333; border-radius: 8px; padding: 12px;"></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Remove Duplicates</button>
-                </form>
-            </div>
-            
-            <div class="card">
-                <h2>Get Statistics</h2>
-                <form method="POST">
-                    <input type="hidden" name="action" value="stats">
-                    <div class="form-group">
-                        <label>Cards List</label>
-                        <textarea name="text" rows="6" placeholder="Paste cards to analyze..." required style="width: 100%; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid #333; border-radius: 8px; padding: 12px;"></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Get Stats</button>
-                </form>
-            </div>
-            
-            {result_html}
+                      </div>
+                      <textarea id="cards-out" readonly>{preview_html}</textarea>
+                    </div>"""
+            except Exception as ex:
+                error_msg = f"Processing error: {str(ex)[:120]}"
+
+    error_html = f'<div class="err-box">⚠️ {_html.escape(error_msg)}</div>' if error_msg else ""
+
+    # ── Render ────────────────────────────────────────────────────────────────
+    CLEANER_CSS = """
+    <style>
+    .cleaner-wrap{max-width:900px;margin:0 auto;padding:20px}
+    .page-title{font-size:1.6rem;font-weight:700;background:linear-gradient(90deg,#c084fc,#f472b6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px}
+    .page-sub{color:#9ca3af;font-size:.9rem;margin-bottom:24px}
+    .ccard{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:22px;margin-bottom:18px}
+    .ccard h3{font-size:1rem;font-weight:600;color:#e2e8f0;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+    label.fl{display:block;font-size:.8rem;color:#9ca3af;margin-bottom:5px;margin-top:12px}
+    textarea.cc-in,input.cc-in{width:100%;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#f1f5f9;padding:10px 12px;font-family:monospace;font-size:.83rem;box-sizing:border-box;resize:vertical}
+    textarea.cc-in{min-height:160px}
+    input.cc-in{height:38px;resize:none}
+    .file-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+    .file-label{cursor:pointer;padding:7px 16px;background:rgba(192,132,252,.15);border:1px solid rgba(192,132,252,.4);border-radius:8px;color:#c084fc;font-size:.82rem;transition:.2s}
+    .file-label:hover{background:rgba(192,132,252,.28)}
+    #file-name{font-size:.78rem;color:#9ca3af}
+    .filter-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .brand-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .brand-checks label{display:flex;align-items:center;gap:5px;font-size:.8rem;color:#cbd5e1;cursor:pointer;padding:4px 10px;background:rgba(255,255,255,.05);border-radius:6px;border:1px solid rgba(255,255,255,.1)}
+    .brand-checks input[type=checkbox]{accent-color:#c084fc}
+    .toggle-row{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:.83rem;color:#cbd5e1}
+    .toggle-row input{accent-color:#c084fc}
+    .submit-btn{width:100%;margin-top:18px;padding:11px;background:linear-gradient(135deg,#7c3aed,#db2777);border:none;border-radius:10px;color:#fff;font-size:1rem;font-weight:600;cursor:pointer;letter-spacing:.5px;transition:.2s}
+    .submit-btn:hover{opacity:.88}
+    .stats-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+    .stat-pill{padding:4px 12px;border-radius:20px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);font-size:.8rem;color:#e2e8f0}
+    .stat-pill.hi{background:rgba(192,132,252,.2);border-color:#c084fc;color:#f5d0fe}
+    .result-card{background:rgba(0,0,0,.25);border:1px solid rgba(192,132,252,.25);border-radius:12px;overflow:hidden}
+    .result-header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:rgba(192,132,252,.1);font-size:.85rem;color:#e2e8f0;flex-wrap:wrap;gap:8px}
+    .result-actions{display:flex;gap:8px}
+    .btn-sm{padding:5px 14px;border-radius:7px;font-size:.78rem;font-weight:600;text-decoration:none;border:none;cursor:pointer;transition:.15s}
+    .btn-copy{background:rgba(99,102,241,.3);color:#a5b4fc;border:1px solid rgba(99,102,241,.4)}
+    .btn-copy:hover{background:rgba(99,102,241,.5)}
+    .btn-dl{background:rgba(236,72,153,.25);color:#f9a8d4;border:1px solid rgba(236,72,153,.4)}
+    .btn-dl:hover{background:rgba(236,72,153,.45)}
+    #cards-out{width:100%;min-height:220px;background:rgba(0,0,0,.3);border:none;color:#86efac;font-family:monospace;font-size:.82rem;padding:14px;box-sizing:border-box;resize:vertical}
+    .err-box{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);border-radius:8px;padding:12px 16px;color:#fca5a5;margin-bottom:16px;font-size:.85rem}
+    </style>"""
+
+    return render_template_string(f"""<html>
+<head><title>CC Cleaner – Onichan</title>{USER_CSS}{CLEANER_CSS}</head>
+<body>
+{get_user_sidebar('cleaner','CC Cleaner')}
+<div class="main"><div class="cleaner-wrap">
+  <div class="page-title">🧹 CC Cleaner & Extractor ✨</div>
+  <div class="page-sub">Extract, clean, filter and download cards from any junk text or file</div>
+
+  {error_html}
+  {stats_block}
+  {result_block}
+
+  <form method="POST" enctype="multipart/form-data">
+    <div class="ccard">
+      <h3>📥 Input</h3>
+      <div class="file-row">
+        <label class="file-label" for="file_upload">📁 Upload .txt file</label>
+        <input type="file" id="file_upload" name="file_upload" accept=".txt" style="display:none" onchange="document.getElementById('file-name').textContent=this.files[0]?this.files[0].name:''">
+        <span id="file-name"></span>
+      </div>
+      <label class="fl">Or paste text directly:</label>
+      <textarea class="cc-in" name="text" placeholder="Paste any text containing card numbers, logs, junk…">{_html.escape(input_text_v[:8000]) if input_text_v else ''}</textarea>
+    </div>
+
+    <div class="ccard">
+      <h3>🔍 Filters <span style="font-size:.75rem;color:#9ca3af;font-weight:400">(all optional)</span></h3>
+      <div class="filter-row">
+        <div>
+          <label class="fl">BIN Prefixes (comma-separated)</label>
+          <input class="cc-in" type="text" name="bin_filter" placeholder="e.g. 414740, 52, 374155">
         </div>
-    </body>
-    </html>
-    """)
+        <div>
+          <label class="fl">Countries (ISO codes, comma-separated)</label>
+          <input class="cc-in" type="text" name="country_filter" placeholder="e.g. US, GB, IN">
+        </div>
+      </div>
+      <label class="fl">Card Network</label>
+      <div class="brand-checks">
+        {''.join(f'<label><input type="checkbox" name="brand_filter" value="{b}"> {b}</label>' for b in ['VISA','MASTERCARD','AMEX','DISCOVER','JCB','DINERS','UNIONPAY'])}
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" name="remove_expired" value="1" id="rem_exp" checked>
+        <label for="rem_exp">Remove expired cards automatically</label>
+      </div>
+    </div>
+
+    <button type="submit" class="submit-btn">🔍 Extract & Clean</button>
+  </form>
+</div></div>
+<script>
+function copyCards(){{
+  var t=document.getElementById('cards-out');
+  if(!t)return;
+  t.select();
+  document.execCommand('copy');
+  var b=document.querySelector('.btn-copy');
+  if(b){{b.textContent='✅ Copied!';setTimeout(()=>b.textContent='📋 Copy',1500);}}
+}}
+</script>
+</body></html>""")
+
+
+@app.route('/user/cleaner/download')
+@user_required
+def user_cleaner_download():
+    """Return cleaned cards as a downloadable .txt file (stored in session)."""
+    cards_text = session.get('cleaner_cards_user', '')
+    if not cards_text:
+        return redirect('/user/cleaner')
+    count = len([l for l in cards_text.splitlines() if l.strip()])
+    resp = make_response(cards_text)
+    resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    resp.headers['Content-Disposition'] = f'attachment; filename="Onichan_Clean_{count}.txt"'
+    return resp
 
 
 @app.route('/api/binlookup', methods=['POST'])
@@ -10101,92 +10163,207 @@ def tools_autohitter():
 @app.route('/tools/cleaner', methods=['GET', 'POST'])
 @admin_required
 def tools_cleaner():
-    result = None
-    input_text = ""
-    action = ""
-    
+    """Admin CC Cleaner - Extract, filter, and download cards from junk text or file"""
+    from modules.cc_cleaner import (
+        extract_cards_from_junk, remove_duplicates, filter_by_bin,
+        filter_by_country, filter_by_brand, sort_cards, get_statistics, cards_to_text
+    )
+    import html as _html
+
+    result_block  = ""
+    stats_block   = ""
+    input_text_v  = ""
+    error_msg     = ""
+
     if request.method == 'POST':
-        input_text = request.form.get('input', '').strip()
-        action = request.form.get('action', 'extract')
-        
-        if input_text:
-            from modules.cc_cleaner import extract_cards_from_junk, clean_and_format_cards, remove_duplicates, get_statistics
-            
-            if action == 'extract':
-                result = extract_cards_from_junk(input_text)
-            elif action == 'clean':
-                result = clean_and_format_cards(input_text)
-            elif action == 'dedupe':
-                result = remove_duplicates(input_text)
-            elif action == 'stats':
-                result = get_statistics(input_text)
-    
-    result_html = ""
-    if result:
-        if isinstance(result, list):
-            cards_text = "\n".join(result)
-            result_html = f"""
-            <div class="card">
-                <h2>Results ({len(result)} cards)</h2>
-                <textarea id="result-cards" readonly rows="12" style="width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 15px; color: #4ade80; font-family: monospace; resize: none;">{cards_text}</textarea>
-                <button onclick="copyResult()" class="btn btn-success" style="width: 100%; margin-top: 15px;">Copy All</button>
-            </div>
-            """
-        elif isinstance(result, dict):
-            stats_html = "<br>".join([f"<strong>{k}:</strong> {v}" for k, v in result.items()])
-            result_html = f"""
-            <div class="card">
-                <h2>Statistics</h2>
-                <div style="line-height: 2;">{stats_html}</div>
-            </div>
-            """
-    
-    return render_template_string(f"""
-    <html>
-    <head>
-        <title>CC Cleaner - Onichan Tools</title>
-        {ADMIN_CSS}
-    </head>
-    <body>
-        <button class="menu-toggle" onclick="toggleSidebar()"><span></span><span></span><span></span></button>
-        <div class="sidebar-overlay" onclick="closeSidebar()"></div>
-        {get_tools_sidebar("cleaner")}
-        <div class="main">
-            <div class="header">
-                <h1>CC Cleaner & Extractor</h1>
-            </div>
-            
-            <div class="card">
-                <h2>Input Data</h2>
-                <form method="POST">
-                    <div class="form-group">
-                        <label>Paste raw text, logs, or card data:</label>
-                        <textarea name="input" rows="10" style="width: 100%; background: rgba(255,255,255,0.1); border: none; border-radius: 10px; padding: 15px; color: #fff; font-family: monospace;" placeholder="Paste anything containing cards...">{input_text}</textarea>
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
-                        <button type="submit" name="action" value="extract" class="btn btn-primary">Extract Cards</button>
-                        <button type="submit" name="action" value="clean" class="btn btn-success">Clean & Format</button>
-                        <button type="submit" name="action" value="dedupe" class="btn btn-danger">Remove Duplicates</button>
-                        <button type="submit" name="action" value="stats" class="btn" style="background: #667eea; color: #fff;">Get Statistics</button>
-                    </div>
-                </form>
-            </div>
-            
-            {result_html}
+        input_text_v = request.form.get('text', '').strip()
+        bin_filter   = [x.strip() for x in request.form.get('bin_filter', '').split(',') if x.strip()]
+        ctry_filter  = [x.strip().upper() for x in request.form.get('country_filter', '').split(',') if x.strip()]
+        brand_filter = request.form.getlist('brand_filter')
+        rem_exp      = request.form.get('remove_expired', '1') == '1'
+
+        uploaded = request.files.get('file_upload')
+        if uploaded and uploaded.filename:
+            try:
+                input_text_v = uploaded.read().decode('utf-8', errors='ignore')
+            except Exception as ue:
+                error_msg = f"File read error: {str(ue)[:80]}"
+
+        if not input_text_v and not error_msg:
+            error_msg = "Please paste text or upload a .txt file."
+
+        if input_text_v and not error_msg:
+            try:
+                raw    = extract_cards_from_junk(input_text_v, remove_expired=rem_exp)
+                cards  = remove_duplicates(raw)
+                dupes  = len(raw) - len(cards)
+
+                if bin_filter:
+                    cards = filter_by_bin(cards, bin_filter)
+                if ctry_filter:
+                    cards = filter_by_country(cards, ctry_filter)
+                if brand_filter:
+                    cards = filter_by_brand(cards, brand_filter)
+
+                cards  = sort_cards(cards, by='brand')
+                stats  = get_statistics(cards)
+                total  = len(cards)
+
+                if not cards:
+                    error_msg = "No valid cards found after applying filters."
+                else:
+                    cleaned_text = cards_to_text(cards, use_4digit_year=True)
+                    session['cleaner_cards_admin'] = cleaned_text
+
+                    brand_rows = "".join(
+                        f'<span class="stat-pill">{b}: <b>{c}</b></span>'
+                        for b, c in sorted(stats['by_brand'].items(), key=lambda x: -x[1])
+                    )
+                    stats_block = f"""
+                    <div class="stats-bar">
+                      <span class="stat-pill hi">✅ {total} cards</span>
+                      <span class="stat-pill">🗑 {dupes} dupes removed</span>
+                      <span class="stat-pill">🔢 {stats['unique_bins']} unique BINs</span>
+                      {brand_rows}
+                    </div>"""
+
+                    preview_html = _html.escape(cleaned_text)
+                    result_block = f"""
+                    <div class="result-card">
+                      <div class="result-header">
+                        <span>💳 Cleaned Cards — {total} results</span>
+                        <div class="result-actions">
+                          <button onclick="copyCards()" class="btn-sm btn-copy">📋 Copy</button>
+                          <a href="/tools/cleaner/download" class="btn-sm btn-dl">⬇ Download .txt</a>
+                        </div>
+                      </div>
+                      <textarea id="cards-out" readonly>{preview_html}</textarea>
+                    </div>"""
+            except Exception as ex:
+                error_msg = f"Processing error: {str(ex)[:120]}"
+
+    error_html = f'<div class="err-box">⚠️ {_html.escape(error_msg)}</div>' if error_msg else ""
+
+    CLEANER_CSS = """
+    <style>
+    .cleaner-wrap{max-width:940px;margin:0 auto;padding:24px}
+    .page-title{font-size:1.6rem;font-weight:700;background:linear-gradient(90deg,#c084fc,#f472b6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px}
+    .page-sub{color:#9ca3af;font-size:.9rem;margin-bottom:24px}
+    .ccard{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:22px;margin-bottom:18px}
+    .ccard h3{font-size:1rem;font-weight:600;color:#e2e8f0;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+    label.fl{display:block;font-size:.8rem;color:#9ca3af;margin-bottom:5px;margin-top:12px}
+    textarea.cc-in,input.cc-in{width:100%;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#f1f5f9;padding:10px 12px;font-family:monospace;font-size:.83rem;box-sizing:border-box;resize:vertical}
+    textarea.cc-in{min-height:160px}
+    input.cc-in{height:38px;resize:none}
+    .file-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+    .file-label{cursor:pointer;padding:7px 16px;background:rgba(192,132,252,.15);border:1px solid rgba(192,132,252,.4);border-radius:8px;color:#c084fc;font-size:.82rem;transition:.2s}
+    .file-label:hover{background:rgba(192,132,252,.28)}
+    #file-name{font-size:.78rem;color:#9ca3af}
+    .filter-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .brand-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .brand-checks label{display:flex;align-items:center;gap:5px;font-size:.8rem;color:#cbd5e1;cursor:pointer;padding:4px 10px;background:rgba(255,255,255,.05);border-radius:6px;border:1px solid rgba(255,255,255,.1)}
+    .brand-checks input[type=checkbox]{accent-color:#c084fc}
+    .toggle-row{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:.83rem;color:#cbd5e1}
+    .toggle-row input{accent-color:#c084fc}
+    .submit-btn{width:100%;margin-top:18px;padding:11px;background:linear-gradient(135deg,#7c3aed,#db2777);border:none;border-radius:10px;color:#fff;font-size:1rem;font-weight:600;cursor:pointer;letter-spacing:.5px;transition:.2s}
+    .submit-btn:hover{opacity:.88}
+    .stats-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+    .stat-pill{padding:4px 12px;border-radius:20px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);font-size:.8rem;color:#e2e8f0}
+    .stat-pill.hi{background:rgba(192,132,252,.2);border-color:#c084fc;color:#f5d0fe}
+    .result-card{background:rgba(0,0,0,.25);border:1px solid rgba(192,132,252,.25);border-radius:12px;overflow:hidden;margin-bottom:20px}
+    .result-header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:rgba(192,132,252,.1);font-size:.85rem;color:#e2e8f0;flex-wrap:wrap;gap:8px}
+    .result-actions{display:flex;gap:8px}
+    .btn-sm{padding:5px 14px;border-radius:7px;font-size:.78rem;font-weight:600;text-decoration:none;border:none;cursor:pointer;transition:.15s}
+    .btn-copy{background:rgba(99,102,241,.3);color:#a5b4fc;border:1px solid rgba(99,102,241,.4)}
+    .btn-copy:hover{background:rgba(99,102,241,.5)}
+    .btn-dl{background:rgba(236,72,153,.25);color:#f9a8d4;border:1px solid rgba(236,72,153,.4)}
+    .btn-dl:hover{background:rgba(236,72,153,.45)}
+    #cards-out{width:100%;min-height:240px;background:rgba(0,0,0,.3);border:none;color:#86efac;font-family:monospace;font-size:.82rem;padding:14px;box-sizing:border-box;resize:vertical}
+    .err-box{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);border-radius:8px;padding:12px 16px;color:#fca5a5;margin-bottom:16px;font-size:.85rem}
+    </style>"""
+
+    return render_template_string(f"""<html>
+<head>
+  <title>CC Cleaner – Onichan Tools</title>
+  {ADMIN_CSS}{CLEANER_CSS}
+</head>
+<body>
+<button class="menu-toggle" onclick="toggleSidebar()"><span></span><span></span><span></span></button>
+<div class="sidebar-overlay" onclick="closeSidebar()"></div>
+{get_tools_sidebar("cleaner")}
+<div class="main"><div class="cleaner-wrap">
+  <div class="page-title">🧹 CC Cleaner & Extractor ✨</div>
+  <div class="page-sub">Extract, clean, filter and download cards from any junk text or file</div>
+
+  {error_html}
+  {stats_block}
+  {result_block}
+
+  <form method="POST" enctype="multipart/form-data">
+    <div class="ccard">
+      <h3>📥 Input</h3>
+      <div class="file-row">
+        <label class="file-label" for="file_upload">📁 Upload .txt file</label>
+        <input type="file" id="file_upload" name="file_upload" accept=".txt" style="display:none" onchange="document.getElementById('file-name').textContent=this.files[0]?this.files[0].name:''">
+        <span id="file-name"></span>
+      </div>
+      <label class="fl">Or paste text directly:</label>
+      <textarea class="cc-in" name="text" placeholder="Paste any text containing card numbers, logs, junk…">{_html.escape(input_text_v[:8000]) if input_text_v else ''}</textarea>
+    </div>
+
+    <div class="ccard">
+      <h3>🔍 Filters <span style="font-size:.75rem;color:#9ca3af;font-weight:400">(all optional)</span></h3>
+      <div class="filter-row">
+        <div>
+          <label class="fl">BIN Prefixes (comma-separated)</label>
+          <input class="cc-in" type="text" name="bin_filter" placeholder="e.g. 414740, 52, 374155">
         </div>
-        <script>
-            function toggleSidebar() {{ document.querySelector('.sidebar').classList.toggle('open'); document.querySelector('.sidebar-overlay').classList.toggle('open'); }}
-            function closeSidebar() {{ document.querySelector('.sidebar').classList.remove('open'); document.querySelector('.sidebar-overlay').classList.remove('open'); }}
-            function copyResult() {{
-                var textarea = document.getElementById('result-cards');
-                textarea.select();
-                document.execCommand('copy');
-                alert('Copied to clipboard!');
-            }}
-        </script>
-    </body>
-    </html>
-    """)
+        <div>
+          <label class="fl">Countries (ISO codes, comma-separated)</label>
+          <input class="cc-in" type="text" name="country_filter" placeholder="e.g. US, GB, IN">
+        </div>
+      </div>
+      <label class="fl">Card Network</label>
+      <div class="brand-checks">
+        {''.join(f'<label><input type="checkbox" name="brand_filter" value="{b}"> {b}</label>' for b in ['VISA','MASTERCARD','AMEX','DISCOVER','JCB','DINERS','UNIONPAY'])}
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" name="remove_expired" value="1" id="rem_exp" checked>
+        <label for="rem_exp">Remove expired cards automatically</label>
+      </div>
+    </div>
+
+    <button type="submit" class="submit-btn">🔍 Extract & Clean</button>
+  </form>
+</div></div>
+<script>
+  function toggleSidebar(){{document.querySelector('.sidebar').classList.toggle('open');document.querySelector('.sidebar-overlay').classList.toggle('open');}}
+  function closeSidebar(){{document.querySelector('.sidebar').classList.remove('open');document.querySelector('.sidebar-overlay').classList.remove('open');}}
+  function copyCards(){{
+    var t=document.getElementById('cards-out');
+    if(!t)return;
+    t.select();
+    document.execCommand('copy');
+    var b=document.querySelector('.btn-copy');
+    if(b){{b.textContent='✅ Copied!';setTimeout(()=>b.textContent='📋 Copy',1500);}}
+  }}
+</script>
+</body></html>""")
+
+
+@app.route('/tools/cleaner/download')
+@admin_required
+def tools_cleaner_download():
+    """Return cleaned cards as a downloadable .txt file (stored in session)."""
+    cards_text = session.get('cleaner_cards_admin', '')
+    if not cards_text:
+        return redirect('/tools/cleaner')
+    count = len([l for l in cards_text.splitlines() if l.strip()])
+    resp = make_response(cards_text)
+    resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    resp.headers['Content-Disposition'] = f'attachment; filename="Onichan_Clean_{count}.txt"'
+    return resp
+
 
 # API endpoints for AJAX
 @app.route('/api/check', methods=['POST'])
