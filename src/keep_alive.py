@@ -3721,8 +3721,11 @@ def user_admin_stats():
         'gates':           {g: bool(get_all_gate_status().get(g, False)) for g in _KNOWN_GATES},
     })
 
-def get_user_sidebar(active_page, page_title="Onichan", is_admin=False):
-    """Generate anime-themed sidebar HTML with mobile support"""
+def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
+    """Generate anime-themed sidebar HTML with mobile support.
+    is_admin=None means auto-detect from the current user-panel session."""
+    if is_admin is None:
+        is_admin = _user_is_owner()
     
     def link(key, name, url):
         active = 'class="active"' if key == active_page else ''
