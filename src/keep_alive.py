@@ -3768,7 +3768,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
         <a href="/user/casino" {_tab_cls(_casino_keys)} aria-label="Casino">
             <span class="ico">🎰</span><span>Casino</span>
         </a>
-        <a href="/wallet" {_tab_cls(_wallet_keys)} aria-label="Wallet">
+        <a href="/user/wallet" {_tab_cls(_wallet_keys)} aria-label="Wallet">
             <span class="ico">💰</span><span>Wallet</span>
         </a>
     </nav>
@@ -13343,26 +13343,352 @@ for _candidate in _WALLET_DIST_CANDIDATES:
         break
 
 @app.route('/wallet')
-def serve_wallet_root():
-    if not _WALLET_DIST:
-        return """<html><head><title>Wallet</title><style>
-        body{background:#1a0a2e;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-        .box{text-align:center;padding:40px;background:rgba(255,255,255,0.05);border-radius:16px;border:1px solid rgba(255,20,147,0.3)}
-        h2{color:#ff1493}a{color:#ff69b4}
-        </style></head><body><div class="box"><h2>Crypto Wallet</h2>
-        <p>Wallet frontend is not built yet.</p>
-        <p>Use the bot commands to manage your wallet.</p>
-        <a href="/user">← Back to Dashboard</a></div></body></html>"""
-    return send_from_directory(_WALLET_DIST, 'index.html')
-
 @app.route('/wallet/', defaults={'subpath': ''})
 @app.route('/wallet/<path:subpath>')
-def serve_wallet(subpath):
-    if not _WALLET_DIST:
-        return redirect('/wallet')
-    if subpath and _os.path.isfile(_os.path.join(_WALLET_DIST, subpath)):
-        return send_from_directory(_WALLET_DIST, subpath)
-    return send_from_directory(_WALLET_DIST, 'index.html')
+def serve_wallet_root(subpath=None):
+    return redirect('/user/wallet')
+
+
+@app.route('/api/wallet/register-session', methods=['POST'])
+@user_required
+def api_wallet_register_session():
+    """Register/update a wallet address using user-panel session auth."""
+    telegram_id = session.get('user_id')
+    if not telegram_id:
+        return jsonify({"error": "Not logged in"}), 401
+    data = request.get_json(silent=True) or {}
+    chain = (data.get("chain") or "").lower()
+    address = (data.get("address") or "").strip()
+    if chain not in _SUPPORTED_CHAINS:
+        return jsonify({"error": f"Unsupported chain: {chain}"}), 400
+    if not address:
+        return jsonify({"error": "address is required"}), 400
+    try:
+        from modules.database import _execute_with_retry, is_db_connected
+        if not is_db_connected():
+            return jsonify({"error": "Database unavailable"}), 503
+        _execute_with_retry(
+            """INSERT INTO wallet_addresses (telegram_id, chain, address)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (telegram_id, chain) DO UPDATE
+                   SET address = EXCLUDED.address, registered_at = NOW()""",
+            (int(telegram_id), chain, address)
+        )
+        return jsonify({"ok": True, "chain": chain, "address": address})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/wallet/remove-session', methods=['POST'])
+@user_required
+def api_wallet_remove_session():
+    """Remove a wallet address using user-panel session auth."""
+    telegram_id = session.get('user_id')
+    data = request.get_json(silent=True) or {}
+    chain = (data.get("chain") or "").lower()
+    if chain not in _SUPPORTED_CHAINS:
+        return jsonify({"error": "Unsupported chain"}), 400
+    try:
+        from modules.database import _execute_with_retry, is_db_connected
+        if not is_db_connected():
+            return jsonify({"error": "Database unavailable"}), 503
+        _execute_with_retry(
+            "DELETE FROM wallet_addresses WHERE telegram_id=%s AND chain=%s",
+            (int(telegram_id), chain)
+        )
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/wallet/my-wallets', methods=['GET'])
+@user_required
+def api_my_wallets():
+    """Get all registered wallet addresses for the logged-in user."""
+    telegram_id = session.get('user_id')
+    try:
+        from modules.database import _execute_with_retry, is_db_connected
+        if not is_db_connected():
+            return jsonify({"wallets": []}), 200
+        rows = _execute_with_retry(
+            "SELECT chain, address FROM wallet_addresses WHERE telegram_id=%s ORDER BY chain",
+            (int(telegram_id),), fetch_all=True
+        )
+        wallets = [{"chain": r["chain"], "address": r["address"]} for r in (rows or [])]
+        return jsonify({"wallets": wallets})
+    except Exception as e:
+        return jsonify({"wallets": [], "error": str(e)}), 200
+
+
+@app.route('/user/wallet')
+@user_required
+def user_wallet_page():
+    return render_template_string(f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Wallet - Onichan</title>
+{USER_CSS}
+<style>
+@keyframes spin{{0%{{transform:rotate(0deg)}}100%{{transform:rotate(360deg)}}}}
+.spin{{animation:spin .8s linear infinite;display:inline-block}}
+.wlt-chain-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px;margin-bottom:20px}}
+.wlt-chain-btn{{background:rgba(255,255,255,0.04);border:1px solid rgba(255,105,180,0.15);border-radius:12px;
+  padding:12px 10px;cursor:pointer;text-align:center;transition:all .2s;color:#fff;font-size:.85em;font-weight:600}}
+.wlt-chain-btn:hover,.wlt-chain-btn.active{{background:rgba(255,20,147,0.15);border-color:#ff1493}}
+.wlt-chain-btn .chain-icon{{font-size:1.6em;margin-bottom:4px}}
+.wlt-chain-btn .chain-connected{{font-size:.65em;color:#4ade80;margin-top:3px}}
+.wlt-address-input{{font-family:monospace;font-size:.8em}}
+.wlt-bal-row{{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)}}
+.wlt-bal-row:last-child{{border-bottom:none}}
+.wlt-bal-sym{{font-weight:700;font-size:.95em;min-width:55px}}
+.wlt-bal-amt{{flex:1;font-size:.9em;color:rgba(255,255,255,.85)}}
+.wlt-bal-usd{{font-size:.82em;color:rgba(255,255,255,.45)}}
+.wlt-price-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}}
+.wlt-price-card{{background:rgba(255,255,255,0.04);border:1px solid rgba(255,105,180,0.1);
+  border-radius:10px;padding:12px;text-align:center}}
+.wlt-price-sym{{font-weight:700;font-size:.9em;margin-bottom:4px}}
+.wlt-price-val{{font-size:1.1em;font-weight:800;color:#ff69b4}}
+.wlt-empty{{text-align:center;padding:30px 0;color:rgba(255,255,255,.35);font-size:.9em}}
+.wlt-addr-short{{font-family:monospace;font-size:.75em;color:rgba(255,255,255,.5);margin-top:2px;word-break:break-all}}
+.remove-btn{{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#f87171;
+  border-radius:8px;padding:4px 10px;font-size:.75em;cursor:pointer;margin-left:auto}}
+.remove-btn:hover{{background:rgba(239,68,68,.3)}}
+</style>
+</head>
+<body>
+{get_user_sidebar('wallet','Wallet')}
+<div class="main">
+  <div class="header">
+    <div>
+      <h1>Crypto Wallet</h1>
+      <p style="opacity:.55;margin-top:4px;font-size:.9em;">Manage your wallet addresses &amp; check balances</p>
+    </div>
+  </div>
+
+  <!-- Price ticker -->
+  <div class="card" style="margin-bottom:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h2 style="margin:0">Live Prices</h2>
+      <span id="price-refresh" style="font-size:.78em;color:rgba(255,255,255,.35)">Loading…</span>
+    </div>
+    <div class="wlt-price-grid" id="price-grid">
+      <div class="wlt-empty">Fetching prices…</div>
+    </div>
+  </div>
+
+  <!-- My Wallets -->
+  <div class="card" style="margin-bottom:18px">
+    <h2 style="margin-bottom:14px">My Wallets</h2>
+    <div id="wallets-list"><div class="wlt-empty">Loading…</div></div>
+    <button class="btn btn-primary" onclick="openAddModal()" style="width:100%;margin-top:16px">+ Add / Update Wallet</button>
+  </div>
+
+  <!-- Balance checker -->
+  <div class="card" id="balance-section" style="display:none">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span id="bal-chain-icon" style="font-size:1.5em"></span>
+      <h2 style="margin:0" id="bal-chain-title">Balance</h2>
+    </div>
+    <div id="bal-address" style="font-family:monospace;font-size:.78em;color:rgba(255,255,255,.4);margin-bottom:14px;word-break:break-all"></div>
+    <div id="bal-list"><div class="wlt-empty"><span class="spin">⏳</span> Fetching balance…</div></div>
+  </div>
+</div>
+
+<!-- Add wallet modal -->
+<div id="add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#1a0a2e;border:1px solid rgba(255,20,147,.3);border-radius:16px;padding:24px;width:100%;max-width:420px">
+    <h2 style="margin:0 0 18px">Add / Update Wallet</h2>
+    <div class="form-group">
+      <label>Chain</label>
+      <select id="add-chain">
+        <option value="ethereum">Ethereum (ETH)</option>
+        <option value="bsc">BNB Smart Chain (BSC)</option>
+        <option value="polygon">Polygon (MATIC)</option>
+        <option value="arbitrum">Arbitrum</option>
+        <option value="optimism">Optimism</option>
+        <option value="avalanche">Avalanche</option>
+        <option value="solana">Solana (SOL)</option>
+        <option value="ton">TON</option>
+        <option value="tron">Tron (TRX)</option>
+        <option value="bitcoin">Bitcoin (BTC)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Wallet Address</label>
+      <input type="text" id="add-address" class="wlt-address-input" placeholder="Paste your wallet address">
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px">
+      <button class="btn" onclick="closeAddModal()" style="flex:1;background:rgba(255,255,255,.08)">Cancel</button>
+      <button class="btn btn-primary" id="add-save-btn" onclick="saveWallet()" style="flex:2">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var CHAIN_META = {{
+  ethereum:  {{name:'Ethereum',  icon:'⟠', cg:'ethereum'}},
+  bsc:       {{name:'BNB Chain', icon:'🔶', cg:'binancecoin'}},
+  polygon:   {{name:'Polygon',   icon:'🟣', cg:'matic-network'}},
+  arbitrum:  {{name:'Arbitrum',  icon:'🔵', cg:'ethereum'}},
+  optimism:  {{name:'Optimism',  icon:'🔴', cg:'ethereum'}},
+  avalanche: {{name:'Avalanche', icon:'🔺', cg:'avalanche-2'}},
+  solana:    {{name:'Solana',    icon:'◎',  cg:'solana'}},
+  ton:       {{name:'TON',       icon:'💎', cg:'the-open-network'}},
+  tron:      {{name:'Tron',      icon:'🎯', cg:'tron'}},
+  bitcoin:   {{name:'Bitcoin',   icon:'₿',  cg:'bitcoin'}},
+}};
+var prices = {{}};
+var myWallets = {{}};
+
+async function loadPrices() {{
+  try {{
+    var ids = Object.values(CHAIN_META).map(m=>m.cg).filter((v,i,a)=>a.indexOf(v)===i).join(',');
+    var r = await fetch('/api/wallet/prices?coins='+ids);
+    prices = await r.json();
+    renderPrices();
+    document.getElementById('price-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  }} catch(e) {{
+    document.getElementById('price-refresh').textContent = 'Price fetch failed';
+  }}
+}}
+
+function renderPrices() {{
+  var grid = document.getElementById('price-grid');
+  var shown = {{}};
+  var html = '';
+  for (var chain in CHAIN_META) {{
+    var m = CHAIN_META[chain];
+    if (shown[m.cg]) continue;
+    shown[m.cg] = true;
+    var p = prices[m.cg];
+    var pStr = p ? '$' + p.toLocaleString('en-US', {{minimumFractionDigits:2, maximumFractionDigits:2}}) : '—';
+    html += '<div class="wlt-price-card"><div class="wlt-price-sym">' + m.icon + ' ' + m.cg.split('-')[0].toUpperCase() + '</div><div class="wlt-price-val">' + pStr + '</div></div>';
+  }}
+  grid.innerHTML = html || '<div class="wlt-empty">No prices</div>';
+}}
+
+async function loadWallets() {{
+  var r = await fetch('/api/wallet/my-wallets');
+  var data = await r.json();
+  myWallets = {{}};
+  (data.wallets || []).forEach(function(w) {{ myWallets[w.chain] = w.address; }});
+  renderWallets();
+}}
+
+function renderWallets() {{
+  var el = document.getElementById('wallets-list');
+  if (Object.keys(myWallets).length === 0) {{
+    el.innerHTML = '<div class="wlt-empty">No wallets added yet. Click below to add one.</div>';
+    return;
+  }}
+  var html = '';
+  for (var chain in myWallets) {{
+    var m = CHAIN_META[chain] || {{name: chain, icon:'🔗'}};
+    var addr = myWallets[chain];
+    var short = addr.length > 24 ? addr.slice(0,10)+'...'+addr.slice(-8) : addr;
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06)">';
+    html += '<span style="font-size:1.4em">' + m.icon + '</span>';
+    html += '<div style="flex:1"><div style="font-weight:600;font-size:.9em">' + m.name + '</div>';
+    html += '<div class="wlt-addr-short">' + short + '</div></div>';
+    html += '<button class="btn" onclick="checkBalance(\''+chain+'\',\''+addr+'\')" style="font-size:.75em;padding:6px 12px;background:rgba(255,20,147,.2);border:1px solid rgba(255,20,147,.3)">Balance</button>';
+    html += '<button class="remove-btn" onclick="removeWallet(\''+chain+'\')">✕</button>';
+    html += '</div>';
+  }}
+  el.innerHTML = html;
+}}
+
+async function checkBalance(chain, address) {{
+  var sec = document.getElementById('balance-section');
+  var m = CHAIN_META[chain] || {{name:chain, icon:'🔗'}};
+  document.getElementById('bal-chain-icon').textContent = m.icon;
+  document.getElementById('bal-chain-title').textContent = m.name + ' Balance';
+  document.getElementById('bal-address').textContent = address;
+  document.getElementById('bal-list').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Fetching…</div>';
+  sec.style.display = 'block';
+  sec.scrollIntoView({{behavior:'smooth'}});
+  try {{
+    var r = await fetch('/api/wallet/balance?chain='+chain+'&address='+encodeURIComponent(address));
+    var data = await r.json();
+    if (!Array.isArray(data) || data.length === 0) {{
+      document.getElementById('bal-list').innerHTML = '<div class="wlt-empty">No token balances found</div>';
+      return;
+    }}
+    var html = '';
+    data.forEach(function(tok) {{
+      var bal = parseFloat(tok.balance);
+      var usdVal = '';
+      var cgId = CHAIN_META[chain] ? CHAIN_META[chain].cg : null;
+      if (cgId && prices[cgId] && tok.contract === null) {{
+        usdVal = '≈ $' + (bal * prices[cgId]).toLocaleString('en-US', {{minimumFractionDigits:2, maximumFractionDigits:2}});
+      }}
+      html += '<div class="wlt-bal-row">';
+      html += '<div class="wlt-bal-sym">' + tok.symbol + '</div>';
+      html += '<div class="wlt-bal-amt">' + bal.toFixed(6).replace(/\\.?0+$/,'') + '</div>';
+      if (usdVal) html += '<div class="wlt-bal-usd">' + usdVal + '</div>';
+      html += '</div>';
+    }});
+    document.getElementById('bal-list').innerHTML = html;
+  }} catch(e) {{
+    document.getElementById('bal-list').innerHTML = '<div class="wlt-empty">Failed to fetch balance: ' + e.message + '</div>';
+  }}
+}}
+
+function openAddModal() {{
+  document.getElementById('add-modal').style.display = 'flex';
+}}
+function closeAddModal() {{
+  document.getElementById('add-modal').style.display = 'none';
+  document.getElementById('add-address').value = '';
+}}
+
+async function saveWallet() {{
+  var chain = document.getElementById('add-chain').value;
+  var address = document.getElementById('add-address').value.trim();
+  if (!address) {{ alert('Please enter a wallet address'); return; }}
+  var btn = document.getElementById('add-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {{
+    var r = await fetch('/api/wallet/register-session', {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{chain:chain, address:address}})
+    }});
+    var data = await r.json();
+    if (data.ok) {{
+      myWallets[chain] = address;
+      renderWallets();
+      closeAddModal();
+    }} else {{
+      alert('Error: ' + (data.error || 'Unknown error'));
+    }}
+  }} catch(e) {{
+    alert('Error: ' + e.message);
+  }}
+  btn.disabled = false; btn.textContent = 'Save';
+}}
+
+async function removeWallet(chain) {{
+  if (!confirm('Remove ' + (CHAIN_META[chain]||{{name:chain}}).name + ' wallet?')) return;
+  var r = await fetch('/api/wallet/remove-session', {{
+    method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{chain:chain}})
+  }});
+  var data = await r.json();
+  if (data.ok) {{
+    delete myWallets[chain];
+    renderWallets();
+    document.getElementById('balance-section').style.display='none';
+  }}
+}}
+
+loadPrices();
+loadWallets();
+setInterval(loadPrices, 60000);
+</script>
+</body>
+</html>""")
+
 
 
 from modules.casino_routes import register_casino_routes
