@@ -329,3 +329,14 @@
     "time": "16.89s"
   }
 }
+2026-04-28 12:09:40|2092939350|@Sunydop|5178059886237545|06|28|327|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://www.greenwellfarms.com/checkouts/sessions/checkout-completion/redirect?_t=AQABbEo6fecAhbJgQJw_-dc8hV2tSblU3senWBicaWluIr-Ph6_hsSTFdbc-QxpUeu_aqMXCS_AjLkvd-pl2MqM_XDXGls9TDtC6ibz1GVWik_vcbj2b_5OWEyyFGQmj7uHFjTto5aVZNwv8FO0RgY2BZLQjAAu7DX0qLz74UjPMxOFvawwxPpJLEyEd3yVH6a2xLqK3xwPBKviQDogHFpa7yWTrftTeksmn8T_3BP7m-iPsj3OYyl699IUU9ew",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "24.56s"
+  }
+}
