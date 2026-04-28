@@ -85,7 +85,7 @@ def register_casino_routes(app, user_required, owner_required, get_user_sidebar,
         cat_tabs += '<button class="cat-tab" onclick="switchTab(\'all\')">All Games</button>'
 
         return render_template_string(CASINO_PAGE_HTML,
-            sidebar=get_user_sidebar('casino', 'Casino'),
+            sidebar=get_user_sidebar('casino', ''),
             user_css=USER_CSS,
             balance=f"{balance:.2f}",
             free_balance=f"{free_bal:.2f}",
@@ -1012,7 +1012,6 @@ body.casino-modal-open { overflow: hidden; }
     <div class="stat-card"><div class="stat-label">Won</div><div class="stat-value">${{ total_won }}</div></div>
 </div>
 
-<div class="cat-tabs" id="catTabs">{{ cat_tabs|safe }}</div>
 <div class="games-grid" id="gamesGrid">{{ games_html_cards|safe }}</div>
 
 <div class="tab-bar">
