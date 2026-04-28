@@ -13709,6 +13709,36 @@ def api_wallet_internal_balance():
         return jsonify({"balances": [], "error": str(e)})
 
 
+@app.route('/api/wallet/qr', methods=['GET'])
+def api_wallet_qr():
+    """
+    Server-side QR generation for deposit addresses. Returns a PNG.
+
+    Done server-side (instead of client-side via qrcode.js) because the
+    qrcode.js CDN is blocked in some Telegram in-app webviews, leaving
+    the QR slot rendered as just a blank white box. Same-origin = no
+    CDN dependency, the QR always shows.
+
+    Public endpoint — addresses are already public information, and
+    this only encodes whatever text the caller hands us.
+    """
+    text = (request.args.get('text') or '').strip()
+    if not text or len(text) > 512:
+        return ('bad request', 400)
+    try:
+        import qrcode, io
+        from flask import Response
+        img = qrcode.make(text, box_size=8, border=2)
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        resp = Response(buf.getvalue(), mimetype='image/png')
+        resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp
+    except Exception as e:
+        print(f"[Wallet] QR generation failed: {e}")
+        return ('qr error', 500)
+
+
 @app.route('/api/wallet/deposit-addresses', methods=['GET'])
 @user_required
 def api_wallet_deposit_addresses():
@@ -14062,7 +14092,8 @@ def user_wallet_page():
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Wallet - Onichan</title>
 {USER_CSS}
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<!-- QR codes are generated server-side via /api/wallet/qr (Telegram in-app
+     webviews can block third-party script CDNs, leaving qrcode.js dead). -->
 <script src="https://unpkg.com/@tonconnect/ui@2.0.5/dist/tonconnect-ui.min.js"></script>
 <style>
 @keyframes spin{{0%{{transform:rotate(0deg)}}100%{{transform:rotate(360deg)}}}}
@@ -14085,7 +14116,9 @@ def user_wallet_page():
 .wlt-asset-row{{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s}}
 .wlt-asset-row:hover{{background:rgba(255,255,255,.02)}}
 .wlt-asset-row:last-child{{border-bottom:none}}
-.wlt-asset-icon{{width:40px;height:40px;border-radius:50%;background:rgba(255,20,147,.15);display:flex;align-items:center;justify-content:center;font-size:1.2em;font-weight:700;color:#ff69b4;flex-shrink:0}}
+.wlt-asset-icon{{width:40px;height:40px;border-radius:50%;background:rgba(255,20,147,.15);display:flex;align-items:center;justify-content:center;font-size:1.2em;font-weight:700;color:#ff69b4;flex-shrink:0;overflow:hidden}}
+.wlt-token-img{{width:32px;height:32px;border-radius:50%;object-fit:contain;display:block;background:#fff}}
+.wlt-deposit-card .wlt-token-img{{width:40px;height:40px;margin:0 auto}}
 .wlt-asset-name{{flex:1}}
 .wlt-asset-name .nm{{font-weight:700;font-size:.95em}}
 .wlt-asset-name .sub{{font-size:.75em;color:rgba(255,255,255,.45);margin-top:2px}}
@@ -14301,7 +14334,7 @@ def user_wallet_page():
     <button class="close-x" onclick="closeDep()">×</button>
     <h2 id="dep-title">Deposit</h2>
     <div class="alert alert-warn" id="dep-warn"></div>
-    <div class="wlt-qr-box"><canvas id="dep-qr" width="200" height="200"></canvas></div>
+    <div class="wlt-qr-box"><img id="dep-qr" alt="Deposit QR" width="200" height="200" style="display:block"></div>
     <div class="wlt-addr-display" id="dep-address">…</div>
     <button class="wlt-copy-btn" onclick="copyDepositAddr()">📋 Copy Address</button>
   </div>
@@ -14331,6 +14364,40 @@ var CHAIN_LABEL = {{
   avalanche:'Avalanche', solana:'Solana', tron:'Tron (TRC-20)',
   ton:'TON', bitcoin:'Bitcoin'
 }};
+// Token logo URLs (jsdelivr-mirrored Trust Wallet asset registry — well-known
+// CDN paths that have been stable for years). Renders are wrapped with an
+// onerror that falls back to the unicode glyph so a CDN block / offline
+// session degrades gracefully instead of showing a broken-image icon.
+var TOKEN_LOGOS = {{
+  BTC:  'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/bitcoin/info/logo.png',
+  ETH:  'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/info/logo.png',
+  BNB:  'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/smartchain/info/logo.png',
+  POL:  'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/polygon/info/logo.png',
+  AVAX: 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/avalanchec/info/logo.png',
+  SOL:  'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/solana/info/logo.png',
+  TON:  'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ton/info/logo.png',
+  TRX:  'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/tron/info/logo.png',
+  USDT: 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png',
+  USDC: 'https://cdn.jsdelivr.net/gh/trustwallet/assets@master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png'
+}};
+// Returns an HTML snippet for a token icon: an <img> with onerror falling
+// back to the supplied unicode glyph. `token` and `fallbackGlyph` come from
+// our own static registry (TOKEN_GROUPS / ASSET_META) so attribute escaping
+// isn't needed for user-supplied input.
+function tokenIconHtml(token, fallbackGlyph, cls) {{
+  cls = cls || 'wlt-token-img';
+  var url = token && TOKEN_LOGOS[token];
+  if (!url) return fallbackGlyph || '?';
+  // The fallback glyph is stashed in a data attribute and swapped in by a
+  // tiny inline onerror — using textContent (not innerHTML) keeps the
+  // path XSS-safe even though our glyphs are statically defined.
+  var fb = String(fallbackGlyph || '?')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  return '<img class="'+cls+'" src="'+url+'" alt="'+token+'" '
+       + 'data-fb="'+fb+'" '
+       + 'onerror="this.parentNode.textContent=this.dataset.fb">';
+}}
 // === Token-first registry: groups asset variants by their underlying token ===
 // Each entry defines a token (BTC, USDT, …) and the networks it can deposit /
 // withdraw on. The `asset` field maps each network back to the underlying
@@ -14499,8 +14566,10 @@ function renderBalances() {{
     if (usd) totalUsd += usd;
     var amtStr = amt.toLocaleString('en-US', {{maximumFractionDigits:8}});
     var usdStr = usd != null ? '$' + usd.toLocaleString('en-US', {{minimumFractionDigits:2, maximumFractionDigits:2}}) : '—';
+    var tk = (tokenForAsset(asset) || {{}}).token;
+    var iconHtml = tokenIconHtml(tk, meta.icon);
     html += '<div class="wlt-asset-row">'
-      + '<div class="wlt-asset-icon">'+meta.icon+'</div>'
+      + '<div class="wlt-asset-icon">'+iconHtml+'</div>'
       + '<div class="wlt-asset-name"><div class="nm">'+meta.name+'</div><div class="sub">'+(CHAIN_LABEL[meta.chain]||'')+'</div></div>'
       + '<div class="wlt-asset-bal"><div class="amt">'+amtStr+'</div><div class="usd">'+usdStr+'</div></div>'
       + '</div>';
@@ -14690,8 +14759,9 @@ function renderDepositGrid() {{
     var subtitle = avail.length === 1
       ? (CHAIN_LABEL[avail[0].chain] || avail[0].label)
       : avail.length + ' networks';
+    var iconHtml = tokenIconHtml(g.token, g.icon);
     html += '<div class="wlt-deposit-card" onclick="showTokenDeposit('+idx+')">'
-      + '<div class="icon">'+g.icon+'</div>'
+      + '<div class="icon">'+iconHtml+'</div>'
       + '<div class="nm">'+g.token+'</div>'
       + '<div class="sub" style="font-size:.7em;color:rgba(255,255,255,.55);margin-top:2px">'+subtitle+'</div>'
       + '</div>';
@@ -14747,9 +14817,12 @@ function showDeposit(chain, tokenOrLabel, network) {{
     + (token ? '<b>'+token+'</b> on the <b>'+netLabel+'</b> network' : '<b>'+netLabel+'</b> network assets')
     + '. Wrong network = lost funds.';
   document.getElementById('dep-address').textContent = addr;
-  var canvas = document.getElementById('dep-qr');
-  if (window.QRCode && addr) {{
-    QRCode.toCanvas(canvas, addr, {{width:200, margin:1, color:{{dark:'#000', light:'#fff'}}}});
+  // Server-rendered QR — survives CDN-blocking in-app browsers.
+  var qrImg = document.getElementById('dep-qr');
+  if (addr) {{
+    qrImg.src = '/api/wallet/qr?text=' + encodeURIComponent(addr);
+  }} else {{
+    qrImg.removeAttribute('src');
   }}
   document.getElementById('dep-modal').classList.add('show');
 }}
