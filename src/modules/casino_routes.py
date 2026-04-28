@@ -581,6 +581,7 @@ body { background: #14081f; }
 .casino-wrap, .casino-wrap * { box-sizing: border-box; }
 .casino-wrap > * { max-width: 100%; }
 .casino-title { display: none; }
+.mobile-header { display: none !important; }
 /* === Hero balance card (replaces old balance-bar + stats-row) === */
 .balance-bar { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px;
     align-items: center;
