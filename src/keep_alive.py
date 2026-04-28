@@ -3583,8 +3583,8 @@ def user_admin_ban():
     if target_uid not in banned:
         banned.append(target_uid)
         write_file_lines(DB_BANNED, banned)
-    write_file_lines(DB_FREE,    [l for l in read_file_lines(DB_FREE)    if l.split()[0] != target_uid if l.split()])
-    write_file_lines(DB_PREMIUM, [l for l in read_file_lines(DB_PREMIUM) if l.split()[0] != target_uid if l.split()])
+    write_file_lines(DB_FREE,    [l for l in read_file_lines(DB_FREE)    if l.split() and l.split()[0] != target_uid])
+    write_file_lines(DB_PREMIUM, [l for l in read_file_lines(DB_PREMIUM) if l.split() and l.split()[0] != target_uid])
     return jsonify({'success': True, 'message': f'User {target_uid} banned'})
 
 @app.route('/admin/control/unban', methods=['POST'])
@@ -3608,7 +3608,7 @@ def user_admin_approve():
         target_uid = str(int(data.get('user_id', 0)))
     except (ValueError, TypeError):
         return jsonify({'success': False, 'message': 'Invalid user_id'}), 400
-    write_file_lines(DB_PENDING, [l for l in read_file_lines(DB_PENDING) if l.split()[0] != target_uid if l.split()])
+    write_file_lines(DB_PENDING, [l for l in read_file_lines(DB_PENDING) if l.split() and l.split()[0] != target_uid])
     free = read_file_lines(DB_FREE)
     if target_uid not in free:
         free.append(target_uid)
@@ -3628,7 +3628,7 @@ def user_admin_premium():
     plan = data.get('plan', '1_month')
     days = {'1_week': 7, '2_weeks': 14, '1_month': 30, '3_months': 90}.get(plan, 30)
     expiry = (_dt.utcnow() + _td(days=days)).strftime('%Y-%m-%d')
-    premium = [l for l in read_file_lines(DB_PREMIUM) if l.split()[0] != target_uid if l.split()]
+    premium = [l for l in read_file_lines(DB_PREMIUM) if l.split() and l.split()[0] != target_uid]
     premium.append(f'{target_uid} {expiry}')
     write_file_lines(DB_PREMIUM, premium)
     return jsonify({'success': True, 'message': f'Premium ({plan}) granted to {target_uid} until {expiry}'})
@@ -3664,6 +3664,19 @@ def user_admin_broadcast():
         except Exception:
             failed += 1
     return jsonify({'success': True, 'message': f'Sent: {sent}, Failed: {failed}'})
+
+@app.route('/admin/control/decline', methods=['POST'])
+@user_owner_required
+def user_admin_decline():
+    """Remove user from pending list without banning them."""
+    from config import DB_PENDING
+    data = request.get_json() or {}
+    try:
+        target_uid = str(int(data.get('user_id', 0)))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'Invalid user_id'}), 400
+    write_file_lines(DB_PENDING, [l for l in read_file_lines(DB_PENDING) if l.split() and l.split()[0] != target_uid])
+    return jsonify({'success': True, 'message': f'User {target_uid} declined (removed from pending)'})
 
 @app.route('/admin/control/pending-list', methods=['GET'])
 @user_owner_required
@@ -5002,9 +5015,10 @@ def user_dashboard():
         _prows = []
         for _pu in pending_users[:30]:
             _puid = _pu.split()[0] if _pu.split() else _pu
-            _prow = ('<tr><td style="font-family:monospace">' + _pu + '</td><td>'
+            _prow = ('<tr><td style="font-family:monospace">' + _pu + '</td><td style="white-space:nowrap">'
                      + '<button class="acp-btn acp-btn-success" onclick=\'cpAction("approve",{"user_id":"' + _puid + '"},this)\'>Approve</button>'
-                     + '<button class="acp-btn acp-btn-danger" style="margin-left:6px" onclick=\'cpAction("ban",{"user_id":"' + _puid + '"},this)\'>Ban</button>'
+                     + '<button class="acp-btn acp-btn-warning" style="margin-left:4px" onclick=\'cpAction("decline",{"user_id":"' + _puid + '"},this)\'>Decline</button>'
+                     + '<button class="acp-btn acp-btn-danger"  style="margin-left:4px" onclick=\'cpAction("ban",{"user_id":"' + _puid + '"},this)\'>Ban</button>'
                      + '</td></tr>')
             _prows.append(_prow)
         pending_rows = "".join(_prows) or '<tr><td colspan="2" style="color:#aaa;text-align:center">No pending users</td></tr>'
@@ -5072,10 +5086,17 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
 .acp-pending-table th,.acp-pending-table td{{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.07);text-align:left}}
 .acp-pending-table th{{color:#e94560;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}}
 .acp-tier-label{{font-size:.75rem;font-weight:700;letter-spacing:.06em;margin:8px 0 4px;color:#a78bfa;text-transform:uppercase}}
+.acp-collapse-btn{{background:none;border:1px solid rgba(233,69,96,.4);color:#e94560;border-radius:6px;padding:3px 10px;font-size:.8rem;cursor:pointer;margin-left:auto;transition:.2s}}
+.acp-collapse-btn:hover{{background:rgba(233,69,96,.15)}}
+.acp-body{{transition:max-height .3s ease,opacity .3s ease;overflow:hidden}}
+.acp-body.collapsed{{max-height:0!important;opacity:0;pointer-events:none}}
 </style>
 
 <div id="admin-controls" class="card" style="border:1px solid rgba(233,69,96,.25);background:rgba(233,69,96,.04)">
-  <h2 style="color:#e94560;display:flex;align-items:center;gap:8px">⚡ Admin Controls</h2>
+  <h2 style="color:#e94560;display:flex;align-items:center;gap:8px">⚡ Admin Controls
+    <button class="acp-collapse-btn" onclick="toggleAdminPanel(this)" id="acp-toggle-btn">Collapse</button>
+  </h2>
+  <div id="acp-body" class="acp-body">
 
   <!-- Live Stats Bar – user counts + health metrics + revenue -->
   <div class="acp-stat-bar">
@@ -5222,7 +5243,7 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
       .then(function(d){{
         if(btn) btn.disabled=false;
         showResult(r,d.message||JSON.stringify(d),d.success);
-        if(d.success&&(action==='approve'||action==='ban')) refreshPending();
+        if(d.success&&(action==='approve'||action==='ban'||action==='decline')) refreshPending();
       }}).catch(function(){{
         if(btn) btn.disabled=false;
         showResult(r,'Request failed',false);
@@ -5272,15 +5293,30 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
       }}
       tbody.innerHTML=d.pending.slice(0,30).map(function(u){{
         var uid=u.split(' ')[0]||u;
-        return '<tr><td style="font-family:monospace">'+u+'</td><td>'
+        return '<tr><td style="font-family:monospace">'+u+'</td><td style="white-space:nowrap">'
           +'<button class="acp-btn acp-btn-success" onclick=\'cpAction("approve",{{"user_id":"'+uid+'"}},this)\'>Approve</button>'
-          +' <button class="acp-btn acp-btn-danger" onclick=\'cpAction("ban",{{"user_id":"'+uid+'"}},this)\'>Ban</button>'
+          +' <button class="acp-btn acp-btn-warning" onclick=\'cpAction("decline",{{"user_id":"'+uid+'"}},this)\'>Decline</button>'
+          +' <button class="acp-btn acp-btn-danger"  onclick=\'cpAction("ban",{{"user_id":"'+uid+'"}},this)\'>Ban</button>'
           +'</td></tr>';
       }}).join('');
     }});
   }};
+
+  window.toggleAdminPanel=function(btn){{
+    var body=document.getElementById('acp-body');
+    if(!body)return;
+    var collapsed=body.classList.toggle('collapsed');
+    btn.textContent=collapsed?'Expand':'Collapse';
+  }};
+
+  // Set initial height for max-height transition
+  (function(){{
+    var body=document.getElementById('acp-body');
+    if(body)body.style.maxHeight=body.scrollHeight+500+'px';
+  }})();
 }})();
 </script>
+</div><!-- /acp-body -->
 """
 
     # pre-compute conditional blocks (no backslashes allowed in f-string expressions on Py 3.11)
