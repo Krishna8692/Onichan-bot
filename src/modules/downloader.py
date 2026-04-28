@@ -228,7 +228,7 @@ class SocialMediaDownloader:
     def __init__(self):
         self.download_dir = tempfile.mkdtemp()
 
-    def _get_ydl_opts(self, audio_only: bool = False) -> Dict[str, Any]:
+    def _get_ydl_opts(self, audio_only: bool = False, quality: str = "best") -> Dict[str, Any]:
         opts = {
             "outtmpl": os.path.join(self.download_dir, "%(title).50s.%(ext)s"),
             "quiet": True,
@@ -257,7 +257,15 @@ class SocialMediaDownloader:
                 }
             ]
         else:
-            opts["format"] = "best[filesize<50M]/best[height<=720]/best"
+            if quality and quality.isdigit():
+                h = int(quality)
+                opts["format"] = (
+                    f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]/"
+                    f"bestvideo[height<={h}]+bestaudio/"
+                    f"best[height<={h}]/best"
+                )
+            else:
+                opts["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
             opts["merge_output_format"] = "mp4"
 
         return opts
@@ -270,7 +278,7 @@ class SocialMediaDownloader:
                     return fp
         return None
 
-    async def download(self, url: str, audio_only: bool = False) -> Dict[str, Any]:
+    async def download(self, url: str, audio_only: bool = False, quality: str = "best") -> Dict[str, Any]:
         result = {
             "success": False,
             "file_path": None,
@@ -290,7 +298,7 @@ class SocialMediaDownloader:
             result["platform"] = platform
 
             loop = asyncio.get_event_loop()
-            opts = self._get_ydl_opts(audio_only)
+            opts = self._get_ydl_opts(audio_only, quality=quality)
             ydl_success = False
             info = None
 
@@ -390,7 +398,62 @@ def format_duration(seconds) -> str:
     return f"{mins}:{secs:02d}"
 
 
-async def download_media(url: str, audio_only: bool = False) -> tuple:
+async def download_media(url: str, audio_only: bool = False, quality: str = "best") -> tuple:
     downloader = SocialMediaDownloader()
-    result = await downloader.download(url, audio_only)
+    result = await downloader.download(url, audio_only, quality=quality)
     return result, downloader
+
+
+async def get_available_qualities(url: str) -> List[Dict[str, Any]]:
+    """Return a de-duped list of available quality options for a URL."""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": False,
+        "nocheckcertificate": True,
+        "skip_download": True,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+    }
+    try:
+        loop = asyncio.get_event_loop()
+
+        def _extract():
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False)
+
+        info = await asyncio.wait_for(loop.run_in_executor(None, _extract), timeout=30)
+        if not info:
+            return []
+
+        formats = info.get("formats", [])
+        seen_heights = set()
+        qualities = []
+
+        # Collect unique video resolutions
+        for fmt in reversed(formats):
+            height = fmt.get("height")
+            vcodec = fmt.get("vcodec", "none")
+            if not height or vcodec == "none":
+                continue
+            label = f"{height}p"
+            if label not in seen_heights:
+                seen_heights.add(label)
+                size_bytes = fmt.get("filesize") or fmt.get("filesize_approx")
+                size_str = f" (~{size_bytes // (1024*1024)}MB)" if size_bytes else ""
+                qualities.append({"label": f"📹 {label}{size_str}", "value": str(height), "height": height})
+
+        # Sort highest first
+        qualities.sort(key=lambda x: x["height"], reverse=True)
+
+        # Limit to top 5 resolutions
+        qualities = qualities[:5]
+
+        # Always add audio-only
+        qualities.append({"label": "🎵 Audio only (MP3)", "value": "audio", "height": 0})
+
+        return qualities
+    except Exception as e:
+        print(f"[get_available_qualities] error: {e}")
+        return []

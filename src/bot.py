@@ -4151,19 +4151,19 @@ async def fake_address_generator(update: Update, context: ContextTypes.DEFAULT_T
 # SOCIAL MEDIA VIDEO DOWNLOADER
 # ============================================================================
 
-from modules.downloader import download_media, get_platform, get_platform_emoji, format_duration, SUPPORTED_PLATFORMS
+from modules.downloader import download_media, get_available_qualities, get_platform, get_platform_emoji, format_duration, SUPPORTED_PLATFORMS
 
 @require_approval
 async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Download videos from social media platforms"""
     user = update.effective_user
-    
+
     if not context.args:
         platforms_list = " · ".join([f"{get_platform_emoji(p)} {p.title()}" for p in list(SUPPORTED_PLATFORMS.keys())])
         await update.message.reply_text(
             f"🎬 <b>Universal Downloader</b>\n\n"
             f"<b>Usage:</b>\n"
-            f"<code>/download [url]</code> — Download video\n"
+            f"<code>/download [url]</code> — Pick quality then download\n"
             f"<code>/download [url] audio</code> — Extract audio only\n\n"
             f"<b>Works with any link!</b>\n"
             f"Best support for:\n"
@@ -4176,135 +4176,191 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML
         )
         return
-    
+
     url = context.args[0]
     audio_only = len(context.args) > 1 and context.args[1].lower() in ['audio', 'mp3', 'music']
-    
+
     platform = get_platform(url)
     emoji = get_platform_emoji(platform)
-    mode_text = "🎵 audio" if audio_only else "📹 video"
-    loading_msg = await update.message.reply_text(
-        f"{emoji} <b>Downloading {platform.title()} {mode_text}...</b>\n\n"
-        f"⏳ Please wait, this may take a moment...",
-        parse_mode=ParseMode.HTML
-    )
-    
-    try:
-        result, downloader = await download_media(url, audio_only)
-        
-        if not result["success"]:
-            await loading_msg.edit_text(
-                f"❌ <b>Download Failed</b>\n\n"
-                f"<b>Platform:</b> {emoji} {platform.title()}\n"
-                f"<b>Error:</b> {result['error']}",
-                parse_mode=ParseMode.HTML
-            )
-            return
-        
-        file_path = result["file_path"]
-        file_size = os.path.getsize(file_path) / (1024 * 1024)
-        
-        if file_size > 50:
-            await loading_msg.edit_text(
-                f"❌ <b>File Too Large</b>\n\n"
-                f"File size: {file_size:.1f}MB (max 50MB)\n"
-                f"Try a shorter video or use audio mode.",
-                parse_mode=ParseMode.HTML
-            )
-            downloader.cleanup()
-            return
-        
-        await loading_msg.edit_text(f"📤 <b>Uploading to Telegram...</b>", parse_mode=ParseMode.HTML)
-        
-        duration_text = format_duration(result["duration"]) if result["duration"] else "Unknown"
-        caption = (
-            f"{emoji} <b>{platform.title()}</b>\n\n"
-            f"📌 <b>Title:</b> {result['title']}\n"
-            f"⏱ <b>Duration:</b> {duration_text}\n"
-            f"📦 <b>Size:</b> {file_size:.1f}MB\n\n"
-            f"<i>Downloaded by @Onichanbabybot</i>"
-        )
 
-        media_type = result.get("type", "video")
-        files = result.get("files")
-        audio_path = result.get("audio_path")
-
-        if media_type == "picker" and files and len(files) > 1:
-            # Instagram carousel / multi-photo post — send as media group
-            from telegram import InputMediaPhoto, InputMediaVideo
-            media_group = []
-            for i, item in enumerate(files[:10]):  # Telegram max 10 per group
-                item_path = item["path"]
-                item_type = item.get("type", "photo")
-                item_size = os.path.getsize(item_path) / (1024 * 1024)
-                if item_size > 50:
-                    continue
-                cap = caption if i == 0 else None
-                if item_type == "video":
-                    media_group.append(InputMediaVideo(
-                        open(item_path, "rb"),
-                        caption=cap,
-                        parse_mode=ParseMode.HTML if cap else None,
-                        supports_streaming=True
-                    ))
-                else:
-                    media_group.append(InputMediaPhoto(
-                        open(item_path, "rb"),
-                        caption=cap,
-                        parse_mode=ParseMode.HTML if cap else None,
-                    ))
-            if media_group:
-                await update.message.reply_media_group(media=media_group)
-            # If there is original audio (photo with music), send it separately
-            if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
-                with open(audio_path, "rb") as af:
-                    await update.message.reply_audio(
-                        audio=af,
-                        caption=f"🎵 <b>Original Audio</b>\n<i>Downloaded by @Onichanbabybot</i>",
-                        parse_mode=ParseMode.HTML,
-                        title=result["title"][:64] if result["title"] else "Audio"
-                    )
-        else:
-            with open(file_path, "rb") as f:
-                if audio_only:
-                    await update.message.reply_audio(
-                        audio=f,
-                        caption=caption,
-                        parse_mode=ParseMode.HTML,
-                        title=result["title"][:64] if result["title"] else "Audio"
-                    )
-                elif file_path.endswith((".jpg", ".jpeg", ".png")):
-                    # Single photo (e.g. Instagram photo post)
-                    await update.message.reply_photo(
-                        photo=f,
-                        caption=caption,
-                        parse_mode=ParseMode.HTML,
-                    )
-                    # Attach audio if available (photo with music)
-                    if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
-                        with open(audio_path, "rb") as af:
-                            await update.message.reply_audio(
-                                audio=af,
-                                caption=f"🎵 <b>Original Audio</b>\n<i>Downloaded by @Onichanbabybot</i>",
-                                parse_mode=ParseMode.HTML,
-                                title=result["title"][:64] if result["title"] else "Audio"
-                            )
-                else:
-                    await update.message.reply_video(
-                        video=f,
-                        caption=caption,
-                        parse_mode=ParseMode.HTML,
-                        supports_streaming=True
-                    )
-        
-        await loading_msg.delete()
-        downloader.cleanup()
-        
-    except Exception as e:
-        await loading_msg.edit_text(
-            f"❌ <b>Error</b>\n\n{str(e)[:200]}",
+    # If audio-only requested, skip quality picker and download immediately
+    if audio_only:
+        loading_msg = await update.message.reply_text(
+            f"{emoji} <b>Extracting audio from {platform.title()}...</b>\n\n⏳ Please wait...",
             parse_mode=ParseMode.HTML
         )
+        try:
+            result, downloader = await download_media(url, audio_only=True)
+            await _send_download_result(update, loading_msg, result, downloader, platform, emoji)
+        except Exception as e:
+            await loading_msg.edit_text(f"❌ <b>Error</b>\n\n{str(e)[:200]}", parse_mode=ParseMode.HTML)
+        return
+
+    # Fetch available qualities
+    analyzing_msg = await update.message.reply_text(
+        f"{emoji} <b>Analyzing {platform.title()} link...</b>\n\n🔍 Fetching available qualities...",
+        parse_mode=ParseMode.HTML
+    )
+
+    try:
+        qualities = await get_available_qualities(url)
+    except Exception:
+        qualities = []
+
+    # Store URL in bot_data keyed by user id so callback can retrieve it
+    context.bot_data[f"dlurl_{user.id}"] = url
+
+    if not qualities:
+        # Could not fetch quality list — show simple options
+        qualities = [
+            {"label": "📹 Best Quality", "value": "best"},
+            {"label": "📹 720p", "value": "720"},
+            {"label": "📹 480p", "value": "480"},
+            {"label": "📹 360p", "value": "360"},
+            {"label": "🎵 Audio only (MP3)", "value": "audio"},
+        ]
+
+    # Build inline keyboard — 2 buttons per row
+    buttons = []
+    row = []
+    for i, q in enumerate(qualities):
+        row.append(InlineKeyboardButton(q["label"], callback_data=f"dlq_{user.id}_{q['value']}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data=f"dlq_{user.id}_cancel")])
+
+    await analyzing_msg.edit_text(
+        f"{emoji} <b>{platform.title()} — Choose Quality</b>\n\n"
+        f"🔗 <code>{url[:60]}{'...' if len(url) > 60 else ''}</code>\n\n"
+        f"Select the quality you want to download:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def _send_download_result(update, loading_msg, result, downloader, platform, emoji):
+    """Shared helper: send the downloaded file to the user."""
+    from telegram import InputMediaPhoto, InputMediaVideo
+
+    if not result["success"]:
+        await loading_msg.edit_text(
+            f"❌ <b>Download Failed</b>\n\n"
+            f"<b>Platform:</b> {emoji} {platform.title()}\n"
+            f"<b>Error:</b> {result['error']}",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    file_path = result["file_path"]
+    file_size = os.path.getsize(file_path) / (1024 * 1024)
+
+    if file_size > 50:
+        await loading_msg.edit_text(
+            f"❌ <b>File Too Large</b>\n\n"
+            f"File size: {file_size:.1f}MB (max 50MB for Telegram)\n"
+            f"Try a lower quality or use audio mode.",
+            parse_mode=ParseMode.HTML
+        )
+        downloader.cleanup()
+        return
+
+    await loading_msg.edit_text(f"📤 <b>Uploading to Telegram...</b>", parse_mode=ParseMode.HTML)
+
+    duration_text = format_duration(result["duration"]) if result["duration"] else "Unknown"
+    caption = (
+        f"{emoji} <b>{platform.title()}</b>\n\n"
+        f"📌 <b>Title:</b> {result['title']}\n"
+        f"⏱ <b>Duration:</b> {duration_text}\n"
+        f"📦 <b>Size:</b> {file_size:.1f}MB\n\n"
+        f"<i>Downloaded by @Onichanbabybot</i>"
+    )
+
+    media_type = result.get("type", "video")
+    files = result.get("files")
+    audio_path = result.get("audio_path")
+    audio_only = result.get("is_audio", False)
+    target = update.message if update.message else update.effective_message
+
+    if media_type == "picker" and files and len(files) > 1:
+        media_group = []
+        for i, item in enumerate(files[:10]):
+            item_path = item["path"]
+            item_type = item.get("type", "photo")
+            if os.path.getsize(item_path) / (1024 * 1024) > 50:
+                continue
+            cap = caption if i == 0 else None
+            if item_type == "video":
+                media_group.append(InputMediaVideo(open(item_path, "rb"), caption=cap, parse_mode=ParseMode.HTML if cap else None, supports_streaming=True))
+            else:
+                media_group.append(InputMediaPhoto(open(item_path, "rb"), caption=cap, parse_mode=ParseMode.HTML if cap else None))
+        if media_group:
+            await target.reply_media_group(media=media_group)
+        if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
+            with open(audio_path, "rb") as af:
+                await target.reply_audio(audio=af, caption=f"🎵 <b>Original Audio</b>\n<i>Downloaded by @Onichanbabybot</i>", parse_mode=ParseMode.HTML, title=(result["title"] or "Audio")[:64])
+    else:
+        with open(file_path, "rb") as f:
+            if audio_only:
+                await target.reply_audio(audio=f, caption=caption, parse_mode=ParseMode.HTML, title=(result["title"] or "Audio")[:64])
+            elif file_path.endswith((".jpg", ".jpeg", ".png")):
+                await target.reply_photo(photo=f, caption=caption, parse_mode=ParseMode.HTML)
+                if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
+                    with open(audio_path, "rb") as af:
+                        await target.reply_audio(audio=af, caption=f"🎵 <b>Original Audio</b>\n<i>Downloaded by @Onichanbabybot</i>", parse_mode=ParseMode.HTML, title=(result["title"] or "Audio")[:64])
+            else:
+                await target.reply_video(video=f, caption=caption, parse_mode=ParseMode.HTML, supports_streaming=True)
+
+    await loading_msg.delete()
+    downloader.cleanup()
+
+
+async def download_quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle quality selection for the downloader."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data  # dlq_{user_id}_{quality}
+    parts = data.split("_", 2)
+    if len(parts) < 3:
+        return
+
+    _, uid_str, quality = parts
+    user = update.effective_user
+    if str(user.id) != uid_str:
+        await query.answer("This isn't your download session.", show_alert=True)
+        return
+
+    if quality == "cancel":
+        await query.edit_message_text("❌ Download cancelled.")
+        context.bot_data.pop(f"dlurl_{user.id}", None)
+        return
+
+    url = context.bot_data.get(f"dlurl_{user.id}")
+    if not url:
+        await query.edit_message_text("❌ Session expired. Please send the command again.")
+        return
+
+    audio_only = quality == "audio"
+    platform = get_platform(url)
+    emoji = get_platform_emoji(platform)
+    quality_label = "Audio (MP3)" if audio_only else (f"{quality}p" if quality.isdigit() else "Best")
+
+    await query.edit_message_text(
+        f"{emoji} <b>Downloading {platform.title()} — {quality_label}</b>\n\n⏳ Please wait...",
+        parse_mode=ParseMode.HTML
+    )
+
+    try:
+        result, downloader = await download_media(url, audio_only=audio_only, quality=quality)
+        await _send_download_result(update, query.message, result, downloader, platform, emoji)
+    except Exception as e:
+        await query.message.edit_text(f"❌ <b>Error</b>\n\n{str(e)[:200]}", parse_mode=ParseMode.HTML)
+    finally:
+        context.bot_data.pop(f"dlurl_{user.id}", None)
+
 
 # ============================================================================
 # IP REPUTATION CHECKER
@@ -17814,6 +17870,7 @@ def main():
     application.add_handler(CallbackQueryHandler(save_proxy_callback, pattern="^saveproxy_"))
     application.add_handler(CallbackQueryHandler(discard_proxy_callback, pattern="^discardproxy_"))
     application.add_handler(CallbackQueryHandler(regenerate_cards_callback, pattern="^regen"))
+    application.add_handler(CallbackQueryHandler(download_quality_callback, pattern="^dlq_"))
     application.add_handler(CallbackQueryHandler(button_callback))
     
     application.add_handler(CommandHandler("address", cmd_address))
