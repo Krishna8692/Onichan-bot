@@ -2932,3 +2932,30 @@ Bank: Capital One, National Association
 Country: United States of America (the) 🇺🇸
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-04-28 12:23:53
+User ID: 2092939350
+Username: @Sunydop
+Card: 5178059289814072|03|27|698
+Gateway: sh
+Response: Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://miamilinks.com/checkouts/sessions/checkout-completion/redirect?_t=AQAB44sbpS3vj-lAqyDoWlb2Rva8reri4N7dadeSYrB4Ow_voFNEbL6yC_x27vHTpHHsxsS3wrf4cFOtIYyf6bBt-UyZ39Jgt3_c29AheyC_wzcLnIW1nDq2MHPhMFOin5i1c6GdjcjVQ6Gq0mdUNiMsa770Zc5UKT58Y8FuYi2AxCImdWyKNR3Ye6TAUGNu_wvRt_CMVm-wx455LO38OMQv6Fv31Fwaf4P1ZJaGh1qwDbqpd86E3XI",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "23.75s"
+  }
+}
+BIN: 517805
+Brand: MASTERCARD
+Type: CREDIT
+Bank: Capital One, National Association
+Country: United States of America (the) 🇺🇸
+================================================================================
+
