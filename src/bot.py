@@ -16921,10 +16921,37 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     candidates = parsed.get('candidates') or []
     address = parsed['address']
     if not chain:
+        # Ambiguous EVM address — let the user pick the network inline.
+        # Stash the pending request in user_data so callback_data stays small.
+        import secrets as _secrets
+        short_id = _secrets.token_urlsafe(6)
+        if not hasattr(context, 'user_data') or context.user_data is None:
+            # context.user_data is provided by PTB; this guard is for safety.
+            pending_store = {}
+        else:
+            pending_store = context.user_data.setdefault('_wd_pending', {})
+        pending_store[short_id] = {
+            'amount': amount, 'asset': asset, 'address': address,
+        }
+        # Filter candidates to those that actually support this asset.
+        viable = [c for c in candidates if chain_supports_asset(c, asset)]
+        if not viable:
+            compat = asset_compatible_chains(asset)
+            await update.message.reply_text(
+                f"❌ {asset} cannot be sent to that address.\n"
+                f"Compatible networks: {', '.join(compat) if compat else '(none)'}")
+            return
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(chain_label(c), callback_data=f"wdpick:{short_id}:{c}")]
+            for c in viable
+        ])
         await update.message.reply_text(
-            f"❌ Address is valid on multiple networks: {', '.join(candidates)}.\n"
-            f"Re-run as: <code>/withdraw {amount} {asset} {address} &lt;chain&gt;</code>",
-            parse_mode=ParseMode.HTML)
+            f"❓ <b>Which network?</b>\n"
+            f"This address is valid on multiple chains.\n"
+            f"💎 {amount} {asset} → <code>{address[:18]}…</code>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb)
         return
     if not chain_supports_asset(chain, asset):
         compat = asset_compatible_chains(asset)
@@ -17036,15 +17063,18 @@ async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = None
         with _wallet_txn() as conn:
             with conn.cursor() as cur:
-                # NOTE: We deliberately exclude 'broadcast' here. A row in
-                # 'broadcast' state already has a tx_hash in the mempool —
-                # refunding it would risk double-credit if the on-chain tx
-                # eventually succeeds. Only the receipt-poller may move a
-                # 'broadcast' row to 'failed' (and only on a true revert).
+                # NOTE: Reject is only legal for rows that haven't been
+                # claimed by the worker yet ('pending'). Once the worker
+                # owns the row ('broadcasting') a tx may already be in
+                # flight to the network, and once it's accepted by the
+                # mempool ('broadcast') a tx_hash exists. Refunding either
+                # state risks double-credit if the on-chain tx eventually
+                # succeeds. Only the receipt-poller transitions those
+                # states forward.
                 cur.execute(
                     """UPDATE wallet_transactions SET status = 'failed', note = %s
                         WHERE id = %s AND tx_type = 'withdraw'
-                          AND status IN ('pending', 'broadcasting')
+                          AND status = 'pending'
                         RETURNING telegram_id, asset, amount""",
                     (reason, wid)
                 )
@@ -17079,7 +17109,7 @@ async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle wlt:* and wdrej:* callbacks."""
+    """Handle wlt:*, wdrej:*, and wdpick:* callbacks."""
     q = update.callback_query
     if not q:
         return
@@ -17106,12 +17136,12 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row = None
             with _wallet_txn() as conn:
                 with conn.cursor() as cur:
-                    # See cmd_rejectwd: 'broadcast' rows have a live tx_hash
-                    # so we never refund them here.
+                    # See cmd_rejectwd: any row past 'pending' may already
+                    # have a tx in flight, so we never refund them here.
                     cur.execute(
                         """UPDATE wallet_transactions SET status = 'failed', note = 'Rejected via button'
                             WHERE id = %s AND tx_type = 'withdraw'
-                              AND status IN ('pending', 'broadcasting')
+                              AND status = 'pending'
                             RETURNING telegram_id, asset, amount""",
                         (wid,)
                     )
@@ -17144,6 +17174,80 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.answer(f"Error: {e}", show_alert=True)
         except Exception as e:
             await q.answer(f"Error: {e}", show_alert=True)
+    elif data.startswith("wdpick:"):
+        # User picked a network for an ambiguous EVM address.
+        try:
+            _, short_id, picked_chain = data.split(":", 2)
+        except Exception:
+            await q.answer("Bad picker payload", show_alert=True)
+            return
+        store = (context.user_data or {}).get('_wd_pending', {})
+        pend = store.pop(short_id, None)
+        if not pend:
+            try:
+                await q.edit_message_text("⚠️ This picker expired. Re-run /withdraw.")
+            except Exception:
+                pass
+            return
+        amount = pend['amount']; asset = pend['asset']; address = pend['address']
+        try:
+            from modules.chain_config import (
+                chain_label, explorer_addr_url, chain_supports_asset,
+                asset_compatible_chains,
+            )
+            from keep_alive import _wallet_txn, _debit_balance, _log_wallet_tx
+        except Exception as e:
+            await q.answer(f"Module error: {e}", show_alert=True)
+            return
+        if not chain_supports_asset(picked_chain, asset):
+            compat = asset_compatible_chains(asset)
+            try:
+                await q.edit_message_text(
+                    f"❌ {asset} cannot be withdrawn on {chain_label(picked_chain)}.\n"
+                    f"Compatible: {', '.join(compat) if compat else '(none)'}")
+            except Exception:
+                pass
+            return
+        try:
+            wid = None
+            with _wallet_txn() as conn:
+                if not _debit_balance(q.from_user.id, asset, amount, conn=conn):
+                    try:
+                        await q.edit_message_text(f"❌ Insufficient {asset} balance")
+                    except Exception:
+                        pass
+                    return
+                wid = _log_wallet_tx(
+                    conn=conn, telegram_id=q.from_user.id, tx_type='withdraw',
+                    chain=picked_chain, asset=asset, amount=amount,
+                    address=address, status='pending',
+                )
+        except Exception as e:
+            try:
+                await q.edit_message_text(f"❌ Withdrawal failed: {e}")
+            except Exception:
+                pass
+            return
+        short = f"{address[:10]}…{address[-6:]}" if len(address) > 22 else address
+        addr_url = explorer_addr_url(picked_chain, address)
+        kb = None
+        if addr_url:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔍 View Address on Explorer", url=addr_url)
+            ]])
+        try:
+            await q.edit_message_text(
+                f"⏳ <b>Withdrawal Queued #{wid}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"💎 {amount} {asset}\n"
+                f"🔗 {chain_label(picked_chain)}\n"
+                f"📤 To: <code>{short}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"⌛ Broadcasting on the next worker tick (≤45s).",
+                parse_mode=ParseMode.HTML, reply_markup=kb)
+        except Exception:
+            pass
 
 
 def main():
@@ -17341,7 +17445,7 @@ def main():
     application.add_handler(CommandHandler("withdraw", cmd_withdraw))
     application.add_handler(CommandHandler("confirmwd", cmd_confirmwd))
     application.add_handler(CommandHandler("rejectwd", cmd_rejectwd))
-    application.add_handler(CallbackQueryHandler(wallet_callback, pattern="^(wlt:|wdrej:)"))
+    application.add_handler(CallbackQueryHandler(wallet_callback, pattern="^(wlt:|wdrej:|wdpick:)"))
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
@@ -18168,12 +18272,29 @@ def main():
                     if err is None and tx_hash:
                         # Tx is in the mempool — record it but don't claim
                         # success until the receipt-poll sees it succeed.
-                        _execute_with_retry(
+                        # Status guard: only advance from 'broadcasting' so a
+                        # racing manual /rejectwd cannot be silently undone.
+                        rc = _execute_with_retry(
                             """UPDATE wallet_transactions
                                   SET status='broadcast', tx_hash=%s
-                                WHERE id=%s""",
+                                WHERE id=%s AND status='broadcasting'""",
                             (tx_hash, wid),
+                            return_rowcount=True,
                         )
+                        if not rc:
+                            # Row was concurrently moved out of 'broadcasting'
+                            # (admin override). The on-chain tx still exists —
+                            # alert the owner so they can reconcile manually.
+                            _send_owner(
+                                f"⚠️ <b>Withdrawal #{wid} race</b>\n"
+                                f"Broadcast succeeded but row was no longer "
+                                f"'broadcasting'.\n"
+                                f"💎 {amount} {asset} on {chain_label(chain)}\n"
+                                f"🆔 <code>{tx_hash}</code>\n"
+                                f"⚠️ Manual reconciliation required."
+                            )
+                            print(f"[Wallet] ⚠️ #{wid} CAS lost — on-chain tx={tx_hash}")
+                            continue
                         url = explorer_tx_url(chain, tx_hash)
                         _send_user(
                             user_id,
@@ -18278,12 +18399,19 @@ def main():
                         continue
                     if st == 'success':
                         try:
-                            _execute_with_retry(
+                            # CAS guard already in place: only flip from
+                            # 'broadcast' so a concurrent admin override or
+                            # revert-refund cannot be undone.
+                            rc = _execute_with_retry(
                                 """UPDATE wallet_transactions
                                       SET status='confirmed'
                                     WHERE id=%s AND status='broadcast'""",
                                 (rwid,),
+                                return_rowcount=True,
                             )
+                            if not rc:
+                                print(f"[Wallet] confirm CAS lost on #{rwid}")
+                                continue
                             url = explorer_tx_url(rchain, rhash)
                             _send_user(
                                 ruser,
