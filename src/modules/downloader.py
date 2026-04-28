@@ -78,52 +78,79 @@ async def _save_file(session: aiohttp.ClientSession, url: str, path: str) -> boo
         print(f"[downloader] save_file error: {e}")
     return False
 
+def _cobalt_parse_response(data: dict, session, download_dir: str):
+    """Parse cobalt API response dict — returns coroutine or None."""
+    status = data.get("status")
+    if status in ("stream", "redirect", "tunnel", "local"):
+        media_url = data.get("url")
+        return media_url
+    return None
+
 async def download_via_cobalt(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
-    """Use cobalt.tools API — supports Instagram reels, photos, TikTok, YT, etc."""
-    cobalt_instances = [
-        "https://cobalt.api.timelessnesses.me",
+    """Try all known cobalt API instances (v7 and v10 formats)."""
+    # v10 instances (new format — POST to base URL)
+    v10_instances = [
         "https://api.cobalt.tools",
-        "https://cobalt.vin",
+        "https://cobalt.api.timelessnesses.me",
+        "https://cobalt.drgato.fr",
+        "https://cob.oboro.moe",
     ]
-    payload = {
+    # v7 instances (old /api/json endpoint)
+    v7_instances = [
+        "https://cobalt.vin",
+        "https://cobalt.tools.nadeko.net",
+    ]
+
+    v10_payload = {
+        "url": url,
+        "videoQuality": "1080",
+        "audioFormat": "mp3",
+        "audioBitrate": "320",
+        "downloadMode": "auto",
+        "youtubeVideoCodec": "h264",
+    }
+    v10_headers = {
+        **COMMON_HEADERS,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    v7_payload = {
         "url": url,
         "vCodec": "h264",
-        "vQuality": "720",
+        "vQuality": "1080",
         "aFormat": "mp3",
         "isAudioOnly": False,
         "isNoTTWatermark": True,
         "isTTFullAudio": True,
-        "isAudioMuted": False,
-        "dubLang": False,
-        "disableMetadata": False,
     }
-    headers = {**COMMON_HEADERS, "Content-Type": "application/json", "Accept": "application/json"}
 
     async with aiohttp.ClientSession() as session:
-        for base_url in cobalt_instances:
+        # Try v10
+        for base_url in v10_instances:
             try:
                 async with session.post(
-                    f"{base_url}/api/json",
-                    json=payload,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=20),
+                    base_url,
+                    json=v10_payload,
+                    headers=v10_headers,
+                    timeout=aiohttp.ClientTimeout(total=25),
                 ) as resp:
-                    if resp.status != 200:
+                    if resp.status not in (200, 201):
+                        print(f"[cobalt-v10] {base_url} status={resp.status}")
                         continue
                     data = await resp.json(content_type=None)
                     status = data.get("status")
+                    print(f"[cobalt-v10] {base_url} → status={status}")
 
-                    if status in ("stream", "redirect", "tunnel"):
+                    if status in ("stream", "redirect", "tunnel", "local"):
                         media_url = data.get("url")
                         if not media_url:
                             continue
-                        ext = "mp4"
-                        filename = os.path.join(download_dir, f"cobalt_video.{ext}")
+                        filename = os.path.join(download_dir, "cobalt_video.mp4")
                         if await _save_file(session, media_url, filename):
                             return {"file_path": filename, "title": data.get("filename", "Video"), "duration": None, "type": "video"}
 
                     elif status == "picker":
-                        # Multiple items (carousel / photo+audio)
                         items = data.get("picker", [])
                         audio_url = data.get("audio")
                         saved_files = []
@@ -139,47 +166,151 @@ async def download_via_cobalt(url: str, download_dir: str) -> Optional[Dict[str,
                             audio_path = os.path.join(download_dir, "cobalt_audio.mp3")
                             await _save_file(session, audio_url, audio_path)
                         if saved_files:
-                            return {
-                                "file_path": saved_files[0]["path"],
-                                "files": saved_files,
-                                "audio_path": audio_path,
-                                "title": "Instagram Post",
-                                "duration": None,
-                                "type": "picker",
-                            }
+                            return {"file_path": saved_files[0]["path"], "files": saved_files, "audio_path": audio_path, "title": "Instagram Post", "duration": None, "type": "picker"}
             except Exception as e:
-                print(f"[cobalt] {base_url} failed: {e}")
-                continue
+                print(f"[cobalt-v10] {base_url} error: {e}")
+
+        # Try v7
+        v7_headers = {**COMMON_HEADERS, "Content-Type": "application/json", "Accept": "application/json"}
+        for base_url in v7_instances:
+            try:
+                async with session.post(
+                    f"{base_url}/api/json",
+                    json=v7_payload,
+                    headers=v7_headers,
+                    timeout=aiohttp.ClientTimeout(total=25),
+                ) as resp:
+                    if resp.status != 200:
+                        continue
+                    data = await resp.json(content_type=None)
+                    status = data.get("status")
+                    print(f"[cobalt-v7] {base_url} → status={status}")
+                    if status in ("stream", "redirect", "tunnel"):
+                        media_url = data.get("url")
+                        if not media_url:
+                            continue
+                        filename = os.path.join(download_dir, "cobalt_v7_video.mp4")
+                        if await _save_file(session, media_url, filename):
+                            return {"file_path": filename, "title": "Video", "duration": None, "type": "video"}
+            except Exception as e:
+                print(f"[cobalt-v7] {base_url} error: {e}")
+
     return None
 
-async def download_via_instafix(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
-    """Use ssig.app / instafix style scraping as fallback for Instagram."""
+
+async def download_via_rapidapi_ig(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
+    """Use instagram-downloader-download-instagram-videos-stories1 style public endpoints."""
+    # Extract shortcode from URL
+    sc_match = re.search(r'/(?:reel|p|tv)/([A-Za-z0-9_-]+)', url)
+    if not sc_match:
+        return None
+    shortcode = sc_match.group(1)
+
     apis = [
+        # igdownloader public API
         {
-            "url": "https://snapinsta.app/api/ajaxSearch",
-            "data": lambda u: {"q": u, "t": "media", "lang": "en"},
+            "method": "GET",
+            "url": f"https://igdownloader.app/api/instagramGetUrl?postUrl={url}&abc=1",
+            "headers": {**COMMON_HEADERS, "Referer": "https://igdownloader.app/"},
+            "parse": lambda d: (d.get("url") or (d.get("media", [{}])[0].get("url") if d.get("media") else None)),
         },
+        # reelsaver
         {
-            "url": "https://saveig.app/api/ajaxSearch",
-            "data": lambda u: {"q": u, "t": "media", "lang": "en"},
+            "method": "POST",
+            "url": "https://reelsaver.net/api/ajax",
+            "data": {"url": url},
+            "headers": {**COMMON_HEADERS, "Content-Type": "application/x-www-form-urlencoded", "Referer": "https://reelsaver.net/"},
+            "parse": lambda d: (d.get("links", [{}])[0].get("url") if d.get("links") else None),
         },
+        # fastdl
         {
-            "url": "https://storiesig.info/api/media",
-            "data": lambda u: {"url": u},
+            "method": "POST",
+            "url": "https://fastdl.app/api/convert",
+            "data": {"url": url},
+            "headers": {**COMMON_HEADERS, "Content-Type": "application/x-www-form-urlencoded", "Referer": "https://fastdl.app/"},
+            "parse": lambda d: (d.get("url") or (d.get("medias", [{}])[0].get("url") if d.get("medias") else None)),
+        },
+        # instagramsave
+        {
+            "method": "POST",
+            "url": "https://instagramsave.com/api/",
+            "data": {"url": url, "lang": "en"},
+            "headers": {**COMMON_HEADERS, "Content-Type": "application/x-www-form-urlencoded", "Referer": "https://instagramsave.com/"},
+            "parse": lambda d: (d.get("video_url") or d.get("download_url")),
         },
     ]
-    form_headers = {**COMMON_HEADERS, "Content-Type": "application/x-www-form-urlencoded", "Referer": "https://snapinsta.app/"}
 
     async with aiohttp.ClientSession() as session:
         for api in apis:
             try:
+                method = api.get("method", "POST")
+                if method == "GET":
+                    resp_ctx = session.get(api["url"], headers=api["headers"], timeout=aiohttp.ClientTimeout(total=20))
+                else:
+                    resp_ctx = session.post(api["url"], data=api.get("data"), headers=api["headers"], timeout=aiohttp.ClientTimeout(total=20))
+
+                async with resp_ctx as resp:
+                    if resp.status != 200:
+                        print(f"[rapidapi-ig] {api['url']} status={resp.status}")
+                        continue
+                    try:
+                        data = await resp.json(content_type=None)
+                    except Exception:
+                        text = await resp.text()
+                        try:
+                            data = json.loads(text)
+                        except Exception:
+                            continue
+
+                    media_url = api["parse"](data)
+                    print(f"[rapidapi-ig] {api['url']} → url={bool(media_url)}")
+                    if media_url:
+                        filename = os.path.join(download_dir, "ig_rapidapi.mp4")
+                        if await _save_file(session, media_url, filename):
+                            return {"file_path": filename, "title": "Instagram Reel", "duration": None, "type": "video"}
+            except Exception as e:
+                print(f"[rapidapi-ig] {api.get('url', '?')} error: {e}")
+
+    return None
+
+
+async def download_via_instafix(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
+    """Instagram HTML scraping fallbacks."""
+    apis = [
+        {
+            "url": "https://snapinsta.app/api/ajaxSearch",
+            "data": lambda u: {"q": u, "t": "media", "lang": "en"},
+            "referer": "https://snapinsta.app/",
+        },
+        {
+            "url": "https://saveig.app/api/ajaxSearch",
+            "data": lambda u: {"q": u, "t": "media", "lang": "en"},
+            "referer": "https://saveig.app/",
+        },
+        {
+            "url": "https://instavideosave.com/api",
+            "data": lambda u: {"url": u},
+            "referer": "https://instavideosave.com/",
+        },
+    ]
+
+    async with aiohttp.ClientSession() as session:
+        for api in apis:
+            try:
+                headers = {
+                    **COMMON_HEADERS,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Referer": api.get("referer", "https://snapinsta.app/"),
+                    "X-Requested-With": "XMLHttpRequest",
+                }
                 async with session.post(
                     api["url"],
                     data=api["data"](url),
-                    headers=form_headers,
-                    timeout=aiohttp.ClientTimeout(total=20),
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=25),
                 ) as resp:
                     if resp.status != 200:
+                        print(f"[instafix] {api['url']} status={resp.status}")
                         continue
                     text = await resp.text()
                     try:
@@ -187,22 +318,23 @@ async def download_via_instafix(url: str, download_dir: str) -> Optional[Dict[st
                     except Exception:
                         continue
 
-                    media_items = data.get("data", []) or data.get("media", []) or []
+                    media_items = data.get("data", []) or data.get("media", []) or data.get("links", []) or []
                     if isinstance(media_items, dict):
                         media_items = [media_items]
 
                     saved = []
                     for i, item in enumerate(media_items):
-                        murl = item.get("url") or item.get("download_url") or item.get("src")
+                        murl = item.get("url") or item.get("download_url") or item.get("src") or item.get("link")
                         if not murl:
                             continue
                         mtype = item.get("type", "video")
-                        ext = "mp4" if mtype == "video" else "jpg"
+                        ext = "mp4" if mtype in ("video", "reel") else "jpg"
                         fname = os.path.join(download_dir, f"ig_item_{i}.{ext}")
                         if await _save_file(session, murl, fname):
-                            saved.append({"path": fname, "type": mtype})
+                            saved.append({"path": fname, "type": mtype if mtype in ("video", "photo") else "video"})
 
                     if saved:
+                        print(f"[instafix] {api['url']} → {len(saved)} files")
                         return {
                             "file_path": saved[0]["path"],
                             "files": saved,
@@ -212,17 +344,27 @@ async def download_via_instafix(url: str, download_dir: str) -> Optional[Dict[st
                             "type": "picker" if len(saved) > 1 else "video",
                         }
             except Exception as e:
-                print(f"[instafix] {api['url']} failed: {e}")
-                continue
+                print(f"[instafix] {api.get('url', '?')} error: {e}")
+
     return None
+
 
 async def download_instagram_all(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
     """Try all Instagram fallbacks in order."""
-    result = await download_via_cobalt(url, download_dir)
-    if result:
-        return result
-    result = await download_via_instafix(url, download_dir)
-    return result
+    # Run cobalt and rapidapi concurrently
+    cobalt_task = asyncio.create_task(download_via_cobalt(url, download_dir))
+    rapidapi_task = asyncio.create_task(download_via_rapidapi_ig(url, download_dir))
+
+    for coro in asyncio.as_completed([cobalt_task, rapidapi_task]):
+        try:
+            result = await coro
+            if result:
+                return result
+        except Exception as e:
+            print(f"[instagram_all] task error: {e}")
+
+    # Last resort: instafix scrapers
+    return await download_via_instafix(url, download_dir)
 
 class SocialMediaDownloader:
     def __init__(self):
