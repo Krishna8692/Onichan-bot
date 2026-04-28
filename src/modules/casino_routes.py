@@ -634,8 +634,9 @@ body { background: #14081f; }
 .cat-tab.active { background: linear-gradient(135deg, #ff1493, #da70d6); color: #fff;
     border-color: transparent; box-shadow: 0 4px 12px rgba(255,20,147,0.4); }
 
-/* Game tile grid — square (1:1) tiles, dense but tappable */
-.games-grid { display: grid; grid-template-columns: repeat(3, 1fr);
+/* Game tile grid — square (1:1) tiles, auto-responsive */
+.games-grid { display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(110px, calc(33.33% - 8px)), 1fr));
     gap: 10px; margin-bottom: 16px; }
 .game-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,105,180,0.15);
     border-radius: 14px; cursor: pointer;
@@ -767,11 +768,14 @@ body { background: #14081f; }
     100% { left: 110%; bottom: 110%; transform: rotate(-25deg) scale(0.6); opacity: 0; }
 }
 /* === STAKE-STYLE MODAL & GAMEPLAY === */
+body.casino-modal-open { overflow: hidden; }
 .game-modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(15,33,46,0.85); backdrop-filter: blur(4px); z-index: 1000; overflow-y: auto; }
-.game-modal.active { display: flex; align-items: center; justify-content: center; }
+    background: rgba(15,33,46,0.88); backdrop-filter: blur(6px); z-index: 1000;
+    overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.game-modal.active { display: flex; align-items: flex-start; justify-content: center;
+    padding: 16px 0 60px; }
 .game-content { background: #0F212E; border-radius: 8px;
-    padding: 18px; max-width: 600px; width: 95%; max-height: 90vh; overflow-y: auto;
+    padding: 18px; max-width: 560px; width: 95%;
     border: 1px solid #2F4553; box-shadow: 0 12px 32px rgba(0,0,0,0.6);
     color: #FFF; font-family: 'Inter','Nunito','Segoe UI',sans-serif; }
 .game-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
@@ -854,7 +858,7 @@ body { background: #14081f; }
     font-size: 0.85em; border-radius: 8px 8px 0 0; transition: all 0.2s; }
 .tab-btn.active { color: #fff; background: rgba(139,92,246,0.3); }
 @media(max-width:600px) {
-    .games-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .games-grid { gap: 8px; }
     .game-card { border-radius: 12px; }
     .thumb-icon { font-size: 2.2em; }
     .game-card .name { font-size: 0.68em; }
@@ -879,10 +883,10 @@ body { background: #14081f; }
     .claim-btn { padding: 9px 12px; font-size: 0.7em; }
 }
 @media(max-width:400px) {
-    .games-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .thumb-icon { font-size: 2.6em; }
-    .game-card .name { font-size: 0.78em; }
-    .game-card .edge { font-size: 0.62em; }
+    .games-grid { gap: 6px; }
+    .thumb-icon { font-size: 2.2em; }
+    .game-card .name { font-size: 0.68em; }
+    .game-card .edge { font-size: 0.55em; }
     .stat-label { font-size: 0.52em; }
     .stat-value { font-size: 0.85em; }
     .bal-label { font-size: 0.55em; }
@@ -1125,6 +1129,8 @@ function openGame(gid) {
     html += '<div class="result-area" id="resultArea"></div>';
     document.getElementById('gameContent').innerHTML = html;
     document.getElementById('gameModal').classList.add('active');
+    document.body.classList.add('casino-modal-open');
+    document.getElementById('gameModal').scrollTop = 0;
     playSound('start');
     if (m.type === 'choice' && m.choices.length > 0) {
         var first = document.querySelector('#choiceGrid .choice-btn');
@@ -1138,6 +1144,7 @@ function openGame(gid) {
 
 function closeGame() {
     document.getElementById('gameModal').classList.remove('active');
+    document.body.classList.remove('casino-modal-open');
     if (typeof crashTimer !== 'undefined' && crashTimer) { clearInterval(crashTimer); crashTimer = null; }
     currentGame = null;
     currentSession = null;

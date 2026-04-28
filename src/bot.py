@@ -3574,6 +3574,7 @@ async def card_generator(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def regenerate_cards_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
 
     if query.data.startswith("regen:"):
         parts = query.data.split(":")
@@ -16858,7 +16859,6 @@ def main():
     application.add_handler(CommandHandler("worm", askill_command))
     application.add_handler(CommandHandler("img", img_command))
     application.add_handler(CommandHandler("image", img_command))
-    application.add_handler(CommandHandler("gen", img_command))
     application.add_handler(CommandHandler("unimg", unimg_command))
     application.add_handler(CommandHandler("nsfw", unimg_command))
     application.add_handler(CommandHandler("music", music_command))
@@ -16975,10 +16975,6 @@ def main():
     application.add_handler(CommandHandler("bt1", gate_bt1))
     application.add_handler(CommandHandler("bt3d", gate_bt3d))
     
-    # Gate handlers - Braintree API (vkrm)
-    application.add_handler(CommandHandler("b3", gate_b3))
-    application.add_handler(CommandHandler("mb3", gate_mb3))
-    
     # Gate handlers - Auto Stripe Auth (newrp.vercel.app)
     application.add_handler(CommandHandler("ast", gate_ast))
     application.add_handler(CommandHandler("mast", mass_ast))
@@ -16990,8 +16986,6 @@ def main():
     
     # Gate handlers - Razorpay (BarryX API)
     application.add_handler(CommandHandler("rz", gate_rz))
-    application.add_handler(CommandHandler("b3", gate_b3))
-    application.add_handler(CommandHandler("mb3", mass_b3))
     application.add_handler(CommandHandler("mrz", gate_mrz))
     
     # Gate handlers - Razorpay Pages (External API)
@@ -17009,7 +17003,6 @@ def main():
     application.add_handler(CommandHandler("cam", epoch_hitter))
     # Only auto-trigger invoice hitter on invoice.stripe.com URLs (not checkout URLs)
     application.add_handler(MessageHandler(filters.Regex(r'(https?://invoice\.stripe\.com/\S+)'), stripe_invoice_hitter))
-    application.add_handler(CommandHandler("mpp", mass_pp))
     
     # Stop mass check command
     application.add_handler(CommandHandler("stop", stop_mass_check))
@@ -17032,8 +17025,6 @@ def main():
     application.add_handler(CommandHandler("coinfo", coinfo_command))
     application.add_handler(CommandHandler("cocheck", cocheck_command))
     application.add_handler(CommandHandler("mco", mco_command))
-    application.add_handler(CommandHandler("inv", stripe_invoice_hitter))
-    application.add_handler(CommandHandler("cam", epoch_hitter))
     # Saved BIN commands
     application.add_handler(CommandHandler("savebin", savebin_command))
     application.add_handler(CommandHandler("mybins", mybins_command))
@@ -17098,13 +17089,11 @@ def main():
 
     # Premium Key handlers
     application.add_handler(CommandHandler("genkey", generate_premium_key))
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("redeem", redeem_premium_key))
     application.add_handler(CommandHandler("keys", list_keys))
     application.add_handler(CommandHandler("burn", burn_keys_command))
     
     # Crypto Payment handlers
-    application.add_handler(CommandHandler("buy", buy_crypto))
     application.add_handler(CommandHandler("crypto", buy_crypto))
     application.add_handler(CommandHandler("mypayments", my_payments))
     application.add_handler(CommandHandler("checkpayment", check_payment))
@@ -17121,7 +17110,6 @@ def main():
     application.add_handler(CommandHandler("secretapproved", secret_approved))
     application.add_handler(CommandHandler("revenue", revenue_stats))
     application.add_handler(CommandHandler("plans", show_plans))
-    application.add_handler(CommandHandler("info", user_info))
     
     application.add_handler(CallbackQueryHandler(hit_callback_handler, pattern="^(hit(all|first|close|stop)|sbin)_"))
     application.add_handler(CallbackQueryHandler(save_proxy_callback, pattern="^saveproxy_"))
