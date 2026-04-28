@@ -16640,6 +16640,413 @@ def _deposit_checker_loop():
             print(f"[Deposit Checker] Error: {e}")
 
 
+# ════════════════════════════════════════════════════════════════════════
+# CUSTODIAL WALLET BOT COMMANDS
+# ════════════════════════════════════════════════════════════════════════
+_WALLET_OWNER_UID = 1857417752
+
+
+async def cmd_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/wallet — show internal balances + open web wallet."""
+    user = update.effective_user
+    try:
+        from modules.database import _execute_with_retry
+        rows = _execute_with_retry(
+            "SELECT asset, balance FROM wallet_balances WHERE telegram_id = %s ORDER BY asset",
+            (user.id,), fetch=True
+        ) or []
+    except Exception:
+        rows = []
+    lines = ["💰 <b>Your Wallet</b>", "━━━━━━━━━━━━━━━━━━"]
+    if rows:
+        for r in rows:
+            bal = float(r['balance'] or 0)
+            if bal > 0:
+                lines.append(f"  • <b>{r['asset']}</b>: <code>{bal:.8f}</code>".rstrip('0').rstrip('.'))
+        if len(lines) == 2:
+            lines.append("  No balance yet — use /deposit to get started.")
+    else:
+        lines.append("  Empty — use /deposit to add funds.")
+    lines.append("━━━━━━━━━━━━━━━━━━")
+    lines.append("📲 Open the full web wallet for QR codes, P2P, and history.")
+    keyboard = [
+        [{"text": "🌐 Open Web Wallet", "url": f"https://t.me/{BOT_USERNAME}?start=wallet"}],
+        [{"text": "⬇️ Deposit", "callback_data": "wlt:deposit"},
+         {"text": "💸 Send", "callback_data": "wlt:send"}],
+        [{"text": "⬆️ Withdraw", "callback_data": "wlt:withdraw"},
+         {"text": "📜 History", "callback_data": "wlt:history"}],
+    ]
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    def _mkbtn(b):
+        if b.get('url'):
+            return InlineKeyboardButton(b['text'], url=b['url'])
+        return InlineKeyboardButton(b['text'], callback_data=b.get('callback_data', 'noop'))
+    kb = InlineKeyboardMarkup([[_mkbtn(b) for b in row] for row in keyboard])
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, reply_markup=kb)
+
+
+async def cmd_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/deposit [chain] — show HD-derived deposit address."""
+    user = update.effective_user
+    chain = (context.args[0].lower() if context.args else "").strip()
+    try:
+        from modules.hd_wallet import get_or_create_addresses, is_available
+        if not is_available():
+            await update.message.reply_text(
+                "⚠️ HD wallet not configured. Owner must set MASTER_WALLET_MNEMONIC.",
+                parse_mode=ParseMode.HTML)
+            return
+        addrs = get_or_create_addresses(user.id) or {}
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+        return
+    if not addrs:
+        await update.message.reply_text("❌ Could not generate deposit addresses.")
+        return
+    if chain and chain in addrs:
+        text = (f"⬇️ <b>Deposit {chain.title()}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"<code>{addrs[chain]}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ Only send {chain.title()} network assets!")
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+        return
+    lines = ["⬇️ <b>Your Deposit Addresses</b>", "━━━━━━━━━━━━━━━━━━"]
+    for ch in ["ethereum", "bsc", "polygon", "tron", "solana", "ton", "bitcoin"]:
+        if ch in addrs:
+            lines.append(f"<b>{ch.title()}:</b>\n<code>{addrs[ch]}</code>\n")
+    lines.append("━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 Use <code>/deposit &lt;chain&gt;</code> for one-tap copy.")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/send <@user|id> <amount> <asset> [note]"""
+    user = update.effective_user
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "Usage: <code>/send &lt;@user|id&gt; &lt;amount&gt; &lt;ASSET&gt; [note]</code>\n"
+            "Example: <code>/send @alice 0.5 ETH coffee</code>",
+            parse_mode=ParseMode.HTML)
+        return
+    recipient_q = context.args[0]
+    try:
+        amount = float(context.args[1])
+        if amount <= 0:
+            raise ValueError()
+    except Exception:
+        await update.message.reply_text("❌ Invalid amount")
+        return
+    asset = context.args[2].upper()
+    note = " ".join(context.args[3:])[:200]
+
+    # Resolve recipient
+    try:
+        from modules.database import _execute_with_retry
+        q = recipient_q.lstrip("@").strip()
+        if q.isdigit():
+            rec = _execute_with_retry(
+                "SELECT user_id, username FROM users WHERE user_id = %s",
+                (int(q),), fetch_one=True)
+        else:
+            rec = _execute_with_retry(
+                "SELECT user_id, username FROM users WHERE LOWER(username) = LOWER(%s)",
+                (q,), fetch_one=True)
+        if not rec:
+            await update.message.reply_text(f"❌ Recipient '{recipient_q}' not found. They must use the bot first.")
+            return
+        rec_id = int(rec['user_id'])
+        if rec_id == user.id:
+            await update.message.reply_text("❌ Cannot send to yourself")
+            return
+
+        # Atomic debit + credit + log inside one DB transaction
+        from keep_alive import _wallet_txn
+        insufficient = False
+        with _wallet_txn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE wallet_balances SET balance = balance - %s, updated_at = NOW()
+                        WHERE telegram_id = %s AND asset = %s AND balance >= %s
+                        RETURNING balance""",
+                    (str(amount), user.id, asset, str(amount))
+                )
+                if cur.fetchone() is None:
+                    insufficient = True
+                    raise RuntimeError("INSUFFICIENT")
+                cur.execute(
+                    """INSERT INTO wallet_balances (telegram_id, asset, balance, updated_at)
+                       VALUES (%s, %s, %s, NOW())
+                       ON CONFLICT (telegram_id, asset) DO UPDATE
+                         SET balance = wallet_balances.balance + EXCLUDED.balance, updated_at = NOW()""",
+                    (rec_id, asset, str(amount))
+                )
+                cur.execute(
+                    """INSERT INTO wallet_transactions (telegram_id, counterparty_id, tx_type, asset, amount, status, note)
+                       VALUES (%s, %s, 'transfer_out', %s, %s, 'confirmed', %s)""",
+                    (user.id, rec_id, asset, str(amount), note)
+                )
+                cur.execute(
+                    """INSERT INTO wallet_transactions (telegram_id, counterparty_id, tx_type, asset, amount, status, note)
+                       VALUES (%s, %s, 'transfer_in', %s, %s, 'confirmed', %s)""",
+                    (rec_id, user.id, asset, str(amount), note)
+                )
+    except RuntimeError as e:
+        if str(e) == "INSUFFICIENT" or insufficient:
+            await update.message.reply_text(f"❌ Insufficient {asset} balance")
+            return
+        await update.message.reply_text(f"❌ Transfer failed: {e}")
+        return
+    except Exception as e:
+        await update.message.reply_text(f"❌ Transfer failed: {e}")
+        return
+
+    rec_label = f"@{rec['username']}" if rec.get('username') else f"User #{rec_id}"
+    sender_label = f"@{user.username}" if user.username else f"User #{user.id}"
+    await update.message.reply_text(
+        f"✅ <b>Sent {amount} {asset}</b> to {rec_label}"
+        + (f"\n📝 {note}" if note else ""),
+        parse_mode=ParseMode.HTML)
+    # Notify recipient
+    try:
+        await context.bot.send_message(
+            chat_id=rec_id,
+            text=(f"💰 <b>Crypto Received!</b>\n"
+                  f"━━━━━━━━━━━━━━━━━━\n"
+                  f"💎 <b>{amount} {asset}</b>\n"
+                  f"👤 From: {sender_label}"
+                  + (f"\n📝 {note}" if note else "")),
+            parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+
+
+async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/withdraw <amount> <asset> <chain> <address>"""
+    user = update.effective_user
+    if len(context.args) < 4:
+        await update.message.reply_text(
+            "Usage: <code>/withdraw &lt;amount&gt; &lt;ASSET&gt; &lt;chain&gt; &lt;address&gt;</code>\n"
+            "Example: <code>/withdraw 0.5 ETH ethereum 0xabc...</code>\n\n"
+            "Or use the web wallet for a friendlier interface.",
+            parse_mode=ParseMode.HTML)
+        return
+    try:
+        amount = float(context.args[0])
+        if amount <= 0:
+            raise ValueError()
+    except Exception:
+        await update.message.reply_text("❌ Invalid amount")
+        return
+    asset = context.args[1].upper()
+    chain = context.args[2].lower()
+    address = context.args[3].strip()
+
+    try:
+        from keep_alive import _wallet_txn
+        insufficient = False
+        wid = None
+        with _wallet_txn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE wallet_balances SET balance = balance - %s, updated_at = NOW()
+                        WHERE telegram_id = %s AND asset = %s AND balance >= %s
+                        RETURNING balance""",
+                    (str(amount), user.id, asset, str(amount))
+                )
+                if cur.fetchone() is None:
+                    insufficient = True
+                    raise RuntimeError("INSUFFICIENT")
+                cur.execute(
+                    """INSERT INTO wallet_transactions
+                         (telegram_id, tx_type, chain, asset, amount, address, status)
+                       VALUES (%s, 'withdraw', %s, %s, %s, %s, 'pending') RETURNING id""",
+                    (user.id, chain, asset, str(amount), address)
+                )
+                row = cur.fetchone()
+                wid = row['id'] if hasattr(row, 'get') else (row[0] if row else None)
+    except RuntimeError as e:
+        if str(e) == "INSUFFICIENT" or insufficient:
+            await update.message.reply_text(f"❌ Insufficient {asset} balance")
+            return
+        await update.message.reply_text(f"❌ Withdrawal failed: {e}")
+        return
+    except Exception as e:
+        await update.message.reply_text(f"❌ Withdrawal failed: {e}")
+        return
+    short = f"{address[:10]}…{address[-6:]}" if len(address) > 22 else address
+    await update.message.reply_text(
+        f"⏳ <b>Withdrawal Queued #{wid}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💎 {amount} {asset}\n"
+        f"🔗 {chain}\n"
+        f"📤 To: <code>{short}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⌛ You'll be notified when broadcast.",
+        parse_mode=ParseMode.HTML)
+
+
+async def cmd_confirmwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Owner only: /confirmwd <id> <tx_hash>"""
+    user = update.effective_user
+    if user.id != _WALLET_OWNER_UID:
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /confirmwd <id> <tx_hash>")
+        return
+    try:
+        wid = int(context.args[0])
+        tx_hash = context.args[1].strip()
+    except Exception:
+        await update.message.reply_text("❌ Invalid args")
+        return
+    try:
+        from modules.database import _execute_with_retry
+        row = _execute_with_retry(
+            """UPDATE wallet_transactions SET tx_hash = %s, status = 'confirmed'
+                WHERE id = %s AND tx_type = 'withdraw' AND status = 'pending'
+                RETURNING telegram_id, asset, amount, chain, address""",
+            (tx_hash, wid), fetch_one=True
+        )
+        if not row:
+            await update.message.reply_text(f"❌ Withdrawal #{wid} not found or already processed")
+            return
+        await update.message.reply_text(f"✅ Marked #{wid} confirmed (tx: {tx_hash[:14]}…)")
+        try:
+            await context.bot.send_message(
+                chat_id=int(row['telegram_id']),
+                text=(f"✅ <b>Withdrawal Sent!</b>\n"
+                      f"━━━━━━━━━━━━━━━━━━\n"
+                      f"💎 {row['amount']} {row['asset']}\n"
+                      f"🔗 {row['chain']}\n"
+                      f"🔍 <code>{tx_hash}</code>"),
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+
+async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Owner only: /rejectwd <id> [reason]"""
+    user = update.effective_user
+    if user.id != _WALLET_OWNER_UID:
+        return
+    if len(context.args) < 1:
+        await update.message.reply_text("Usage: /rejectwd <id> [reason]")
+        return
+    try:
+        wid = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("❌ Invalid id")
+        return
+    reason = " ".join(context.args[1:]) or "Rejected by admin"
+    try:
+        from keep_alive import _wallet_txn
+        row = None
+        with _wallet_txn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE wallet_transactions SET status = 'failed', note = %s
+                        WHERE id = %s AND tx_type = 'withdraw' AND status = 'pending'
+                        RETURNING telegram_id, asset, amount""",
+                    (reason, wid)
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise RuntimeError("NOT_FOUND")
+                cur.execute(
+                    """INSERT INTO wallet_balances (telegram_id, asset, balance, updated_at)
+                       VALUES (%s, %s, %s, NOW())
+                       ON CONFLICT (telegram_id, asset) DO UPDATE
+                         SET balance = wallet_balances.balance + EXCLUDED.balance, updated_at = NOW()""",
+                    (int(row['telegram_id']), row['asset'], str(row['amount']))
+                )
+        await update.message.reply_text(f"✅ Withdrawal #{wid} rejected and refunded.")
+        try:
+            await context.bot.send_message(
+                chat_id=int(row['telegram_id']),
+                text=(f"❌ <b>Withdrawal Rejected</b>\n"
+                      f"━━━━━━━━━━━━━━━━━━\n"
+                      f"💎 {row['amount']} {row['asset']} refunded to your wallet.\n"
+                      f"📝 Reason: {reason}"),
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+    except RuntimeError as e:
+        if str(e) == "NOT_FOUND":
+            await update.message.reply_text(f"❌ Withdrawal #{wid} not found or already processed")
+            return
+        await update.message.reply_text(f"❌ Error: {e}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+
+async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle wlt:* and wdrej:* callbacks."""
+    q = update.callback_query
+    if not q:
+        return
+    data = q.data or ""
+    await q.answer()
+    if data.startswith("wlt:"):
+        action = data.split(":", 1)[1]
+        guides = {
+            "deposit": "Use /deposit to see your unique deposit addresses for each network.",
+            "send":    "Use /send @user 0.5 ASSET note — instant P2P transfer.",
+            "withdraw":"Use /withdraw 0.5 ASSET chain address to queue an on-chain withdrawal.",
+            "history": "Open the web wallet for full transaction history."
+        }
+        await q.edit_message_text(
+            f"💡 <b>{action.title()}</b>\n\n{guides.get(action, '')}",
+            parse_mode=ParseMode.HTML)
+    elif data.startswith("wdrej:"):
+        if q.from_user.id != _WALLET_OWNER_UID:
+            await q.answer("Owner only", show_alert=True)
+            return
+        try:
+            wid = int(data.split(":", 1)[1])
+            from keep_alive import _wallet_txn
+            row = None
+            with _wallet_txn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """UPDATE wallet_transactions SET status = 'failed', note = 'Rejected via button'
+                            WHERE id = %s AND tx_type = 'withdraw' AND status = 'pending'
+                            RETURNING telegram_id, asset, amount""",
+                        (wid,)
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        raise RuntimeError("ALREADY_PROCESSED")
+                    cur.execute(
+                        """INSERT INTO wallet_balances (telegram_id, asset, balance, updated_at)
+                           VALUES (%s, %s, %s, NOW())
+                           ON CONFLICT (telegram_id, asset) DO UPDATE
+                     SET balance = wallet_balances.balance + EXCLUDED.balance, updated_at = NOW()""",
+                (int(row['telegram_id']), row['asset'], str(row['amount']))
+            )
+            await q.edit_message_text(f"❌ Withdrawal #{wid} rejected and refunded.")
+            try:
+                await context.bot.send_message(
+                    chat_id=int(row['telegram_id']),
+                    text=(f"❌ <b>Withdrawal Rejected</b>\n"
+                          f"💎 {row['amount']} {row['asset']} refunded."),
+                    parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+        except RuntimeError as e:
+            if str(e) == "ALREADY_PROCESSED":
+                try:
+                    await q.edit_message_text("Already processed.")
+                except Exception:
+                    pass
+                return
+            await q.answer(f"Error: {e}", show_alert=True)
+        except Exception as e:
+            await q.answer(f"Error: {e}", show_alert=True)
+
+
 def main():
     """Start the bot"""
     print("=" * 80)
@@ -16828,6 +17235,15 @@ def main():
     )
     
     # Add handlers
+    # ── Custodial Wallet Commands ─────────────────────────────────────
+    application.add_handler(CommandHandler("wallet", cmd_wallet))
+    application.add_handler(CommandHandler("deposit", cmd_deposit))
+    application.add_handler(CommandHandler("send", cmd_send))
+    application.add_handler(CommandHandler("withdraw", cmd_withdraw))
+    application.add_handler(CommandHandler("confirmwd", cmd_confirmwd))
+    application.add_handler(CommandHandler("rejectwd", cmd_rejectwd))
+    application.add_handler(CallbackQueryHandler(wallet_callback, pattern="^(wlt:|wdrej:)"))
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cmds", help_command))
@@ -17300,10 +17716,17 @@ def main():
                     _time.sleep(120)
                     continue
 
+                # New custodial schema: per-user HD-derived deposit addresses
                 rows = _execute_with_retry(
+                    "SELECT telegram_id, chain, address FROM wallet_deposit_addresses",
+                    fetch=True
+                ) or []
+                # Backward compat: also pick up legacy externally-registered addresses
+                legacy = _execute_with_retry(
                     "SELECT telegram_id, chain, address FROM wallet_addresses",
                     fetch=True
-                )
+                ) or []
+                rows = list(rows) + list(legacy)
                 if not rows:
                     _time.sleep(120)
                     continue
@@ -17431,6 +17854,45 @@ def main():
                                 keyboard.append([{"text": "🔍 View on Explorer", "url": f"{explorer}{tx_hash}"}])
                             keyboard.append([{"text": "💰 Open Wallet", "url": f"https://t.me/{BOT_USERNAME}"}])
 
+                            # Credit user's internal balance + log transaction ATOMICALLY.
+                            # Uses unique partial index on (tx_type='deposit', chain, tx_hash)
+                            # to guarantee idempotency: if the deposit row already exists,
+                            # the insert returns 0 rows and the balance update is skipped.
+                            credited_now = False
+                            try:
+                                if val and val > 0:
+                                    asset_code = sym.upper()
+                                    from keep_alive import _wallet_txn
+                                    with _wallet_txn() as conn:
+                                        with conn.cursor() as cur:
+                                            cur.execute(
+                                                """INSERT INTO wallet_transactions
+                                                     (telegram_id, tx_type, chain, asset, amount, address, tx_hash, status, note)
+                                                   VALUES (%s, 'deposit', %s, %s, %s, %s, %s, 'confirmed', %s)
+                                                   ON CONFLICT (chain, tx_hash)
+                                                     WHERE tx_type = 'deposit' AND tx_hash IS NOT NULL
+                                                     DO NOTHING
+                                                   RETURNING id""",
+                                                (int(tg_id), chain, asset_code, str(val), address, tx_hash,
+                                                 f"From {short_sender}" if sender else None)
+                                            )
+                                            if cur.fetchone() is not None:
+                                                cur.execute(
+                                                    """INSERT INTO wallet_balances (telegram_id, asset, balance, updated_at)
+                                                       VALUES (%s, %s, %s, NOW())
+                                                       ON CONFLICT (telegram_id, asset) DO UPDATE
+                                                         SET balance = wallet_balances.balance + EXCLUDED.balance,
+                                                             updated_at = NOW()""",
+                                                    (int(tg_id), asset_code, str(val))
+                                                )
+                                                credited_now = True
+                            except Exception as _ce:
+                                print(f"[Wallet] Failed to credit balance for {tg_id}: {_ce}")
+                                continue
+                            if not credited_now:
+                                # Already processed earlier — skip notification too
+                                continue
+
                             try:
                                 req.post(
                                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -17466,6 +17928,78 @@ def main():
     deposit_thread = threading.Thread(target=_crypto_deposit_notifier, daemon=True)
     deposit_thread.start()
     print("💰 Crypto deposit notifier started (checks every 2 minutes)")
+
+    # ── Withdrawal worker ──────────────────────────────────────────────
+    def _withdrawal_worker():
+        """Polls pending withdrawals; notifies owner with approval buttons."""
+        import time as _time
+        import requests as req
+        _time.sleep(75)
+        if not BOT_TOKEN:
+            return
+        OWNER_UID = 1857417752
+        notified = set()
+        print("[Wallet] ⬆️ Withdrawal worker started")
+        while True:
+            try:
+                from modules.database import _execute_with_retry, is_db_connected
+                if not is_db_connected():
+                    _time.sleep(60)
+                    continue
+                rows = _execute_with_retry(
+                    """SELECT id, telegram_id, chain, asset, amount, address, created_at
+                         FROM wallet_transactions
+                        WHERE tx_type = 'withdraw' AND status = 'pending'
+                        ORDER BY created_at LIMIT 25""",
+                    fetch=True
+                ) or []
+                for r in rows:
+                    wid = r['id']
+                    if wid in notified:
+                        continue
+                    notified.add(wid)
+                    user_id = r['telegram_id']
+                    chain = r['chain']
+                    asset = r['asset']
+                    amount = r['amount']
+                    addr = r['address']
+                    short = f"{addr[:10]}…{addr[-8:]}" if len(addr) > 22 else addr
+                    text = (
+                        f"⏳ <b>Withdrawal Request #{wid}</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"👤 User: <code>{user_id}</code>\n"
+                        f"💎 Amount: <b>{amount} {asset}</b>\n"
+                        f"🔗 Network: {chain}\n"
+                        f"📤 To: <code>{short}</code>\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"Reply with /confirmwd {wid} &lt;tx_hash&gt; after broadcasting,\n"
+                        f"or /rejectwd {wid} &lt;reason&gt; to refund."
+                    )
+                    keyboard = {"inline_keyboard": [[
+                        {"text": "❌ Reject + Refund", "callback_data": f"wdrej:{wid}"},
+                    ]]}
+                    try:
+                        req.post(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                            json={"chat_id": OWNER_UID, "text": text,
+                                  "parse_mode": "HTML",
+                                  "reply_markup": keyboard,
+                                  "disable_web_page_preview": True},
+                            timeout=10,
+                        )
+                        print(f"[Wallet] Owner notified of withdrawal #{wid} ({amount} {asset})")
+                    except Exception as ne:
+                        print(f"[Wallet] Owner notify failed for #{wid}: {ne}")
+                # Cap memory
+                if len(notified) > 5000:
+                    notified.clear()
+            except Exception as e:
+                print(f"[Wallet] Withdrawal worker error: {e}")
+            _time.sleep(45)
+
+    withdrawal_thread = threading.Thread(target=_withdrawal_worker, daemon=True)
+    withdrawal_thread.start()
+    print("⬆️ Withdrawal worker started (polls every 45s)")
 
     # Start bot
     if not BOT_TOKEN:

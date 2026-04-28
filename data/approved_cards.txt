@@ -307,3 +307,25 @@
     "time": "25.29s"
   }
 }
+2026-04-28 09:22:30|2092939350|@Sunydop|5178059391033199|06|28|993|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "0.98 USD Charged!",
+    "receipt_url": "https://bemoxe.com/checkouts/sessions/checkout-completion/redirect?_t=AQABPUkOBBop_r0K8Sgz72oBrhdbxC9NiXiW8ebC-RyZRsnRti6SV2qOh2ElsKW4c-A4ezmgs-k9aW1bnwESEF8Q9PR1tjv9lIyPhYvk_W0OPxua30pftr5p-NpW1s44ua5ADDz6YErHWdbDgq1UYyijmiOSb1bf_RDpm5wLyzcV6nLtylJOwy_9rRfnPZmnzkd5ZexECIxrDoWIa48Nk7dREV-7HmU0YG6_lL5i2RC3",
+    "amount": "0.98",
+    "currency": "USD",
+    "time": "18.66s"
+  }
+}
+2026-04-28 09:37:09|2092939350|@Sunydop|5178059858264741|09|29|976|sh|Response - {
+  "status": true,
+  "result": {
+    "status": "ProcessedReceipt",
+    "message": "1.34 CAD Charged!",
+    "receipt_url": "https://supply.levelupbeauty.ca/checkouts/sessions/checkout-completion/redirect?_t=AQABFzf76ty-6GEPhpaPgjNtUxNd57FR8S013CvQuCj2pDDsUOjSXwDPjEyQ_XCTzg9UVNj_QvsIos09WKD59Ym9HmnJR9EePO3RQsdDi_AAPVXIkzgnFvSf2LAKDqYpp_tmWM8stW3YIwF-mAHiHG2CqwbcMK5mH8mxyJeQCGKZEb52devfQFatuUMA7jwVhoI9M2Cihr8hyPMvL-98MF2QNfsVALXK5veRIx--2iHQEtCekDaGzQ2HrwGQhT4ZNWc",
+    "amount": "1.34",
+    "currency": "CAD",
+    "time": "16.89s"
+  }
+}

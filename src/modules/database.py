@@ -226,6 +226,56 @@ def _create_tables():
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS shop_balance DECIMAL(10,2) DEFAULT 0.00
             """)
 
+            # Custodial wallet — internal balances per asset
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS wallet_balances (
+                    id SERIAL PRIMARY KEY,
+                    telegram_id BIGINT NOT NULL,
+                    asset VARCHAR(32) NOT NULL,
+                    balance NUMERIC(40, 18) NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(telegram_id, asset)
+                )
+            """)
+
+            # Custodial wallet — transaction ledger (deposits, withdrawals, transfers)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS wallet_transactions (
+                    id SERIAL PRIMARY KEY,
+                    telegram_id BIGINT NOT NULL,
+                    counterparty_id BIGINT,
+                    tx_type VARCHAR(24) NOT NULL,
+                    chain VARCHAR(50),
+                    asset VARCHAR(32) NOT NULL,
+                    amount NUMERIC(40, 18) NOT NULL,
+                    fee NUMERIC(40, 18) DEFAULT 0,
+                    address TEXT,
+                    tx_hash TEXT,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    note TEXT,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_tg ON wallet_transactions(telegram_id, created_at DESC)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_status ON wallet_transactions(status)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_hash ON wallet_transactions(tx_hash)")
+
+            # Custodial wallet — HD-derived deposit addresses per user/chain
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS wallet_deposit_addresses (
+                    id SERIAL PRIMARY KEY,
+                    telegram_id BIGINT NOT NULL,
+                    chain VARCHAR(50) NOT NULL,
+                    address TEXT NOT NULL,
+                    derivation_index INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(telegram_id, chain),
+                    UNIQUE(chain, address)
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_wda_addr ON wallet_deposit_addresses(chain, address)")
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS cc_shop_stock (
                     id SERIAL PRIMARY KEY,

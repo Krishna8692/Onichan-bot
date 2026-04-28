@@ -13412,7 +13412,7 @@ def api_my_wallets():
             return jsonify({"wallets": []}), 200
         rows = _execute_with_retry(
             "SELECT chain, address FROM wallet_addresses WHERE telegram_id=%s ORDER BY chain",
-            (int(telegram_id),), fetch_all=True
+            (int(telegram_id),), fetch=True
         )
         wallets = [{"chain": r["chain"], "address": r["address"]} for r in (rows or [])]
         return jsonify({"wallets": wallets})
@@ -13420,9 +13420,394 @@ def api_my_wallets():
         return jsonify({"wallets": [], "error": str(e)}), 200
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  CUSTODIAL CRYPTO WALLET — Full Binance-style implementation
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Asset → primary on-chain network
+_ASSET_TO_CHAIN = {
+    'ETH': 'ethereum', 'BNB': 'bsc', 'POL': 'polygon', 'MATIC': 'polygon',
+    'AVAX': 'avalanche', 'SOL': 'solana', 'TON': 'ton', 'BTC': 'bitcoin',
+    'TRX': 'tron',
+    'USDT_TRC20': 'tron', 'USDT_ERC20': 'ethereum', 'USDT_BEP20': 'bsc',
+    'USDT_TON': 'ton', 'USDT_SOL': 'solana',
+    'USDC_ERC20': 'ethereum', 'USDC_SOL': 'solana',
+}
+
+_ASSET_DISPLAY = {
+    'ETH': 'Ethereum', 'BNB': 'BNB', 'POL': 'Polygon', 'MATIC': 'Polygon',
+    'AVAX': 'Avalanche', 'SOL': 'Solana', 'TON': 'Toncoin',
+    'BTC': 'Bitcoin', 'TRX': 'TRON',
+    'USDT_TRC20': 'USDT (TRC-20)', 'USDT_ERC20': 'USDT (ERC-20)',
+    'USDT_BEP20': 'USDT (BEP-20)', 'USDT_TON': 'USDT (TON)',
+    'USDT_SOL': 'USDT (Solana)',
+    'USDC_ERC20': 'USDC (ERC-20)', 'USDC_SOL': 'USDC (Solana)',
+}
+
+# CoinGecko price IDs per asset (USDT/USDC pegged to $1)
+_ASSET_CG_ID = {
+    'ETH': 'ethereum', 'BNB': 'binancecoin', 'POL': 'matic-network',
+    'MATIC': 'matic-network', 'AVAX': 'avalanche-2', 'SOL': 'solana',
+    'TON': 'the-open-network', 'BTC': 'bitcoin', 'TRX': 'tron',
+}
+
+
+def _wallet_notify_user(tg_id, text, parse_mode='HTML', reply_markup=None):
+    """Best-effort Telegram notification via Bot API."""
+    bot_token = os.environ.get('BOT_TOKEN', '')
+    if not bot_token:
+        return False
+    try:
+        payload = {
+            "chat_id": int(tg_id),
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": True,
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        r = http_requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json=payload, timeout=8,
+        )
+        return r.ok
+    except Exception:
+        return False
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def _wallet_txn():
+    """Context manager: yields a connection running in an explicit transaction.
+    All wallet money flows must use this to guarantee atomicity (debit + credit + log)."""
+    from modules.database import get_connection_with_retry, return_connection
+    conn = get_connection_with_retry()
+    if conn is None:
+        raise RuntimeError("DB connection unavailable")
+    prev_autocommit = getattr(conn, 'autocommit', True)
+    conn.autocommit = False
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            conn.autocommit = prev_autocommit
+        except Exception:
+            pass
+        try:
+            return_connection(conn)
+        except Exception:
+            pass
+
+
+def _credit_balance(tg_id, asset, amount, conn=None):
+    """Credit user balance atomically. If conn given, runs in that transaction."""
+    sql = ("""INSERT INTO wallet_balances (telegram_id, asset, balance, updated_at)
+              VALUES (%s, %s, %s, NOW())
+              ON CONFLICT (telegram_id, asset) DO UPDATE
+                SET balance = wallet_balances.balance + EXCLUDED.balance,
+                    updated_at = NOW()""")
+    params = (int(tg_id), asset.upper(), str(amount))
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+    else:
+        from modules.database import _execute_with_retry
+        _execute_with_retry(sql, params)
+
+
+def _debit_balance(tg_id, asset, amount, conn=None):
+    """Atomic debit — returns True only if balance was sufficient."""
+    sql = ("""UPDATE wallet_balances
+                 SET balance = balance - %s, updated_at = NOW()
+               WHERE telegram_id = %s AND asset = %s AND balance >= %s
+               RETURNING balance""")
+    params = (str(amount), int(tg_id), asset.upper(), str(amount))
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone() is not None
+    from modules.database import _execute_with_retry
+    rows = _execute_with_retry(sql, params, fetch_one=True)
+    return rows is not None
+
+
+def _log_wallet_tx(conn=None, **kw):
+    """Insert into wallet_transactions, return new id. If conn given, runs in that txn."""
+    fields = ['telegram_id', 'tx_type', 'asset', 'amount',
+              'counterparty_id', 'chain', 'fee', 'address',
+              'tx_hash', 'status', 'note']
+    cols, vals = [], []
+    for f in fields:
+        if f in kw and kw[f] is not None:
+            cols.append(f)
+            vals.append(str(kw[f]) if f in ('amount', 'fee') else kw[f])
+    sql = (f"INSERT INTO wallet_transactions ({', '.join(cols)}) "
+           f"VALUES ({', '.join(['%s'] * len(cols))}) RETURNING id")
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, tuple(vals))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            # row is RealDictRow or tuple; handle both
+            return row['id'] if hasattr(row, 'get') else row[0]
+    from modules.database import _execute_with_retry
+    res = _execute_with_retry(sql, tuple(vals), fetch_one=True)
+    return (res or {}).get('id')
+
+
+def _resolve_recipient(query):
+    """Resolve @username (case-insensitive) or telegram_id to a users row."""
+    q = (query or "").strip().lstrip("@")
+    if not q:
+        return None
+    try:
+        from modules.database import _execute_with_retry
+        if q.isdigit():
+            return _execute_with_retry(
+                "SELECT user_id, username FROM users WHERE user_id = %s",
+                (int(q),), fetch_one=True
+            )
+        return _execute_with_retry(
+            "SELECT user_id, username FROM users WHERE LOWER(username) = LOWER(%s)",
+            (q,), fetch_one=True
+        )
+    except Exception:
+        return None
+
+
+@app.route('/api/wallet/internal-balance', methods=['GET'])
+@user_required
+def api_wallet_internal_balance():
+    tg_id = session.get('user_id')
+    try:
+        from modules.database import _execute_with_retry
+        rows = _execute_with_retry(
+            "SELECT asset, balance FROM wallet_balances WHERE telegram_id = %s ORDER BY asset",
+            (int(tg_id),), fetch=True
+        ) or []
+        balances = [
+            {"asset": r["asset"],
+             "name": _ASSET_DISPLAY.get(r["asset"], r["asset"]),
+             "chain": _ASSET_TO_CHAIN.get(r["asset"]),
+             "balance": str(r["balance"])}
+            for r in rows
+        ]
+        return jsonify({"balances": balances})
+    except Exception as e:
+        return jsonify({"balances": [], "error": str(e)})
+
+
+@app.route('/api/wallet/deposit-addresses', methods=['GET'])
+@user_required
+def api_wallet_deposit_addresses():
+    tg_id = session.get('user_id')
+    try:
+        from modules.hd_wallet import get_or_create_addresses, is_available
+        if not is_available():
+            return jsonify({
+                "addresses": {},
+                "error": "HD wallet not configured (set MASTER_WALLET_MNEMONIC env secret)"
+            }), 503
+        addrs = get_or_create_addresses(int(tg_id))
+        return jsonify({"addresses": addrs})
+    except Exception as e:
+        return jsonify({"addresses": {}, "error": str(e)}), 500
+
+
+@app.route('/api/wallet/transactions', methods=['GET'])
+@user_required
+def api_wallet_transactions():
+    tg_id = session.get('user_id')
+    try:
+        limit = min(int(request.args.get('limit', 50) or 50), 200)
+    except Exception:
+        limit = 50
+    try:
+        from modules.database import _execute_with_retry
+        rows = _execute_with_retry(
+            """SELECT id, tx_type, chain, asset, amount, fee, address, tx_hash,
+                      status, note, counterparty_id, created_at
+               FROM wallet_transactions
+               WHERE telegram_id = %s
+               ORDER BY created_at DESC LIMIT %s""",
+            (int(tg_id), limit), fetch=True
+        ) or []
+        items = [{
+            "id": r["id"], "tx_type": r["tx_type"], "chain": r["chain"],
+            "asset": r["asset"], "amount": str(r["amount"]),
+            "fee": str(r["fee"] or 0), "address": r["address"],
+            "tx_hash": r["tx_hash"], "status": r["status"], "note": r["note"],
+            "counterparty_id": r["counterparty_id"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        } for r in rows]
+        return jsonify({"transactions": items})
+    except Exception as e:
+        return jsonify({"transactions": [], "error": str(e)}), 500
+
+
+@app.route('/api/wallet/resolve-recipient', methods=['GET'])
+@user_required
+def api_wallet_resolve_recipient():
+    q = request.args.get('q', '').strip()
+    row = _resolve_recipient(q)
+    if not row:
+        return jsonify({"found": False}), 404
+    return jsonify({
+        "found": True,
+        "telegram_id": row["user_id"],
+        "username": row.get("username")
+    })
+
+
+@app.route('/api/wallet/transfer', methods=['POST'])
+@user_required
+def api_wallet_transfer():
+    tg_id = int(session.get('user_id'))
+    data = request.get_json(silent=True) or {}
+    recipient_q = (data.get('recipient') or '').strip()
+    asset = (data.get('asset') or '').strip().upper()
+    amount_raw = data.get('amount')
+    note = (data.get('note') or '').strip()[:200]
+
+    if not recipient_q or not asset or amount_raw is None:
+        return jsonify({"error": "recipient, asset, and amount are required"}), 400
+    try:
+        amount = float(amount_raw)
+        if amount <= 0:
+            raise ValueError("non-positive")
+    except Exception:
+        return jsonify({"error": "Invalid amount"}), 400
+
+    rec = _resolve_recipient(recipient_q)
+    if not rec:
+        return jsonify({"error": f"Recipient '{recipient_q}' not found. They must use the bot at least once."}), 404
+    rec_id = int(rec['user_id'])
+    if rec_id == tg_id:
+        return jsonify({"error": "Cannot send to yourself"}), 400
+
+    try:
+        with _wallet_txn() as conn:
+            if not _debit_balance(tg_id, asset, amount, conn=conn):
+                return jsonify({"error": f"Insufficient {asset} balance"}), 400
+            _credit_balance(rec_id, asset, amount, conn=conn)
+            out_id = _log_wallet_tx(
+                conn=conn,
+                telegram_id=tg_id, counterparty_id=rec_id,
+                tx_type='transfer_out', asset=asset, amount=amount,
+                status='confirmed', note=note
+            )
+            _log_wallet_tx(
+                conn=conn,
+                telegram_id=rec_id, counterparty_id=tg_id,
+                tx_type='transfer_in', asset=asset, amount=amount,
+                status='confirmed', note=note
+            )
+    except Exception as e:
+        return jsonify({"error": f"Transfer failed: {e}"}), 500
+
+    # Look up sender username
+    sender_username = ''
+    try:
+        from modules.database import _execute_with_retry
+        srow = _execute_with_retry(
+            "SELECT username FROM users WHERE user_id = %s",
+            (tg_id,), fetch_one=True
+        )
+        sender_username = (srow or {}).get('username') or ''
+    except Exception:
+        pass
+    sender_label = f"@{sender_username}" if sender_username else f"User #{tg_id}"
+    rec_username = rec.get('username') or ''
+    rec_label = f"@{rec_username}" if rec_username else f"User #{rec_id}"
+
+    _wallet_notify_user(
+        tg_id,
+        f"💸 <b>Transfer Sent</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💎 <b>Amount:</b> {amount} {asset}\n"
+        f"👤 <b>To:</b> {rec_label}\n"
+        + (f"📝 <b>Note:</b> {note}\n" if note else "")
+        + f"━━━━━━━━━━━━━━━━━━\n✅ Delivered instantly"
+    )
+    _wallet_notify_user(
+        rec_id,
+        f"💰 <b>Crypto Received!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💎 <b>Amount:</b> {amount} {asset}\n"
+        f"👤 <b>From:</b> {sender_label}\n"
+        + (f"📝 <b>Note:</b> {note}\n" if note else "")
+        + f"━━━━━━━━━━━━━━━━━━\n✅ Credited to your wallet",
+        reply_markup={"inline_keyboard": [[
+            {"text": "💰 Open Wallet", "url": f"https://t.me/{os.environ.get('BOT_USERNAME', 'Onichanbabybot')}"}
+        ]]}
+    )
+
+    return jsonify({"ok": True, "tx_id": out_id, "recipient": rec_label})
+
+
+@app.route('/api/wallet/withdraw', methods=['POST'])
+@user_required
+def api_wallet_withdraw():
+    tg_id = int(session.get('user_id'))
+    data = request.get_json(silent=True) or {}
+    asset = (data.get('asset') or '').strip().upper()
+    chain = (data.get('chain') or _ASSET_TO_CHAIN.get(asset, '')).lower()
+    address = (data.get('address') or '').strip()
+    amount_raw = data.get('amount')
+
+    if not asset or not chain or not address or amount_raw is None:
+        return jsonify({"error": "asset, chain, address, amount required"}), 400
+    if chain not in _SUPPORTED_CHAINS:
+        return jsonify({"error": f"Unsupported chain: {chain}"}), 400
+    try:
+        amount = float(amount_raw)
+        if amount <= 0:
+            raise ValueError()
+    except Exception:
+        return jsonify({"error": "Invalid amount"}), 400
+
+    try:
+        with _wallet_txn() as conn:
+            if not _debit_balance(tg_id, asset, amount, conn=conn):
+                return jsonify({"error": f"Insufficient {asset} balance"}), 400
+            tx_id = _log_wallet_tx(
+                conn=conn,
+                telegram_id=tg_id, tx_type='withdraw',
+                chain=chain, asset=asset, amount=amount,
+                address=address, status='pending'
+            )
+    except Exception as e:
+        return jsonify({"error": f"Withdraw failed: {e}"}), 500
+
+    short = f"{address[:8]}…{address[-6:]}" if len(address) > 18 else address
+    _wallet_notify_user(
+        tg_id,
+        f"⏳ <b>Withdrawal Queued</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💎 <b>Amount:</b> {amount} {asset}\n"
+        f"🔗 <b>Network:</b> {chain.title()}\n"
+        f"📤 <b>To:</b> <code>{short}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⌛ Pending broadcast — you'll be notified when sent."
+    )
+
+    return jsonify({"ok": True, "tx_id": tx_id, "status": "pending"})
+
+
 @app.route('/user/wallet')
 @user_required
 def user_wallet_page():
+    bot_username = os.environ.get('BOT_USERNAME', 'Onichanbabybot')
     return render_template_string(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13430,31 +13815,85 @@ def user_wallet_page():
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Wallet - Onichan</title>
 {USER_CSS}
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://unpkg.com/@tonconnect/ui@2.0.5/dist/tonconnect-ui.min.js"></script>
 <style>
 @keyframes spin{{0%{{transform:rotate(0deg)}}100%{{transform:rotate(360deg)}}}}
 .spin{{animation:spin .8s linear infinite;display:inline-block}}
-.wlt-chain-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px;margin-bottom:20px}}
-.wlt-chain-btn{{background:rgba(255,255,255,0.04);border:1px solid rgba(255,105,180,0.15);border-radius:12px;
-  padding:12px 10px;cursor:pointer;text-align:center;transition:all .2s;color:#fff;font-size:.85em;font-weight:600}}
-.wlt-chain-btn:hover,.wlt-chain-btn.active{{background:rgba(255,20,147,0.15);border-color:#ff1493}}
-.wlt-chain-btn .chain-icon{{font-size:1.6em;margin-bottom:4px}}
-.wlt-chain-btn .chain-connected{{font-size:.65em;color:#4ade80;margin-top:3px}}
-.wlt-address-input{{font-family:monospace;font-size:.8em}}
-.wlt-bal-row{{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)}}
-.wlt-bal-row:last-child{{border-bottom:none}}
-.wlt-bal-sym{{font-weight:700;font-size:.95em;min-width:55px}}
-.wlt-bal-amt{{flex:1;font-size:.9em;color:rgba(255,255,255,.85)}}
-.wlt-bal-usd{{font-size:.82em;color:rgba(255,255,255,.45)}}
-.wlt-price-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}}
-.wlt-price-card{{background:rgba(255,255,255,0.04);border:1px solid rgba(255,105,180,0.1);
-  border-radius:10px;padding:12px;text-align:center}}
-.wlt-price-sym{{font-weight:700;font-size:.9em;margin-bottom:4px}}
-.wlt-price-val{{font-size:1.1em;font-weight:800;color:#ff69b4}}
-.wlt-empty{{text-align:center;padding:30px 0;color:rgba(255,255,255,.35);font-size:.9em}}
-.wlt-addr-short{{font-family:monospace;font-size:.75em;color:rgba(255,255,255,.5);margin-top:2px;word-break:break-all}}
-.remove-btn{{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#f87171;
-  border-radius:8px;padding:4px 10px;font-size:.75em;cursor:pointer;margin-left:auto}}
-.remove-btn:hover{{background:rgba(239,68,68,.3)}}
+.wlt-tabs{{display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid rgba(255,255,255,.08);overflow-x:auto;-webkit-overflow-scrolling:touch}}
+.wlt-tab{{flex:0 0 auto;padding:10px 18px;background:none;border:none;color:rgba(255,255,255,.55);font-weight:600;font-size:.92em;cursor:pointer;position:relative;transition:color .2s}}
+.wlt-tab:hover{{color:#fff}}
+.wlt-tab.active{{color:#ff1493}}
+.wlt-tab.active::after{{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:#ff1493}}
+.wlt-tab-pane{{display:none}}
+.wlt-tab-pane.active{{display:block}}
+.wlt-balance-hero{{background:linear-gradient(135deg,rgba(255,20,147,.15),rgba(138,43,226,.1));border:1px solid rgba(255,20,147,.2);border-radius:18px;padding:24px;margin-bottom:18px}}
+.wlt-balance-label{{font-size:.85em;color:rgba(255,255,255,.55);margin-bottom:6px}}
+.wlt-balance-total{{font-size:2.4em;font-weight:800;color:#fff;letter-spacing:-.02em}}
+.wlt-balance-sub{{font-size:.85em;color:rgba(255,255,255,.45);margin-top:4px}}
+.wlt-actions{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}}
+.wlt-action{{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 8px;text-align:center;color:#fff;font-weight:600;font-size:.78em;cursor:pointer;transition:all .2s}}
+.wlt-action:hover{{background:rgba(255,20,147,.15);border-color:#ff1493;transform:translateY(-1px)}}
+.wlt-action .ico{{font-size:1.4em;margin-bottom:4px}}
+.wlt-asset-row{{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid rgba(255,255,255,.05);transition:background .15s}}
+.wlt-asset-row:hover{{background:rgba(255,255,255,.02)}}
+.wlt-asset-row:last-child{{border-bottom:none}}
+.wlt-asset-icon{{width:40px;height:40px;border-radius:50%;background:rgba(255,20,147,.15);display:flex;align-items:center;justify-content:center;font-size:1.2em;font-weight:700;color:#ff69b4;flex-shrink:0}}
+.wlt-asset-name{{flex:1}}
+.wlt-asset-name .nm{{font-weight:700;font-size:.95em}}
+.wlt-asset-name .sub{{font-size:.75em;color:rgba(255,255,255,.45);margin-top:2px}}
+.wlt-asset-bal{{text-align:right}}
+.wlt-asset-bal .amt{{font-weight:700;font-size:.95em;color:#fff}}
+.wlt-asset-bal .usd{{font-size:.75em;color:rgba(255,255,255,.45);margin-top:2px}}
+.wlt-empty{{text-align:center;padding:40px 20px;color:rgba(255,255,255,.4);font-size:.9em}}
+.wlt-modal{{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s}}
+@keyframes fadeIn{{from{{opacity:0}}to{{opacity:1}}}}
+.wlt-modal.show{{display:flex}}
+.wlt-modal-content{{background:#1a0a2e;border:1px solid rgba(255,20,147,.3);border-radius:18px;padding:24px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto}}
+.wlt-modal h2{{margin:0 0 18px;font-size:1.2em}}
+.wlt-modal .close-x{{position:absolute;top:12px;right:14px;background:none;border:none;color:rgba(255,255,255,.5);font-size:1.6em;cursor:pointer;line-height:1}}
+.wlt-qr-box{{background:#fff;padding:14px;border-radius:14px;display:flex;justify-content:center;margin:14px auto;width:fit-content}}
+.wlt-addr-display{{background:rgba(255,255,255,.04);border:1px dashed rgba(255,20,147,.3);border-radius:10px;padding:12px;font-family:monospace;font-size:.78em;word-break:break-all;color:#fff;text-align:center;line-height:1.5}}
+.wlt-copy-btn{{background:rgba(255,20,147,.2);border:1px solid rgba(255,20,147,.3);color:#ff69b4;border-radius:8px;padding:8px 14px;font-size:.82em;cursor:pointer;font-weight:600;margin-top:10px;width:100%}}
+.wlt-copy-btn:hover{{background:rgba(255,20,147,.35)}}
+.wlt-deposit-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px}}
+.wlt-deposit-card{{background:rgba(255,255,255,.04);border:1px solid rgba(255,105,180,.15);border-radius:14px;padding:14px 10px;cursor:pointer;text-align:center;transition:all .2s}}
+.wlt-deposit-card:hover{{background:rgba(255,20,147,.15);border-color:#ff1493;transform:translateY(-2px)}}
+.wlt-deposit-card .nm{{font-weight:700;font-size:.85em;margin-top:6px}}
+.wlt-deposit-card .icon{{font-size:1.7em}}
+.wlt-tx-row{{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid rgba(255,255,255,.05)}}
+.wlt-tx-row:last-child{{border-bottom:none}}
+.wlt-tx-icon{{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.1em;flex-shrink:0}}
+.wlt-tx-icon.in{{background:rgba(74,222,128,.15);color:#4ade80}}
+.wlt-tx-icon.out{{background:rgba(239,68,68,.15);color:#f87171}}
+.wlt-tx-icon.dep{{background:rgba(96,165,250,.15);color:#60a5fa}}
+.wlt-tx-info{{flex:1;min-width:0}}
+.wlt-tx-info .t{{font-weight:600;font-size:.88em}}
+.wlt-tx-info .d{{font-size:.72em;color:rgba(255,255,255,.45);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.wlt-tx-amt{{font-weight:700;font-size:.92em;text-align:right;flex-shrink:0}}
+.wlt-tx-amt.in{{color:#4ade80}}
+.wlt-tx-amt.out{{color:#f87171}}
+.wlt-tx-status{{font-size:.7em;text-align:right;margin-top:2px}}
+.wlt-tx-status.confirmed{{color:#4ade80}}
+.wlt-tx-status.pending{{color:#fbbf24}}
+.wlt-tx-status.failed{{color:#f87171}}
+.form-group{{margin-bottom:14px}}
+.form-group label{{display:block;font-size:.82em;color:rgba(255,255,255,.65);margin-bottom:6px;font-weight:600}}
+.form-group input,.form-group select,.form-group textarea{{width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#fff;border-radius:10px;padding:11px 13px;font-size:.92em;outline:none;transition:border-color .15s}}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{{border-color:#ff1493}}
+.alert{{border-radius:10px;padding:12px 14px;font-size:.85em;margin-bottom:14px}}
+.alert-warn{{background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);color:#fbbf24}}
+.alert-info{{background:rgba(96,165,250,.12);border:1px solid rgba(96,165,250,.3);color:#93c5fd}}
+.alert-success{{background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:#86efac}}
+.alert-error{{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#fca5a5}}
+.btn-row{{display:flex;gap:10px;margin-top:18px}}
+.btn-row .btn{{flex:1;padding:12px;border-radius:10px;border:none;font-weight:700;cursor:pointer}}
+.btn-row .btn-cancel{{background:rgba(255,255,255,.08);color:#fff}}
+.btn-row .btn-primary{{background:linear-gradient(135deg,#ff1493,#ff69b4);color:#fff;flex:2}}
+.btn-row .btn-primary:disabled{{opacity:.5;cursor:not-allowed}}
+#ton-connect-slot{{margin-top:14px}}
+#ton-connect-slot button{{width:100%!important}}
+@media (max-width:520px){{.wlt-actions{{grid-template-columns:repeat(4,1fr);gap:6px}}.wlt-action{{padding:10px 4px;font-size:.7em}}.wlt-deposit-grid{{grid-template-columns:repeat(3,1fr)}}}}
 </style>
 </head>
 <body>
@@ -13462,232 +13901,500 @@ def user_wallet_page():
 <div class="main">
   <div class="header">
     <div>
-      <h1>Crypto Wallet</h1>
-      <p style="opacity:.55;margin-top:4px;font-size:.9em;">Manage your wallet addresses &amp; check balances</p>
+      <h1>💰 Crypto Wallet</h1>
+      <p style="opacity:.55;margin-top:4px;font-size:.9em;">Custodial wallet • Send, receive &amp; trade crypto instantly</p>
     </div>
   </div>
 
-  <!-- Price ticker -->
-  <div class="card" style="margin-bottom:18px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <h2 style="margin:0">Live Prices</h2>
-      <span id="price-refresh" style="font-size:.78em;color:rgba(255,255,255,.35)">Loading…</span>
-    </div>
-    <div class="wlt-price-grid" id="price-grid">
-      <div class="wlt-empty">Fetching prices…</div>
+  <!-- Balance Hero -->
+  <div class="wlt-balance-hero">
+    <div class="wlt-balance-label">Total Balance</div>
+    <div class="wlt-balance-total" id="total-usd">$0.00</div>
+    <div class="wlt-balance-sub" id="total-sub">— assets</div>
+    <div class="wlt-actions">
+      <div class="wlt-action" onclick="openTab('deposit')"><div class="ico">⬇️</div>Deposit</div>
+      <div class="wlt-action" onclick="openTab('send')"><div class="ico">💸</div>Send</div>
+      <div class="wlt-action" onclick="openTab('withdraw')"><div class="ico">⬆️</div>Withdraw</div>
+      <div class="wlt-action" onclick="openTab('history')"><div class="ico">📜</div>History</div>
     </div>
   </div>
 
-  <!-- My Wallets -->
-  <div class="card" style="margin-bottom:18px">
-    <h2 style="margin-bottom:14px">My Wallets</h2>
-    <div id="wallets-list"><div class="wlt-empty">Loading…</div></div>
-    <button class="btn btn-primary" onclick="openAddModal()" style="width:100%;margin-top:16px">+ Add / Update Wallet</button>
+  <!-- Tabs -->
+  <div class="wlt-tabs">
+    <button class="wlt-tab active" data-tab="overview" onclick="openTab('overview')">Overview</button>
+    <button class="wlt-tab" data-tab="deposit" onclick="openTab('deposit')">Deposit</button>
+    <button class="wlt-tab" data-tab="send" onclick="openTab('send')">Send (P2P)</button>
+    <button class="wlt-tab" data-tab="withdraw" onclick="openTab('withdraw')">Withdraw</button>
+    <button class="wlt-tab" data-tab="history" onclick="openTab('history')">History</button>
   </div>
 
-  <!-- Balance checker -->
-  <div class="card" id="balance-section" style="display:none">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-      <span id="bal-chain-icon" style="font-size:1.5em"></span>
-      <h2 style="margin:0" id="bal-chain-title">Balance</h2>
+  <!-- ======== OVERVIEW ======== -->
+  <div class="wlt-tab-pane active" data-pane="overview">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0">Your Assets</h2>
+        <button class="wlt-copy-btn" style="margin:0;padding:6px 12px;width:auto" onclick="loadBalances()">⟳ Refresh</button>
+      </div>
+      <div id="assets-list"><div class="wlt-empty">Loading…</div></div>
     </div>
-    <div id="bal-address" style="font-family:monospace;font-size:.78em;color:rgba(255,255,255,.4);margin-bottom:14px;word-break:break-all"></div>
-    <div id="bal-list"><div class="wlt-empty"><span class="spin">⏳</span> Fetching balance…</div></div>
+  </div>
+
+  <!-- ======== DEPOSIT ======== -->
+  <div class="wlt-tab-pane" data-pane="deposit">
+    <div class="card">
+      <h2 style="margin-bottom:10px">Deposit Crypto</h2>
+      <div class="alert alert-info">Send crypto to your unique address below. Funds are credited automatically after on-chain confirmation.</div>
+      <div id="deposit-grid" class="wlt-deposit-grid"><div class="wlt-empty">Loading addresses…</div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2 style="margin-bottom:10px">⚡ Quick Top-Up via TON Connect</h2>
+      <div style="font-size:.85em;color:rgba(255,255,255,.6);margin-bottom:8px">Connect your Telegram TON wallet to deposit TON or USDT-TON in one tap.</div>
+      <div id="ton-connect-slot"></div>
+      <button class="wlt-copy-btn" id="ton-quick-deposit" style="display:none;margin-top:10px" onclick="tonQuickDeposit()">💎 Send 1 TON to my deposit address</button>
+    </div>
+  </div>
+
+  <!-- ======== SEND (P2P) ======== -->
+  <div class="wlt-tab-pane" data-pane="send">
+    <div class="card">
+      <h2 style="margin-bottom:10px">Send to Onichan User</h2>
+      <div class="alert alert-info">Instant transfer by @username or Telegram ID. Zero fees, zero delay.</div>
+      <div class="form-group">
+        <label>Recipient (@username or Telegram ID)</label>
+        <input type="text" id="send-recipient" placeholder="@username or 123456789" autocomplete="off">
+        <div id="send-recipient-info" style="font-size:.78em;margin-top:5px;min-height:18px"></div>
+      </div>
+      <div class="form-group">
+        <label>Asset</label>
+        <select id="send-asset"></select>
+      </div>
+      <div class="form-group">
+        <label>Amount</label>
+        <input type="number" id="send-amount" placeholder="0.00" step="any" min="0">
+        <div id="send-balance-info" style="font-size:.78em;color:rgba(255,255,255,.5);margin-top:5px"></div>
+      </div>
+      <div class="form-group">
+        <label>Note (optional)</label>
+        <input type="text" id="send-note" maxlength="200" placeholder="What's this for?">
+      </div>
+      <div id="send-result" style="display:none"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="send-btn" onclick="doSend()">💸 Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== WITHDRAW ======== -->
+  <div class="wlt-tab-pane" data-pane="withdraw">
+    <div class="card">
+      <h2 style="margin-bottom:10px">Withdraw to External Wallet</h2>
+      <div class="alert alert-warn">⚠️ Triple-check the destination address. On-chain transfers are irreversible.</div>
+      <div class="form-group">
+        <label>Asset</label>
+        <select id="wd-asset"></select>
+      </div>
+      <div class="form-group">
+        <label>Network</label>
+        <select id="wd-chain"></select>
+      </div>
+      <div class="form-group">
+        <label>Destination Address</label>
+        <input type="text" id="wd-address" placeholder="Paste destination address" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>Amount</label>
+        <input type="number" id="wd-amount" placeholder="0.00" step="any" min="0">
+        <div id="wd-balance-info" style="font-size:.78em;color:rgba(255,255,255,.5);margin-top:5px"></div>
+      </div>
+      <div id="wd-result" style="display:none"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="wd-btn" onclick="doWithdraw()">⬆️ Withdraw</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== HISTORY ======== -->
+  <div class="wlt-tab-pane" data-pane="history">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h2 style="margin:0">Transaction History</h2>
+        <button class="wlt-copy-btn" style="margin:0;padding:6px 12px;width:auto" onclick="loadHistory()">⟳ Refresh</button>
+      </div>
+      <div id="history-list"><div class="wlt-empty">Loading…</div></div>
+    </div>
   </div>
 </div>
 
-<!-- Add wallet modal -->
-<div id="add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px">
-  <div style="background:#1a0a2e;border:1px solid rgba(255,20,147,.3);border-radius:16px;padding:24px;width:100%;max-width:420px">
-    <h2 style="margin:0 0 18px">Add / Update Wallet</h2>
-    <div class="form-group">
-      <label>Chain</label>
-      <select id="add-chain">
-        <option value="ethereum">Ethereum (ETH)</option>
-        <option value="bsc">BNB Smart Chain (BSC)</option>
-        <option value="polygon">Polygon (MATIC)</option>
-        <option value="arbitrum">Arbitrum</option>
-        <option value="optimism">Optimism</option>
-        <option value="avalanche">Avalanche</option>
-        <option value="solana">Solana (SOL)</option>
-        <option value="ton">TON</option>
-        <option value="tron">Tron (TRX)</option>
-        <option value="bitcoin">Bitcoin (BTC)</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Wallet Address</label>
-      <input type="text" id="add-address" class="wlt-address-input" placeholder="Paste your wallet address">
-    </div>
-    <div style="display:flex;gap:10px;margin-top:18px">
-      <button class="btn" onclick="closeAddModal()" style="flex:1;background:rgba(255,255,255,.08)">Cancel</button>
-      <button class="btn btn-primary" id="add-save-btn" onclick="saveWallet()" style="flex:2">Save</button>
-    </div>
+<!-- Deposit address modal -->
+<div class="wlt-modal" id="dep-modal">
+  <div class="wlt-modal-content" style="position:relative">
+    <button class="close-x" onclick="closeDep()">×</button>
+    <h2 id="dep-title">Deposit</h2>
+    <div class="alert alert-warn" id="dep-warn"></div>
+    <div class="wlt-qr-box"><canvas id="dep-qr" width="200" height="200"></canvas></div>
+    <div class="wlt-addr-display" id="dep-address">…</div>
+    <button class="wlt-copy-btn" onclick="copyDepositAddr()">📋 Copy Address</button>
   </div>
 </div>
 
 <script>
-var CHAIN_META = {{
-  ethereum:  {{name:'Ethereum',  icon:'⟠', cg:'ethereum'}},
-  bsc:       {{name:'BNB Chain', icon:'🔶', cg:'binancecoin'}},
-  polygon:   {{name:'Polygon',   icon:'🟣', cg:'matic-network'}},
-  arbitrum:  {{name:'Arbitrum',  icon:'🔵', cg:'ethereum'}},
-  optimism:  {{name:'Optimism',  icon:'🔴', cg:'ethereum'}},
-  avalanche: {{name:'Avalanche', icon:'🔺', cg:'avalanche-2'}},
-  solana:    {{name:'Solana',    icon:'◎',  cg:'solana'}},
-  ton:       {{name:'TON',       icon:'💎', cg:'the-open-network'}},
-  tron:      {{name:'Tron',      icon:'🎯', cg:'tron'}},
-  bitcoin:   {{name:'Bitcoin',   icon:'₿',  cg:'bitcoin'}},
+var ASSET_META = {{
+  ETH:        {{name:'Ethereum',     icon:'⟠', chain:'ethereum',  cg:'ethereum'}},
+  BNB:        {{name:'BNB',          icon:'🔶', chain:'bsc',      cg:'binancecoin'}},
+  POL:        {{name:'Polygon',      icon:'🟣', chain:'polygon',  cg:'matic-network'}},
+  AVAX:       {{name:'Avalanche',    icon:'🔺', chain:'avalanche',cg:'avalanche-2'}},
+  SOL:        {{name:'Solana',       icon:'◎',  chain:'solana',   cg:'solana'}},
+  TON:        {{name:'Toncoin',      icon:'💎', chain:'ton',      cg:'the-open-network'}},
+  BTC:        {{name:'Bitcoin',      icon:'₿',  chain:'bitcoin',  cg:'bitcoin'}},
+  TRX:        {{name:'TRON',         icon:'🎯', chain:'tron',     cg:'tron'}},
+  USDT_TRC20: {{name:'USDT (TRC-20)',icon:'₮',  chain:'tron',     cg:null,   peg:1}},
+  USDT_ERC20: {{name:'USDT (ERC-20)',icon:'₮',  chain:'ethereum', cg:null,   peg:1}},
+  USDT_BEP20: {{name:'USDT (BEP-20)',icon:'₮',  chain:'bsc',      cg:null,   peg:1}},
+  USDT_TON:   {{name:'USDT (TON)',   icon:'₮',  chain:'ton',      cg:null,   peg:1}},
+  USDT_SOL:   {{name:'USDT (SOL)',   icon:'₮',  chain:'solana',   cg:null,   peg:1}},
+}};
+var CHAIN_LABEL = {{
+  ethereum:'Ethereum (ERC-20)', bsc:'BNB Smart Chain (BEP-20)',
+  polygon:'Polygon', arbitrum:'Arbitrum', optimism:'Optimism',
+  avalanche:'Avalanche', solana:'Solana', tron:'Tron (TRC-20)',
+  ton:'TON', bitcoin:'Bitcoin'
 }};
 var prices = {{}};
-var myWallets = {{}};
+var balances = {{}};      // {{ asset: balanceFloat }}
+var depositAddrs = {{}};  // {{ chain: address }}
+var currentDepChain = null;
+var tonConnectUI = null;
+
+function openTab(name) {{
+  document.querySelectorAll('.wlt-tab').forEach(function(b){{b.classList.toggle('active', b.dataset.tab===name);}});
+  document.querySelectorAll('.wlt-tab-pane').forEach(function(p){{p.classList.toggle('active', p.dataset.pane===name);}});
+  if (name === 'deposit') ensureDeposits();
+  if (name === 'history') loadHistory();
+}}
 
 async function loadPrices() {{
   try {{
-    var ids = Object.values(CHAIN_META).map(m=>m.cg).filter((v,i,a)=>a.indexOf(v)===i).join(',');
+    var ids = ['ethereum','binancecoin','matic-network','avalanche-2','solana','the-open-network','bitcoin','tron'].join(',');
     var r = await fetch('/api/wallet/prices?coins='+ids);
     prices = await r.json();
-    renderPrices();
-    document.getElementById('price-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
-  }} catch(e) {{
-    document.getElementById('price-refresh').textContent = 'Price fetch failed';
-  }}
+  }} catch(e) {{}}
 }}
 
-function renderPrices() {{
-  var grid = document.getElementById('price-grid');
-  var shown = {{}};
-  var html = '';
-  for (var chain in CHAIN_META) {{
-    var m = CHAIN_META[chain];
-    if (shown[m.cg]) continue;
-    shown[m.cg] = true;
-    var p = prices[m.cg];
-    var pStr = p ? '$' + p.toLocaleString('en-US', {{minimumFractionDigits:2, maximumFractionDigits:2}}) : '—';
-    html += '<div class="wlt-price-card"><div class="wlt-price-sym">' + m.icon + ' ' + m.cg.split('-')[0].toUpperCase() + '</div><div class="wlt-price-val">' + pStr + '</div></div>';
-  }}
-  grid.innerHTML = html || '<div class="wlt-empty">No prices</div>';
-}}
-
-async function loadWallets() {{
-  var r = await fetch('/api/wallet/my-wallets');
-  var data = await r.json();
-  myWallets = {{}};
-  (data.wallets || []).forEach(function(w) {{ myWallets[w.chain] = w.address; }});
-  renderWallets();
-}}
-
-function renderWallets() {{
-  var el = document.getElementById('wallets-list');
-  if (Object.keys(myWallets).length === 0) {{
-    el.innerHTML = '<div class="wlt-empty">No wallets added yet. Click below to add one.</div>';
-    return;
-  }}
-  var html = '';
-  for (var chain in myWallets) {{
-    var m = CHAIN_META[chain] || {{name: chain, icon:'🔗'}};
-    var addr = myWallets[chain];
-    var short = addr.length > 24 ? addr.slice(0,10)+'...'+addr.slice(-8) : addr;
-    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06)">';
-    html += '<span style="font-size:1.4em">' + m.icon + '</span>';
-    html += '<div style="flex:1"><div style="font-weight:600;font-size:.9em">' + m.name + '</div>';
-    html += '<div class="wlt-addr-short">' + short + '</div></div>';
-    html += '<button class="btn" onclick="checkBalance(\''+chain+'\',\''+addr+'\')" style="font-size:.75em;padding:6px 12px;background:rgba(255,20,147,.2);border:1px solid rgba(255,20,147,.3)">Balance</button>';
-    html += '<button class="remove-btn" onclick="removeWallet(\''+chain+'\')">✕</button>';
-    html += '</div>';
-  }}
-  el.innerHTML = html;
-}}
-
-async function checkBalance(chain, address) {{
-  var sec = document.getElementById('balance-section');
-  var m = CHAIN_META[chain] || {{name:chain, icon:'🔗'}};
-  document.getElementById('bal-chain-icon').textContent = m.icon;
-  document.getElementById('bal-chain-title').textContent = m.name + ' Balance';
-  document.getElementById('bal-address').textContent = address;
-  document.getElementById('bal-list').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Fetching…</div>';
-  sec.style.display = 'block';
-  sec.scrollIntoView({{behavior:'smooth'}});
+async function loadBalances() {{
+  document.getElementById('assets-list').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Loading…</div>';
   try {{
-    var r = await fetch('/api/wallet/balance?chain='+chain+'&address='+encodeURIComponent(address));
-    var data = await r.json();
-    if (!Array.isArray(data) || data.length === 0) {{
-      document.getElementById('bal-list').innerHTML = '<div class="wlt-empty">No token balances found</div>';
+    var r = await fetch('/api/wallet/internal-balance');
+    var d = await r.json();
+    balances = {{}};
+    (d.balances || []).forEach(function(b){{ balances[b.asset] = parseFloat(b.balance) || 0; }});
+    renderBalances();
+    populateAssetSelects();
+  }} catch(e) {{
+    document.getElementById('assets-list').innerHTML = '<div class="wlt-empty">Failed to load: '+e.message+'</div>';
+  }}
+}}
+
+function assetUsd(asset, amt) {{
+  var m = ASSET_META[asset]; if (!m) return null;
+  if (m.peg) return amt * m.peg;
+  if (m.cg && prices[m.cg]) return amt * prices[m.cg];
+  return null;
+}}
+
+function renderBalances() {{
+  var el = document.getElementById('assets-list');
+  var assets = Object.keys(balances).filter(function(a){{return balances[a]>0;}});
+  // Always show common assets even at 0
+  ['ETH','BNB','SOL','TON','BTC','TRX','USDT_TRC20','USDT_TON'].forEach(function(a){{
+    if (assets.indexOf(a) < 0) assets.push(a);
+  }});
+  var totalUsd = 0, html = '';
+  assets.forEach(function(asset){{
+    var meta = ASSET_META[asset] || {{name:asset, icon:'?', chain:''}};
+    var amt = balances[asset] || 0;
+    var usd = assetUsd(asset, amt);
+    if (usd) totalUsd += usd;
+    var amtStr = amt.toLocaleString('en-US', {{maximumFractionDigits:8}});
+    var usdStr = usd != null ? '$' + usd.toLocaleString('en-US', {{minimumFractionDigits:2, maximumFractionDigits:2}}) : '—';
+    html += '<div class="wlt-asset-row">'
+      + '<div class="wlt-asset-icon">'+meta.icon+'</div>'
+      + '<div class="wlt-asset-name"><div class="nm">'+meta.name+'</div><div class="sub">'+(CHAIN_LABEL[meta.chain]||'')+'</div></div>'
+      + '<div class="wlt-asset-bal"><div class="amt">'+amtStr+'</div><div class="usd">'+usdStr+'</div></div>'
+      + '</div>';
+  }});
+  el.innerHTML = html || '<div class="wlt-empty">No assets yet — deposit to get started.</div>';
+  document.getElementById('total-usd').textContent = '$' + totalUsd.toLocaleString('en-US', {{minimumFractionDigits:2, maximumFractionDigits:2}});
+  document.getElementById('total-sub').textContent = assets.length + ' assets';
+}}
+
+function populateAssetSelects() {{
+  var sendSel = document.getElementById('send-asset');
+  var wdSel = document.getElementById('wd-asset');
+  var wdChain = document.getElementById('wd-chain');
+  var assets = Object.keys(ASSET_META);
+  var sendHtml = '', wdHtml = '';
+  assets.forEach(function(a){{
+    var bal = balances[a] || 0;
+    var balStr = bal > 0 ? ' (' + bal.toLocaleString('en-US',{{maximumFractionDigits:6}}) + ')' : '';
+    sendHtml += '<option value="'+a+'">'+ASSET_META[a].name+balStr+'</option>';
+    wdHtml += '<option value="'+a+'">'+ASSET_META[a].name+balStr+'</option>';
+  }});
+  sendSel.innerHTML = sendHtml;
+  wdSel.innerHTML = wdHtml;
+  var chainHtml = '';
+  Object.keys(CHAIN_LABEL).forEach(function(c){{ chainHtml += '<option value="'+c+'">'+CHAIN_LABEL[c]+'</option>'; }});
+  wdChain.innerHTML = chainHtml;
+  syncWithdrawChain();
+  updateBalanceInfo();
+}}
+
+function syncWithdrawChain() {{
+  var asset = document.getElementById('wd-asset').value;
+  var meta = ASSET_META[asset];
+  if (meta && meta.chain) document.getElementById('wd-chain').value = meta.chain;
+}}
+
+function updateBalanceInfo() {{
+  var sa = document.getElementById('send-asset').value;
+  document.getElementById('send-balance-info').textContent = 'Available: ' + (balances[sa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + sa;
+  var wa = document.getElementById('wd-asset').value;
+  document.getElementById('wd-balance-info').textContent = 'Available: ' + (balances[wa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + wa;
+}}
+
+async function ensureDeposits() {{
+  if (Object.keys(depositAddrs).length > 0) return;
+  document.getElementById('deposit-grid').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Generating addresses…</div>';
+  try {{
+    var r = await fetch('/api/wallet/deposit-addresses');
+    var d = await r.json();
+    if (d.error) {{
+      document.getElementById('deposit-grid').innerHTML = '<div class="alert alert-error">'+d.error+'</div>';
       return;
     }}
-    var html = '';
-    data.forEach(function(tok) {{
-      var bal = parseFloat(tok.balance);
-      var usdVal = '';
-      var cgId = CHAIN_META[chain] ? CHAIN_META[chain].cg : null;
-      if (cgId && prices[cgId] && tok.contract === null) {{
-        usdVal = '≈ $' + (bal * prices[cgId]).toLocaleString('en-US', {{minimumFractionDigits:2, maximumFractionDigits:2}});
-      }}
-      html += '<div class="wlt-bal-row">';
-      html += '<div class="wlt-bal-sym">' + tok.symbol + '</div>';
-      html += '<div class="wlt-bal-amt">' + bal.toFixed(6).replace(/\\.?0+$/,'') + '</div>';
-      if (usdVal) html += '<div class="wlt-bal-usd">' + usdVal + '</div>';
-      html += '</div>';
-    }});
-    document.getElementById('bal-list').innerHTML = html;
+    depositAddrs = d.addresses || {{}};
+    renderDepositGrid();
   }} catch(e) {{
-    document.getElementById('bal-list').innerHTML = '<div class="wlt-empty">Failed to fetch balance: ' + e.message + '</div>';
+    document.getElementById('deposit-grid').innerHTML = '<div class="alert alert-error">Failed: '+e.message+'</div>';
   }}
 }}
 
-function openAddModal() {{
-  document.getElementById('add-modal').style.display = 'flex';
-}}
-function closeAddModal() {{
-  document.getElementById('add-modal').style.display = 'none';
-  document.getElementById('add-address').value = '';
-}}
-
-async function saveWallet() {{
-  var chain = document.getElementById('add-chain').value;
-  var address = document.getElementById('add-address').value.trim();
-  if (!address) {{ alert('Please enter a wallet address'); return; }}
-  var btn = document.getElementById('add-save-btn');
-  btn.disabled = true; btn.textContent = 'Saving…';
-  try {{
-    var r = await fetch('/api/wallet/register-session', {{
-      method:'POST', headers:{{'Content-Type':'application/json'}},
-      body: JSON.stringify({{chain:chain, address:address}})
-    }});
-    var data = await r.json();
-    if (data.ok) {{
-      myWallets[chain] = address;
-      renderWallets();
-      closeAddModal();
-    }} else {{
-      alert('Error: ' + (data.error || 'Unknown error'));
-    }}
-  }} catch(e) {{
-    alert('Error: ' + e.message);
-  }}
-  btn.disabled = false; btn.textContent = 'Save';
-}}
-
-async function removeWallet(chain) {{
-  if (!confirm('Remove ' + (CHAIN_META[chain]||{{name:chain}}).name + ' wallet?')) return;
-  var r = await fetch('/api/wallet/remove-session', {{
-    method:'POST', headers:{{'Content-Type':'application/json'}},
-    body: JSON.stringify({{chain:chain}})
+function renderDepositGrid() {{
+  var html = '';
+  var order = ['ethereum','bsc','polygon','arbitrum','optimism','avalanche','solana','ton','tron','bitcoin'];
+  order.forEach(function(c){{
+    if (!depositAddrs[c]) return;
+    var label = CHAIN_LABEL[c] || c;
+    var icon = '🔗';
+    Object.values(ASSET_META).forEach(function(m){{ if (m.chain===c) icon = m.icon; }});
+    html += '<div class="wlt-deposit-card" onclick="showDeposit(\\''+c+'\\')">'
+      + '<div class="icon">'+icon+'</div>'
+      + '<div class="nm">'+label+'</div>'
+      + '</div>';
   }});
-  var data = await r.json();
-  if (data.ok) {{
-    delete myWallets[chain];
-    renderWallets();
-    document.getElementById('balance-section').style.display='none';
+  document.getElementById('deposit-grid').innerHTML = html || '<div class="wlt-empty">No addresses available</div>';
+}}
+
+function showDeposit(chain) {{
+  currentDepChain = chain;
+  var addr = depositAddrs[chain] || '';
+  document.getElementById('dep-title').textContent = 'Deposit ' + (CHAIN_LABEL[chain]||chain);
+  document.getElementById('dep-warn').innerHTML = '⚠️ Only send <b>' + (CHAIN_LABEL[chain]||chain) + '</b> network assets. Sending wrong network = lost funds.';
+  document.getElementById('dep-address').textContent = addr;
+  var canvas = document.getElementById('dep-qr');
+  if (window.QRCode && addr) {{
+    QRCode.toCanvas(canvas, addr, {{width:200, margin:1, color:{{dark:'#000', light:'#fff'}}}});
+  }}
+  document.getElementById('dep-modal').classList.add('show');
+}}
+function closeDep() {{ document.getElementById('dep-modal').classList.remove('show'); }}
+async function copyDepositAddr() {{
+  try {{ await navigator.clipboard.writeText(depositAddrs[currentDepChain] || ''); alert('Address copied!'); }}
+  catch(e) {{ alert('Copy failed'); }}
+}}
+
+// === Recipient lookup ===
+var recipientTimer = null;
+document.addEventListener('DOMContentLoaded', function(){{
+  document.getElementById('send-recipient').addEventListener('input', function(){{
+    clearTimeout(recipientTimer);
+    var q = this.value.trim();
+    var info = document.getElementById('send-recipient-info');
+    if (!q) {{ info.textContent = ''; return; }}
+    info.textContent = 'Searching…'; info.style.color = 'rgba(255,255,255,.5)';
+    recipientTimer = setTimeout(async function(){{
+      try {{
+        var r = await fetch('/api/wallet/resolve-recipient?q='+encodeURIComponent(q));
+        if (r.ok) {{
+          var d = await r.json();
+          info.innerHTML = '✓ Found: <b>@'+(d.username||d.telegram_id)+'</b> (ID '+d.telegram_id+')';
+          info.style.color = '#86efac';
+        }} else {{
+          info.textContent = '✗ Not found — recipient must use the bot at least once';
+          info.style.color = '#fca5a5';
+        }}
+      }} catch(e) {{}}
+    }}, 350);
+  }});
+  document.getElementById('send-asset').addEventListener('change', updateBalanceInfo);
+  document.getElementById('wd-asset').addEventListener('change', function(){{ syncWithdrawChain(); updateBalanceInfo(); }});
+}});
+
+// === Send (P2P) ===
+async function doSend() {{
+  var btn = document.getElementById('send-btn');
+  var resEl = document.getElementById('send-result');
+  resEl.style.display = 'none';
+  var payload = {{
+    recipient: document.getElementById('send-recipient').value.trim(),
+    asset: document.getElementById('send-asset').value,
+    amount: document.getElementById('send-amount').value,
+    note: document.getElementById('send-note').value.trim(),
+  }};
+  if (!payload.recipient || !payload.amount) {{
+    showResult(resEl, 'error', 'Recipient and amount required'); return;
+  }}
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {{
+    var r = await fetch('/api/wallet/transfer', {{
+      method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(payload)
+    }});
+    var d = await r.json();
+    if (r.ok && d.ok) {{
+      showResult(resEl, 'success', '✓ Sent ' + payload.amount + ' ' + payload.asset + ' to ' + d.recipient);
+      document.getElementById('send-amount').value = '';
+      document.getElementById('send-note').value = '';
+      loadBalances(); loadHistory();
+    }} else {{
+      showResult(resEl, 'error', d.error || 'Transfer failed');
+    }}
+  }} catch(e) {{ showResult(resEl, 'error', 'Network error: '+e.message); }}
+  btn.disabled = false; btn.textContent = '💸 Send';
+}}
+
+// === Withdraw ===
+async function doWithdraw() {{
+  var btn = document.getElementById('wd-btn');
+  var resEl = document.getElementById('wd-result');
+  resEl.style.display = 'none';
+  var payload = {{
+    asset: document.getElementById('wd-asset').value,
+    chain: document.getElementById('wd-chain').value,
+    address: document.getElementById('wd-address').value.trim(),
+    amount: document.getElementById('wd-amount').value,
+  }};
+  if (!payload.address || !payload.amount) {{
+    showResult(resEl, 'error', 'Address and amount required'); return;
+  }}
+  if (!confirm('Withdraw ' + payload.amount + ' ' + payload.asset + ' to ' + payload.address.slice(0,10)+'…'+payload.address.slice(-6) + ' on ' + payload.chain + '?\\n\\nThis is irreversible.')) return;
+  btn.disabled = true; btn.textContent = 'Submitting…';
+  try {{
+    var r = await fetch('/api/wallet/withdraw', {{
+      method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify(payload)
+    }});
+    var d = await r.json();
+    if (r.ok && d.ok) {{
+      showResult(resEl, 'success', '✓ Withdrawal queued (#'+d.tx_id+'). You will be notified once broadcast.');
+      document.getElementById('wd-amount').value = '';
+      document.getElementById('wd-address').value = '';
+      loadBalances(); loadHistory();
+    }} else {{
+      showResult(resEl, 'error', d.error || 'Withdrawal failed');
+    }}
+  }} catch(e) {{ showResult(resEl, 'error', 'Network error: '+e.message); }}
+  btn.disabled = false; btn.textContent = '⬆️ Withdraw';
+}}
+
+function showResult(el, type, msg) {{
+  el.className = 'alert alert-' + type;
+  el.textContent = msg;
+  el.style.display = 'block';
+}}
+
+// === History ===
+async function loadHistory() {{
+  document.getElementById('history-list').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Loading…</div>';
+  try {{
+    var r = await fetch('/api/wallet/transactions?limit=100');
+    var d = await r.json();
+    var txs = d.transactions || [];
+    if (!txs.length) {{ document.getElementById('history-list').innerHTML = '<div class="wlt-empty">No transactions yet</div>'; return; }}
+    var html = '';
+    txs.forEach(function(tx){{
+      var isIn = tx.tx_type === 'transfer_in' || tx.tx_type === 'deposit';
+      var iconCls = tx.tx_type === 'deposit' ? 'dep' : (isIn ? 'in' : 'out');
+      var icon = tx.tx_type === 'deposit' ? '↓' : (tx.tx_type === 'withdraw' ? '↑' : (isIn ? '←' : '→'));
+      var sign = isIn ? '+' : '−';
+      var amtCls = isIn ? 'in' : 'out';
+      var label = ({{deposit:'Deposit', withdraw:'Withdraw', transfer_in:'Received', transfer_out:'Sent'}})[tx.tx_type] || tx.tx_type;
+      var detail = '';
+      if (tx.tx_type === 'transfer_in') detail = 'From user #' + tx.counterparty_id;
+      else if (tx.tx_type === 'transfer_out') detail = 'To user #' + tx.counterparty_id;
+      else if (tx.tx_type === 'deposit') detail = (tx.chain || '') + ' • ' + (tx.address ? tx.address.slice(0,12)+'…' : '');
+      else if (tx.tx_type === 'withdraw') detail = 'To ' + (tx.address ? tx.address.slice(0,12)+'…'+tx.address.slice(-6) : '');
+      if (tx.note) detail += ' • ' + tx.note;
+      var dt = tx.created_at ? new Date(tx.created_at).toLocaleString() : '';
+      html += '<div class="wlt-tx-row">'
+        + '<div class="wlt-tx-icon '+iconCls+'">'+icon+'</div>'
+        + '<div class="wlt-tx-info"><div class="t">'+label+' '+tx.asset+'</div><div class="d">'+detail+' • '+dt+'</div></div>'
+        + '<div><div class="wlt-tx-amt '+amtCls+'">'+sign+parseFloat(tx.amount).toLocaleString('en-US',{{maximumFractionDigits:8}})+'</div>'
+        + '<div class="wlt-tx-status '+tx.status+'">'+tx.status+'</div></div>'
+        + '</div>';
+    }});
+    document.getElementById('history-list').innerHTML = html;
+  }} catch(e) {{
+    document.getElementById('history-list').innerHTML = '<div class="wlt-empty">Failed: '+e.message+'</div>';
   }}
 }}
 
-loadPrices();
-loadWallets();
-setInterval(loadPrices, 60000);
+// === TON Connect (browser-side wallet connection) ===
+function initTonConnect() {{
+  if (typeof TON_CONNECT_UI === 'undefined') return;
+  try {{
+    tonConnectUI = new TON_CONNECT_UI.TonConnectUI({{
+      manifestUrl: window.location.origin + '/tonconnect-manifest.json',
+      buttonRootId: 'ton-connect-slot'
+    }});
+    tonConnectUI.onStatusChange(function(wallet){{
+      document.getElementById('ton-quick-deposit').style.display = wallet ? 'block' : 'none';
+    }});
+  }} catch(e) {{ console.warn('TON Connect init failed', e); }}
+}}
+
+async function tonQuickDeposit() {{
+  if (!tonConnectUI || !depositAddrs.ton) {{ alert('TON wallet not ready'); return; }}
+  var addr = depositAddrs.ton;
+  try {{
+    await tonConnectUI.sendTransaction({{
+      validUntil: Math.floor(Date.now()/1000) + 360,
+      messages: [{{ address: addr, amount: '1000000000' /* 1 TON nano */ }}]
+    }});
+    alert('Transaction sent — funds will be credited after on-chain confirmation.');
+  }} catch(e) {{ alert('Transaction cancelled or failed: ' + e.message); }}
+}}
+
+(async function init(){{
+  await loadPrices();
+  await loadBalances();
+  setTimeout(initTonConnect, 400);
+  setInterval(function(){{ loadPrices().then(renderBalances); }}, 60000);
+}})();
 </script>
 </body>
 </html>""")
+
+
+@app.route('/tonconnect-manifest.json')
+def tonconnect_manifest():
+    """TON Connect manifest required by browser SDK."""
+    base = request.url_root.rstrip('/')
+    return jsonify({
+        "url": base,
+        "name": "Onichan Wallet",
+        "iconUrl": f"{base}/static/logo.png",
+    })
+
+
+
 
 
 
