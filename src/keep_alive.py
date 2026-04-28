@@ -14213,8 +14213,13 @@ def user_wallet_page():
         <div id="send-recipient-info" style="font-size:.78em;margin-top:5px;min-height:18px"></div>
       </div>
       <div class="form-group">
-        <label>Asset</label>
+        <label>Token</label>
         <select id="send-asset"></select>
+      </div>
+      <div class="form-group" id="send-network-group" style="display:none">
+        <label>Network</label>
+        <select id="send-chain"></select>
+        <div id="send-network-info" style="font-size:.75em;color:rgba(255,255,255,.5);margin-top:5px">Picks which balance bucket to debit.</div>
       </div>
       <div class="form-group">
         <label>Amount</label>
@@ -14238,18 +14243,18 @@ def user_wallet_page():
       <h2 style="margin-bottom:10px">Withdraw</h2>
       <div class="alert alert-info">Send to <b>@username</b>, a <b>Telegram ID</b>, or a <b>wallet address</b>. The network is auto-detected.</div>
       <div class="form-group">
-        <label>Asset</label>
+        <label>Token</label>
         <select id="wd-asset"></select>
+      </div>
+      <div class="form-group" id="wd-network-group" style="display:none">
+        <label>Network</label>
+        <select id="wd-chain"></select>
+        <div id="wd-network-info" style="font-size:.75em;color:rgba(255,255,255,.5);margin-top:5px">Pick the network this token lives on. Sending to the wrong network = lost funds.</div>
       </div>
       <div class="form-group">
         <label>Recipient</label>
         <input type="text" id="wd-recipient" placeholder="@username, Telegram ID, or wallet address" autocomplete="off">
         <div id="wd-recipient-info" style="font-size:.78em;margin-top:5px;min-height:18px"></div>
-      </div>
-      <div class="form-group" id="wd-network-group" style="display:none">
-        <label>Network</label>
-        <select id="wd-chain"></select>
-        <div style="font-size:.75em;color:rgba(255,255,255,.5);margin-top:5px">Pick the network this address lives on. Sending to the wrong network = lost funds.</div>
       </div>
       <div class="form-group">
         <label>Amount</label>
@@ -14276,6 +14281,17 @@ def user_wallet_page():
       </div>
       <div id="history-list"><div class="wlt-empty">Loading…</div></div>
     </div>
+  </div>
+</div>
+
+<!-- Network chooser modal (shown when a multi-network token is picked) -->
+<div class="wlt-modal" id="net-modal">
+  <div class="wlt-modal-content" style="position:relative;max-width:440px">
+    <button class="close-x" onclick="closeNetModal()">×</button>
+    <h2 id="net-title" style="margin-bottom:6px">Choose Network</h2>
+    <div id="net-sub" style="font-size:.82em;color:rgba(255,255,255,.55);margin-bottom:14px"></div>
+    <div id="net-list"></div>
+    <div class="alert alert-warn" style="margin-top:10px;font-size:.78em">⚠️ Make sure to pick the same network the sender is using. Wrong network = lost funds.</div>
   </div>
 </div>
 
@@ -14306,6 +14322,8 @@ var ASSET_META = {{
   USDT_BEP20: {{name:'USDT (BEP-20)',icon:'₮',  chain:'bsc',      cg:null,   peg:1}},
   USDT_TON:   {{name:'USDT (TON)',   icon:'₮',  chain:'ton',      cg:null,   peg:1}},
   USDT_SOL:   {{name:'USDT (SOL)',   icon:'₮',  chain:'solana',   cg:null,   peg:1}},
+  USDC_ERC20: {{name:'USDC (ERC-20)',icon:'$',  chain:'ethereum', cg:null,   peg:1}},
+  USDC_SOL:   {{name:'USDC (SOL)',   icon:'$',  chain:'solana',   cg:null,   peg:1}},
 }};
 var CHAIN_LABEL = {{
   ethereum:'Ethereum (ERC-20)', bsc:'BNB Smart Chain (BEP-20)',
@@ -14313,6 +14331,65 @@ var CHAIN_LABEL = {{
   avalanche:'Avalanche', solana:'Solana', tron:'Tron (TRC-20)',
   ton:'TON', bitcoin:'Bitcoin'
 }};
+// === Token-first registry: groups asset variants by their underlying token ===
+// Each entry defines a token (BTC, USDT, …) and the networks it can deposit /
+// withdraw on. The `asset` field maps each network back to the underlying
+// asset key used by the wallet API and balance ledger.
+var TOKEN_GROUPS = [
+  {{token:'BTC',  name:'Bitcoin',     icon:'₿', cg:'bitcoin',
+    networks:[{{chain:'bitcoin',  label:'Bitcoin',                 asset:'BTC'}}]}},
+  {{token:'ETH',  name:'Ethereum',    icon:'⟠', cg:'ethereum',
+    networks:[
+      {{chain:'ethereum', label:'Ethereum (ERC-20)',  asset:'ETH'}},
+      {{chain:'arbitrum', label:'Arbitrum One',       asset:'ETH'}},
+      {{chain:'optimism', label:'Optimism',           asset:'ETH'}}
+    ]}},
+  {{token:'BNB',  name:'BNB',         icon:'🔶', cg:'binancecoin',
+    networks:[{{chain:'bsc', label:'BNB Smart Chain (BEP-20)', asset:'BNB'}}]}},
+  {{token:'POL',  name:'Polygon',     icon:'🟣', cg:'matic-network',
+    networks:[{{chain:'polygon', label:'Polygon (PoS)', asset:'POL'}}]}},
+  {{token:'AVAX', name:'Avalanche',   icon:'🔺', cg:'avalanche-2',
+    networks:[{{chain:'avalanche', label:'Avalanche C-Chain', asset:'AVAX'}}]}},
+  {{token:'SOL',  name:'Solana',      icon:'◎',  cg:'solana',
+    networks:[{{chain:'solana', label:'Solana', asset:'SOL'}}]}},
+  {{token:'TON',  name:'Toncoin',     icon:'💎', cg:'the-open-network',
+    networks:[{{chain:'ton', label:'TON', asset:'TON'}}]}},
+  {{token:'TRX',  name:'TRON',        icon:'🎯', cg:'tron',
+    networks:[{{chain:'tron', label:'Tron', asset:'TRX'}}]}},
+  {{token:'USDT', name:'Tether USD',  icon:'₮', peg:1,
+    networks:[
+      {{chain:'tron',     label:'Tron (TRC-20)',           asset:'USDT_TRC20'}},
+      {{chain:'ethereum', label:'Ethereum (ERC-20)',       asset:'USDT_ERC20'}},
+      {{chain:'bsc',      label:'BNB Smart Chain (BEP-20)',asset:'USDT_BEP20'}},
+      {{chain:'ton',      label:'TON',                     asset:'USDT_TON'}},
+      {{chain:'solana',   label:'Solana',                  asset:'USDT_SOL'}}
+    ]}},
+  {{token:'USDC', name:'USD Coin',    icon:'$', peg:1,
+    networks:[
+      {{chain:'ethereum', label:'Ethereum (ERC-20)', asset:'USDC_ERC20'}},
+      {{chain:'solana',   label:'Solana',            asset:'USDC_SOL'}}
+    ]}}
+];
+function tokenGroup(token) {{
+  for (var i=0; i<TOKEN_GROUPS.length; i++) if (TOKEN_GROUPS[i].token === token) return TOKEN_GROUPS[i];
+  return null;
+}}
+function tokenForAsset(asset) {{
+  for (var i=0; i<TOKEN_GROUPS.length; i++) {{
+    var g = TOKEN_GROUPS[i];
+    for (var j=0; j<g.networks.length; j++) if (g.networks[j].asset === asset) return g.token;
+  }}
+  return asset;
+}}
+function assetForTokenChain(token, chain) {{
+  var g = tokenGroup(token); if (!g) return token;
+  for (var i=0; i<g.networks.length; i++) if (g.networks[i].chain === chain) return g.networks[i].asset;
+  return g.networks[0] ? g.networks[0].asset : token;
+}}
+function tokenTotalBalance(token) {{
+  var g = tokenGroup(token); if (!g) return balances[token] || 0;
+  var t = 0; g.networks.forEach(function(n){{ t += (balances[n.asset] || 0); }}); return t;
+}}
 // Chain registry shared with the backend (regex strings, explorer URL templates).
 var CHAIN_CFG = {chain_cfg_json};
 function explorerTxUrl(chain, hash) {{
@@ -14433,28 +14510,83 @@ function renderBalances() {{
   document.getElementById('total-sub').textContent = assets.length + ' assets';
 }}
 
+// Token-first selectors. The asset SELECT now holds a TOKEN symbol (e.g. "USDT")
+// and the network SELECT picks the chain (e.g. "tron" → asset USDT_TRC20).
 function populateAssetSelects() {{
   var sendSel = document.getElementById('send-asset');
   var wdSel = document.getElementById('wd-asset');
-  var assets = Object.keys(ASSET_META);
   var sendHtml = '', wdHtml = '';
-  assets.forEach(function(a){{
-    var bal = balances[a] || 0;
+  TOKEN_GROUPS.forEach(function(g){{
+    var bal = tokenTotalBalance(g.token);
     var balStr = bal > 0 ? ' (' + bal.toLocaleString('en-US',{{maximumFractionDigits:6}}) + ')' : '';
-    sendHtml += '<option value="'+a+'">'+ASSET_META[a].name+balStr+'</option>';
-    wdHtml += '<option value="'+a+'">'+ASSET_META[a].name+balStr+'</option>';
+    var opt = '<option value="'+g.token+'">'+g.icon+' '+g.name+' ('+g.token+')'+balStr+'</option>';
+    sendHtml += opt;
+    wdHtml += opt;
   }});
   sendSel.innerHTML = sendHtml;
   wdSel.innerHTML = wdHtml;
+  populateChainSelect('send', null);
+  populateChainSelect('wd', null);
   updateBalanceInfo();
   reparseWithdrawRecipient();
 }}
 
+// Populate a network <select> with the currently-selected token's networks.
+// `restrictToChains` (optional) intersects with the token's networks so that
+// the address-derived chain candidates win when paired with a wallet address.
+function populateChainSelect(prefix, restrictToChains) {{
+  var token = document.getElementById(prefix+'-asset').value;
+  var grp = document.getElementById(prefix+'-network-group');
+  var sel = document.getElementById(prefix+'-chain');
+  var info = document.getElementById(prefix+'-network-info');
+  if (!grp || !sel) return;
+  var g = tokenGroup(token);
+  if (!g) {{ grp.style.display = 'none'; return; }}
+  var nets = g.networks.slice();
+  if (restrictToChains && restrictToChains.length) {{
+    nets = nets.filter(function(n){{ return restrictToChains.indexOf(n.chain) >= 0; }});
+  }}
+  if (nets.length === 0) {{
+    grp.style.display = 'block';
+    sel.innerHTML = '<option value="">— no compatible network —</option>';
+    if (info) info.textContent = 'This address does not match any '+token+' network.';
+    return;
+  }}
+  // For single-network tokens with no narrowing in play, still keep the row
+  // visible so the user always sees which network they're using — but only
+  // for the WITHDRAW tab. For SEND (internal P2P) we hide it to keep the form
+  // tight when the token is single-network.
+  if (nets.length === 1 && prefix === 'send') {{
+    grp.style.display = 'none';
+    sel.innerHTML = '<option value="'+nets[0].chain+'">'+nets[0].label+'</option>';
+    return;
+  }}
+  var prev = sel.value;
+  var html = '';
+  nets.forEach(function(n){{
+    var bal = balances[n.asset] || 0;
+    var balStr = bal > 0 ? ' — bal '+bal.toLocaleString('en-US',{{maximumFractionDigits:6}}) : '';
+    html += '<option value="'+n.chain+'">'+n.label+balStr+'</option>';
+  }});
+  sel.innerHTML = html;
+  if (prev && nets.some(function(n){{return n.chain===prev;}})) sel.value = prev;
+  grp.style.display = 'block';
+  if (info) info.textContent = '';
+}}
+
+// Resolve the currently-selected (token, chain) to the underlying asset key.
+function selectedAsset(prefix) {{
+  var token = document.getElementById(prefix+'-asset').value;
+  var sel = document.getElementById(prefix+'-chain');
+  var chain = sel && sel.value ? sel.value : (tokenGroup(token) && tokenGroup(token).networks[0].chain);
+  return assetForTokenChain(token, chain);
+}}
+
 function updateBalanceInfo() {{
-  var sa = document.getElementById('send-asset').value;
-  document.getElementById('send-balance-info').textContent = 'Available: ' + (balances[sa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + sa;
-  var wa = document.getElementById('wd-asset').value;
-  document.getElementById('wd-balance-info').textContent = 'Available: ' + (balances[wa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + wa;
+  var sa = selectedAsset('send'), st = document.getElementById('send-asset').value;
+  document.getElementById('send-balance-info').textContent = 'Available: ' + (balances[sa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + st;
+  var wa = selectedAsset('wd'), wt = document.getElementById('wd-asset').value;
+  document.getElementById('wd-balance-info').textContent = 'Available: ' + (balances[wa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + wt;
 }}
 
 // === Smart withdraw recipient parser ===
@@ -14464,39 +14596,35 @@ function setWdInfo(html, color) {{
   var el = document.getElementById('wd-recipient-info');
   el.innerHTML = html; el.style.color = color || 'rgba(255,255,255,.5)';
 }}
-function showNetworkPicker(candidates, selected) {{
-  var grp = document.getElementById('wd-network-group');
-  var sel = document.getElementById('wd-chain');
-  if (!candidates || candidates.length === 0) {{ grp.style.display = 'none'; return; }}
-  var html = '';
-  candidates.forEach(function(c){{
-    html += '<option value="'+c+'">'+(CHAIN_CFG.chains[c] && CHAIN_CFG.chains[c].label || c)+'</option>';
-  }});
-  sel.innerHTML = html;
-  if (selected && candidates.indexOf(selected) >= 0) sel.value = selected;
-  grp.style.display = 'block';
-}}
-function hideNetworkPicker() {{
-  document.getElementById('wd-network-group').style.display = 'none';
-}}
 function reparseWithdrawRecipient() {{
   clearTimeout(wdParseTimer);
+  // Always (re-)populate the network select from the chosen TOKEN. Address
+  // parsing below may further narrow it.
+  populateChainSelect('wd', null);
+  updateBalanceInfo();
   var raw = document.getElementById('wd-recipient').value.trim();
-  var asset = document.getElementById('wd-asset').value;
+  var token = document.getElementById('wd-asset').value;
   if (!raw) {{
     wdParsed = null;
-    setWdInfo(''); hideNetworkPicker();
+    setWdInfo('');
     document.getElementById('wd-note-group').style.display = 'none';
     return;
   }}
   setWdInfo('Checking…');
   wdParseTimer = setTimeout(async function(){{
     try {{
-      var url = '/api/wallet/parse-recipient?q='+encodeURIComponent(raw)+'&asset='+encodeURIComponent(asset);
+      // Ask the parser for ALL chains the address format matches (omit
+      // `asset` so it doesn't narrow to a single chain-variant before we get
+      // a chance to intersect with the token's networks below).
+      var url = '/api/wallet/parse-recipient?q='+encodeURIComponent(raw);
       var r = await fetch(url);
       var d = await r.json();
       wdParsed = d;
-      if (d.error) {{ setWdInfo('✗ '+d.error, '#fca5a5'); hideNetworkPicker(); document.getElementById('wd-note-group').style.display='none'; return; }}
+      if (d.error) {{
+        setWdInfo('✗ '+d.error, '#fca5a5');
+        document.getElementById('wd-note-group').style.display = 'none';
+        return;
+      }}
       if (d.kind === 'tg_id' || d.kind === 'tg_username') {{
         if (d.resolved) {{
           var label = d.username ? '@'+d.username : ('User #'+d.telegram_id);
@@ -14504,23 +14632,28 @@ function reparseWithdrawRecipient() {{
         }} else {{
           setWdInfo('✗ Recipient not found — they must use the bot at least once', '#fca5a5');
         }}
-        hideNetworkPicker();
         document.getElementById('wd-note-group').style.display = 'block';
       }} else if (d.kind === 'address') {{
         document.getElementById('wd-note-group').style.display = 'none';
         var cands = d.candidates || [];
+        // Narrow the chain select to (token's networks ∩ address-detected chains).
+        populateChainSelect('wd', cands);
         if (cands.length === 0) {{
           setWdInfo('✗ Address format not recognized', '#fca5a5');
-          hideNetworkPicker();
-        }} else if (cands.length === 1) {{
-          var label = (CHAIN_CFG.chains[cands[0]] && CHAIN_CFG.chains[cands[0]].label) || cands[0];
-          setWdInfo('🔗 On-chain to <b>'+label+'</b>', '#86efac');
-          hideNetworkPicker();
         }} else {{
-          setWdInfo('🔗 Address valid on multiple networks — pick one below', '#fcd34d');
-          showNetworkPicker(cands, d.chain || cands[0]);
+          // How many of those candidates are valid for the selected token?
+          var grp = tokenGroup(token);
+          var compat = grp ? grp.networks.filter(function(n){{return cands.indexOf(n.chain)>=0;}}) : [];
+          if (compat.length === 0) {{
+            setWdInfo('✗ This address does not match any '+token+' network', '#fca5a5');
+          }} else if (compat.length === 1) {{
+            setWdInfo('🔗 On-chain to <b>'+compat[0].label+'</b>', '#86efac');
+          }} else {{
+            setWdInfo('🔗 Address valid on multiple '+token+' networks — pick one above', '#fcd34d');
+          }}
         }}
       }}
+      updateBalanceInfo();
     }} catch(e) {{ setWdInfo('Network check failed', '#fca5a5'); }}
   }}, 250);
 }}
@@ -14545,27 +14678,74 @@ async function ensureDeposits() {{
   }}
 }}
 
+// Token-first deposit grid. Each card represents a TOKEN. Clicking a token
+// with one network jumps straight to the address modal; multi-network tokens
+// (USDT, USDC, ETH) open the network chooser first.
 function renderDepositGrid() {{
   var html = '';
-  var order = ['ethereum','bsc','polygon','arbitrum','optimism','avalanche','solana','ton','tron','bitcoin'];
-  order.forEach(function(c){{
-    if (!depositAddrs[c]) return;
-    var label = CHAIN_LABEL[c] || c;
-    var icon = '🔗';
-    Object.values(ASSET_META).forEach(function(m){{ if (m.chain===c) icon = m.icon; }});
-    html += '<div class="wlt-deposit-card" onclick="showDeposit(\\''+c+'\\')">'
-      + '<div class="icon">'+icon+'</div>'
-      + '<div class="nm">'+label+'</div>'
+  TOKEN_GROUPS.forEach(function(g, idx){{
+    // Only show tokens for which at least one network has a derived address.
+    var avail = g.networks.filter(function(n){{ return !!depositAddrs[n.chain]; }});
+    if (avail.length === 0) return;
+    var subtitle = avail.length === 1
+      ? (CHAIN_LABEL[avail[0].chain] || avail[0].label)
+      : avail.length + ' networks';
+    html += '<div class="wlt-deposit-card" onclick="showTokenDeposit('+idx+')">'
+      + '<div class="icon">'+g.icon+'</div>'
+      + '<div class="nm">'+g.token+'</div>'
+      + '<div class="sub" style="font-size:.7em;color:rgba(255,255,255,.55);margin-top:2px">'+subtitle+'</div>'
       + '</div>';
   }});
   document.getElementById('deposit-grid').innerHTML = html || '<div class="wlt-empty">No addresses available</div>';
 }}
 
-function showDeposit(chain) {{
+// Click handler for a token card on the deposit grid.
+function showTokenDeposit(idx) {{
+  var g = TOKEN_GROUPS[idx]; if (!g) return;
+  var avail = g.networks.filter(function(n){{ return !!depositAddrs[n.chain]; }});
+  if (avail.length === 0) {{ alert('No deposit address available for '+g.token); return; }}
+  if (avail.length === 1) {{ showDeposit(avail[0].chain, g, avail[0]); return; }}
+  showNetworkChooser(g, avail);
+}}
+
+// Network chooser modal — like the Binance "Choose Network" sheet.
+function showNetworkChooser(g, networks) {{
+  var sub = document.getElementById('net-sub');
+  var list = document.getElementById('net-list');
+  document.getElementById('net-title').textContent = 'Select '+g.token+' Network';
+  sub.textContent = 'Pick the network the sender will use to deposit your '+g.name+'.';
+  var html = '';
+  networks.forEach(function(n){{
+    var addr = depositAddrs[n.chain] || '';
+    var short = addr ? (addr.slice(0,8)+'…'+addr.slice(-6)) : '— no address —';
+    html += '<div class="wlt-deposit-card" style="cursor:pointer;display:flex;align-items:center;gap:12px;text-align:left;padding:12px 14px;margin-bottom:8px" '
+      +     'onclick="closeNetModal();showDeposit(\\''+n.chain+'\\','+JSON.stringify(g.token).replace(/\"/g,'&quot;')+',null)">'
+      +   '<div class="icon" style="font-size:1.5em">'+g.icon+'</div>'
+      +   '<div style="flex:1">'
+      +     '<div class="nm" style="font-weight:600">'+n.label+'</div>'
+      +     '<div class="sub" style="font-size:.72em;color:rgba(255,255,255,.55);margin-top:2px;font-family:monospace">'+short+'</div>'
+      +   '</div>'
+      +   '<div style="opacity:.5">›</div>'
+      + '</div>';
+  }});
+  list.innerHTML = html;
+  document.getElementById('net-modal').classList.add('show');
+}}
+function closeNetModal() {{ document.getElementById('net-modal').classList.remove('show'); }}
+
+// `tokenOrLabel` may be a TOKEN_GROUPS entry, a token symbol string, or null
+// (legacy callers). `network` is the matched {{chain,label,asset}} entry, also
+// optional.
+function showDeposit(chain, tokenOrLabel, network) {{
   currentDepChain = chain;
   var addr = depositAddrs[chain] || '';
-  document.getElementById('dep-title').textContent = 'Deposit ' + (CHAIN_LABEL[chain]||chain);
-  document.getElementById('dep-warn').innerHTML = '⚠️ Only send <b>' + (CHAIN_LABEL[chain]||chain) + '</b> network assets. Sending wrong network = lost funds.';
+  var token = (tokenOrLabel && tokenOrLabel.token) ? tokenOrLabel.token : (typeof tokenOrLabel === 'string' ? tokenOrLabel : '');
+  var netLabel = (network && network.label) || CHAIN_LABEL[chain] || chain;
+  var title = token ? ('Deposit '+token+' — '+netLabel) : ('Deposit '+netLabel);
+  document.getElementById('dep-title').textContent = title;
+  document.getElementById('dep-warn').innerHTML = '⚠️ Only send '
+    + (token ? '<b>'+token+'</b> on the <b>'+netLabel+'</b> network' : '<b>'+netLabel+'</b> network assets')
+    + '. Wrong network = lost funds.';
   document.getElementById('dep-address').textContent = addr;
   var canvas = document.getElementById('dep-qr');
   if (window.QRCode && addr) {{
@@ -14602,8 +14782,10 @@ document.addEventListener('DOMContentLoaded', function(){{
       }} catch(e) {{}}
     }}, 350);
   }});
-  document.getElementById('send-asset').addEventListener('change', updateBalanceInfo);
-  document.getElementById('wd-asset').addEventListener('change', function(){{ updateBalanceInfo(); reparseWithdrawRecipient(); }});
+  document.getElementById('send-asset').addEventListener('change', function(){{ populateChainSelect('send', null); updateBalanceInfo(); }});
+  document.getElementById('send-chain').addEventListener('change', updateBalanceInfo);
+  document.getElementById('wd-asset').addEventListener('change', function(){{ populateChainSelect('wd', null); updateBalanceInfo(); reparseWithdrawRecipient(); }});
+  document.getElementById('wd-chain').addEventListener('change', updateBalanceInfo);
   document.getElementById('wd-recipient').addEventListener('input', reparseWithdrawRecipient);
 }});
 
@@ -14612,9 +14794,11 @@ async function doSend() {{
   var btn = document.getElementById('send-btn');
   var resEl = document.getElementById('send-result');
   resEl.style.display = 'none';
+  var asset = selectedAsset('send');
+  var token = document.getElementById('send-asset').value;
   var payload = {{
     recipient: document.getElementById('send-recipient').value.trim(),
-    asset: document.getElementById('send-asset').value,
+    asset: asset,
     amount: document.getElementById('send-amount').value,
     note: document.getElementById('send-note').value.trim(),
   }};
@@ -14628,7 +14812,7 @@ async function doSend() {{
     }});
     var d = await r.json();
     if (r.ok && d.ok) {{
-      showResult(resEl, 'success', '✓ Sent ' + payload.amount + ' ' + payload.asset + ' to ' + d.recipient);
+      showResult(resEl, 'success', '✓ Sent ' + payload.amount + ' ' + token + ' to ' + d.recipient);
       document.getElementById('send-amount').value = '';
       document.getElementById('send-note').value = '';
       loadBalances(); loadHistory();
@@ -14645,7 +14829,8 @@ async function doWithdraw() {{
   var resEl = document.getElementById('wd-result');
   resEl.style.display = 'none';
   var recipient = document.getElementById('wd-recipient').value.trim();
-  var asset = document.getElementById('wd-asset').value;
+  var token = document.getElementById('wd-asset').value;
+  var asset = selectedAsset('wd');
   var amount = document.getElementById('wd-amount').value;
   var note = (document.getElementById('wd-note') || {{}}).value || '';
   var chainPicker = document.getElementById('wd-network-group');
@@ -14654,15 +14839,18 @@ async function doWithdraw() {{
   if (!recipient || !amount) {{
     showResult(resEl, 'error', 'Recipient and amount required'); return;
   }}
+  if (!asset) {{
+    showResult(resEl, 'error', 'Pick a network for '+token); return;
+  }}
   // Confirm with the right phrasing per route.
   var kind = (wdParsed && wdParsed.kind) || '';
   var confirmMsg;
   if (kind === 'tg_id' || kind === 'tg_username') {{
-    confirmMsg = 'Send ' + amount + ' ' + asset + ' to ' + recipient + ' (instant, internal)?';
+    confirmMsg = 'Send ' + amount + ' ' + token + ' to ' + recipient + ' (instant, internal)?';
   }} else {{
     var shortAddr = recipient.length > 18 ? recipient.slice(0,10)+'…'+recipient.slice(-6) : recipient;
     var net = chain ? (CHAIN_CFG.chains[chain] && CHAIN_CFG.chains[chain].label || chain) : '(auto)';
-    confirmMsg = 'Withdraw ' + amount + ' ' + asset + ' to ' + shortAddr + ' on ' + net + '?\\n\\nThis is irreversible.';
+    confirmMsg = 'Withdraw ' + amount + ' ' + token + ' to ' + shortAddr + ' on ' + net + '?\\n\\nThis is irreversible.';
   }}
   if (!confirm(confirmMsg)) return;
   btn.disabled = true; btn.textContent = 'Submitting…';
@@ -14674,8 +14862,9 @@ async function doWithdraw() {{
     }});
     var d = await r.json();
     if (r.status === 409 && d.candidates) {{
-      // Ambiguous EVM address — pop the picker and ask again.
-      showNetworkPicker(d.candidates, d.candidates[0]);
+      // Ambiguous EVM address — narrow the network select to the candidates
+      // and ask the user to confirm.
+      populateChainSelect('wd', d.candidates);
       showResult(resEl, 'warn', d.error || 'Pick a network and try again.');
     }} else if (r.ok && d.ok) {{
       var msg = d.kind === 'internal'
@@ -14685,7 +14874,6 @@ async function doWithdraw() {{
       document.getElementById('wd-amount').value = '';
       document.getElementById('wd-recipient').value = '';
       if (document.getElementById('wd-note')) document.getElementById('wd-note').value = '';
-      hideNetworkPicker();
       setWdInfo('');
       loadBalances(); loadHistory();
     }} else {{
