@@ -4159,17 +4159,20 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not context.args:
-        platforms_list = ", ".join([f"{get_platform_emoji(p)} {p.title()}" for p in list(SUPPORTED_PLATFORMS.keys())[:8]])
+        platforms_list = " · ".join([f"{get_platform_emoji(p)} {p.title()}" for p in list(SUPPORTED_PLATFORMS.keys())])
         await update.message.reply_text(
-            f"🎬 <b>Social Media Downloader</b>\n\n"
+            f"🎬 <b>Universal Downloader</b>\n\n"
             f"<b>Usage:</b>\n"
-            f"<code>/download [url]</code> - Download video\n"
-            f"<code>/download [url] audio</code> - Download audio only\n\n"
-            f"<b>Supported Platforms:</b>\n"
-            f"{platforms_list}, and more!\n\n"
+            f"<code>/download [url]</code> — Download video\n"
+            f"<code>/download [url] audio</code> — Extract audio only\n\n"
+            f"<b>Works with any link!</b>\n"
+            f"Best support for:\n"
+            f"{platforms_list}\n\n"
             f"<b>Examples:</b>\n"
-            f"<code>/download https://tiktok.com/...</code>\n"
-            f"<code>/download https://instagram.com/... audio</code>",
+            f"<code>/download https://youtu.be/...</code>\n"
+            f"<code>/download https://instagram.com/reel/...</code>\n"
+            f"<code>/download https://tiktok.com/... audio</code>\n"
+            f"<code>/download https://twitter.com/...</code>",
             parse_mode=ParseMode.HTML
         )
         return
@@ -4178,14 +4181,6 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audio_only = len(context.args) > 1 and context.args[1].lower() in ['audio', 'mp3', 'music']
     
     platform = get_platform(url)
-    if not platform:
-        await update.message.reply_text(
-            "❌ <b>Unsupported URL</b>\n\n"
-            "Send a link from Instagram, TikTok, YouTube, Twitter/X, Facebook, Pinterest, Reddit, etc.",
-            parse_mode=ParseMode.HTML
-        )
-        return
-    
     emoji = get_platform_emoji(platform)
     mode_text = "🎵 audio" if audio_only else "📹 video"
     loading_msg = await update.message.reply_text(

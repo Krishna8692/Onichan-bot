@@ -24,13 +24,22 @@ SUPPORTED_PLATFORMS = {
     "twitch": ["twitch.tv", "clips.twitch.tv"],
 }
 
-def get_platform(url: str) -> Optional[str]:
+def get_platform(url: str) -> str:
     url_lower = url.lower()
     for platform, domains in SUPPORTED_PLATFORMS.items():
         for domain in domains:
             if domain in url_lower:
                 return platform
-    return None
+    # Extract a readable name from the hostname for unknown sites
+    try:
+        import re as _re
+        m = _re.search(r"https?://(?:www\.)?([^/]+)", url_lower)
+        if m:
+            host = m.group(1).split(".")[0]
+            return host[:20]
+    except Exception:
+        pass
+    return "web"
 
 def get_platform_emoji(platform: str) -> str:
     emojis = {
@@ -279,10 +288,6 @@ class SocialMediaDownloader:
         try:
             platform = get_platform(url)
             result["platform"] = platform
-
-            if not platform:
-                result["error"] = "Unsupported platform. Send a link from Instagram, TikTok, YouTube, Twitter/X, Facebook, Pinterest, Reddit, etc."
-                return result
 
             loop = asyncio.get_event_loop()
             opts = self._get_ydl_opts(audio_only)
