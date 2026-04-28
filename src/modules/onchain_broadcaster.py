@@ -97,6 +97,68 @@ def _evm_erc20_transfer_data(to_addr: str, amount_smallest: int) -> str:
     return "0x" + method + addr_clean + amt_hex
 
 
+def _evm_erc20_balance_of(chain: str, contract: str, owner: str) -> int:
+    """eth_call balanceOf(owner)."""
+    data = "0x70a08231" + owner.lower().replace("0x", "").rjust(64, "0")
+    res = _evm_rpc(chain, "eth_call", [{"to": contract, "data": data}, "latest"])
+    if not res or res == "0x":
+        return 0
+    return int(res, 16)
+
+
+def get_receipt_status(chain: str, tx_hash: str) -> str:
+    """
+    Poll a broadcast transaction's receipt.
+
+    Returns one of:
+      'success'   — included and not reverted
+      'reverted'  — included but reverted (refund the user)
+      'pending'   — still in mempool / not yet mined
+    """
+    if not tx_hash:
+        return "pending"
+    cfg = CHAINS_CFG = cc.CHAINS.get((chain or "").lower())
+    if not cfg:
+        return "pending"
+    if cfg.get("is_evm"):
+        try:
+            res = _evm_rpc(chain, "eth_getTransactionReceipt", [tx_hash])
+            if not res:
+                return "pending"
+            status = res.get("status")
+            if status is None:
+                # Pre-Byzantium / unknown — assume success if mined
+                return "success"
+            return "success" if int(status, 16) == 1 else "reverted"
+        except Exception:
+            return "pending"
+    if (chain or "").lower() == "tron":
+        try:
+            from tronpy import Tron  # type: ignore
+            client = Tron()
+            info = client.get_transaction_info(tx_hash)
+            if not info:
+                return "pending"
+            # Energy/contract-level revert: receipt.result == 'OUT_OF_ENERGY',
+            # 'REVERT', 'BAD_JUMP_DESTINATION', etc. SUCCESS only counts as
+            # success if there's no contractResult error.
+            receipt = info.get("receipt") or {}
+            recv_res = (receipt.get("result") or "").upper()
+            if recv_res and recv_res not in ("SUCCESS", "OK", ""):
+                return "reverted"
+            # Top-level result tracks tx-level errors (FAILED, etc.)
+            top_res = (info.get("result") or "").upper()
+            if top_res == "FAILED":
+                return "reverted"
+            # If we have any block-level confirmation, treat as success.
+            if info.get("blockNumber") or info.get("blockTimeStamp"):
+                return "success"
+            return "pending"
+        except Exception:
+            return "pending"
+    return "pending"
+
+
 def _broadcast_evm(
     chain: str,
     asset: str,
@@ -127,6 +189,13 @@ def _broadcast_evm(
     if contract:
         decimals = cc.asset_decimals(asset)
         amount_smallest = int(Decimal(amount_decimal) * (Decimal(10) ** decimals))
+        # Token-balance precheck: avoid signing a tx that will revert.
+        try:
+            tok_bal = _evm_erc20_balance_of(chain, contract, sender)
+            if tok_bal < amount_smallest:
+                return ("", "insufficient_hot_balance")
+        except Exception:
+            pass  # If RPC for balanceOf fails, fall through; receipt-check covers reverts.
         tx = {
             "from": sender,
             "to": contract,
@@ -204,6 +273,13 @@ def _broadcast_tron(
             decimals = cc.asset_decimals(asset)
             amt = int(Decimal(amount_decimal) * (Decimal(10) ** decimals))
             contract = client.get_contract(contract_addr)
+            # Token-balance precheck (TRC-20)
+            try:
+                tok_bal = int(contract.functions.balanceOf(sender) or 0)
+                if tok_bal < amt:
+                    return ("", "insufficient_hot_balance")
+            except Exception:
+                pass
             txn = (
                 contract.functions.transfer(to_address, amt)
                 .with_owner(sender)

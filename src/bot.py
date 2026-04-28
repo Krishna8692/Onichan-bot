@@ -16985,7 +16985,8 @@ async def cmd_confirmwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from modules.database import _execute_with_retry
         row = _execute_with_retry(
             """UPDATE wallet_transactions SET tx_hash = %s, status = 'confirmed'
-                WHERE id = %s AND tx_type = 'withdraw' AND status = 'pending'
+                WHERE id = %s AND tx_type = 'withdraw'
+                  AND status IN ('pending', 'broadcasting', 'broadcast')
                 RETURNING telegram_id, asset, amount, chain, address""",
             (tx_hash, wid), fetch_one=True
         )
@@ -17035,9 +17036,15 @@ async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = None
         with _wallet_txn() as conn:
             with conn.cursor() as cur:
+                # NOTE: We deliberately exclude 'broadcast' here. A row in
+                # 'broadcast' state already has a tx_hash in the mempool —
+                # refunding it would risk double-credit if the on-chain tx
+                # eventually succeeds. Only the receipt-poller may move a
+                # 'broadcast' row to 'failed' (and only on a true revert).
                 cur.execute(
                     """UPDATE wallet_transactions SET status = 'failed', note = %s
-                        WHERE id = %s AND tx_type = 'withdraw' AND status = 'pending'
+                        WHERE id = %s AND tx_type = 'withdraw'
+                          AND status IN ('pending', 'broadcasting')
                         RETURNING telegram_id, asset, amount""",
                     (reason, wid)
                 )
@@ -17099,9 +17106,12 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row = None
             with _wallet_txn() as conn:
                 with conn.cursor() as cur:
+                    # See cmd_rejectwd: 'broadcast' rows have a live tx_hash
+                    # so we never refund them here.
                     cur.execute(
                         """UPDATE wallet_transactions SET status = 'failed', note = 'Rejected via button'
-                            WHERE id = %s AND tx_type = 'withdraw' AND status = 'pending'
+                            WHERE id = %s AND tx_type = 'withdraw'
+                              AND status IN ('pending', 'broadcasting')
                             RETURNING telegram_id, asset, amount""",
                         (wid,)
                     )
@@ -18021,13 +18031,24 @@ def main():
     # ── Withdrawal worker ──────────────────────────────────────────────
     def _withdrawal_worker():
         """
-        Polls pending withdrawals and actually broadcasts them on-chain.
+        Polls pending withdrawals and actually sends them on-chain.
+
+        Status state machine for `wallet_transactions.status` (withdraw rows):
+
+            pending      → claimed by worker
+            broadcasting → atomically held while signing/sending; if the
+                           process dies in this window the next worker tick
+                           sweeps it back to pending (tx_hash is still NULL)
+            broadcast    → tx submitted, tx_hash recorded; awaiting receipt
+            confirmed    → receipt success — money is gone, user notified
+            failed       → reverted on chain or hard signing error;
+                           refunded atomically with the status flip
 
           - EVM + Tron rows are signed & broadcast automatically.
           - Other chains (sol/ton/btc) are escalated to the owner for manual
             /confirmwd, since their broadcasters aren't wired up yet.
-          - Hard failures refund the user; soft failures (insufficient hot
-            balance, RPC outage) leave the row pending and ping the owner.
+          - Soft failures (insufficient_hot_balance, hd_unavailable) park
+            back to pending and ping the owner once.
         """
         import time as _time
         import requests as req
@@ -18037,6 +18058,22 @@ def main():
         OWNER_UID = 1857417752
         notified_manual = set()  # wids escalated to owner
         print("[Wallet] ⬆️ Withdrawal broadcaster started")
+
+        # Crash recovery: any 'broadcasting' row left over from a previous
+        # process (no tx_hash yet) is safe to retry.
+        try:
+            from modules.database import _execute_with_retry as _exec0
+            recovered = _exec0(
+                """UPDATE wallet_transactions SET status='pending'
+                    WHERE tx_type='withdraw' AND status='broadcasting'
+                      AND tx_hash IS NULL
+                    RETURNING id""",
+                fetch=True,
+            ) or []
+            if recovered:
+                print(f"[Wallet] ♻️ Recovered {len(recovered)} stuck broadcasting row(s) → pending")
+        except Exception as e:
+            print(f"[Wallet] Crash-recovery sweep failed: {e}")
 
         def _send_owner(text):
             try:
@@ -18129,23 +18166,26 @@ def main():
                     tx_hash, err = ob.broadcast(chain, asset, addr, amount)
 
                     if err is None and tx_hash:
+                        # Tx is in the mempool — record it but don't claim
+                        # success until the receipt-poll sees it succeed.
                         _execute_with_retry(
                             """UPDATE wallet_transactions
-                                  SET status='confirmed', tx_hash=%s
+                                  SET status='broadcast', tx_hash=%s
                                 WHERE id=%s""",
                             (tx_hash, wid),
                         )
                         url = explorer_tx_url(chain, tx_hash)
                         _send_user(
                             user_id,
-                            (f"✅ <b>Withdrawal Sent!</b>\n"
+                            (f"📡 <b>Withdrawal Broadcast</b>\n"
                              f"━━━━━━━━━━━━━━━━━━\n"
                              f"💎 {amount} {asset}\n"
                              f"🔗 {chain_label(chain)}\n"
-                             f"🆔 <code>{tx_hash}</code>"),
+                             f"🆔 <code>{tx_hash}</code>\n"
+                             f"⌛ Waiting for on-chain confirmation…"),
                             tx_url=url,
                         )
-                        print(f"[Wallet] ✅ Broadcast #{wid} → {tx_hash}")
+                        print(f"[Wallet] 📡 Broadcast #{wid} → {tx_hash} (awaiting receipt)")
                         continue
 
                     # Soft failures: leave row pending, ping owner once.
@@ -18205,6 +18245,104 @@ def main():
                         + ("✅ User refunded." if refunded else "⚠️ Refund failed — investigate.")
                     )
                     print(f"[Wallet] ❌ #{wid} failed: {err}")
+
+                # ── Pass 2: poll receipts for 'broadcast' rows ────────
+                try:
+                    pending_receipts = _execute_with_retry(
+                        """SELECT id, telegram_id, asset, amount, chain, address, tx_hash
+                             FROM wallet_transactions
+                            WHERE tx_type='withdraw'
+                              AND status='broadcast'
+                              AND tx_hash IS NOT NULL
+                            ORDER BY id ASC
+                            LIMIT 25""",
+                        fetch=True,
+                    ) or []
+                except Exception as e:
+                    print(f"[Wallet] receipt poll fetch failed: {e}")
+                    pending_receipts = []
+
+                for r in pending_receipts:
+                    rwid = r['id']
+                    rchain = r['chain']
+                    rhash = r['tx_hash']
+                    ruser = int(r['telegram_id'])
+                    ramount = r['amount']
+                    rasset = r['asset']
+                    try:
+                        st = ob.get_receipt_status(rchain, rhash)
+                    except Exception as e:
+                        print(f"[Wallet] receipt poll #{rwid} error: {e}")
+                        continue
+                    if st == 'pending':
+                        continue
+                    if st == 'success':
+                        try:
+                            _execute_with_retry(
+                                """UPDATE wallet_transactions
+                                      SET status='confirmed'
+                                    WHERE id=%s AND status='broadcast'""",
+                                (rwid,),
+                            )
+                            url = explorer_tx_url(rchain, rhash)
+                            _send_user(
+                                ruser,
+                                (f"✅ <b>Withdrawal Confirmed!</b>\n"
+                                 f"━━━━━━━━━━━━━━━━━━\n"
+                                 f"💎 {ramount} {rasset}\n"
+                                 f"🔗 {chain_label(rchain)}\n"
+                                 f"🆔 <code>{rhash}</code>"),
+                                tx_url=url,
+                            )
+                            print(f"[Wallet] ✅ #{rwid} confirmed on-chain")
+                        except Exception as e:
+                            print(f"[Wallet] confirm-update #{rwid} failed: {e}")
+                        continue
+                    if st == 'reverted':
+                        # On-chain reverted — refund atomically.
+                        refunded = False
+                        try:
+                            from keep_alive import _wallet_txn
+                            with _wallet_txn() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute(
+                                        """UPDATE wallet_transactions
+                                              SET status='failed', note='reverted_on_chain'
+                                            WHERE id=%s AND status='broadcast'
+                                            RETURNING telegram_id""",
+                                        (rwid,),
+                                    )
+                                    if cur.fetchone():
+                                        cur.execute(
+                                            """INSERT INTO wallet_balances
+                                                   (telegram_id, asset, balance, updated_at)
+                                               VALUES (%s, %s, %s, NOW())
+                                               ON CONFLICT (telegram_id, asset) DO UPDATE
+                                                 SET balance = wallet_balances.balance
+                                                             + EXCLUDED.balance,
+                                                     updated_at = NOW()""",
+                                            (ruser, rasset, str(ramount)),
+                                        )
+                                        refunded = True
+                        except Exception as e:
+                            print(f"[Wallet] revert-refund #{rwid} failed: {e}")
+                        url = explorer_tx_url(rchain, rhash)
+                        if refunded:
+                            _send_user(
+                                ruser,
+                                (f"❌ <b>Withdrawal Reverted On-Chain</b>\n"
+                                 f"━━━━━━━━━━━━━━━━━━\n"
+                                 f"💎 {ramount} {rasset} refunded to your wallet.\n"
+                                 f"🆔 <code>{rhash}</code>"),
+                                tx_url=url,
+                            )
+                        _send_owner(
+                            f"❌ <b>Withdrawal #{rwid} reverted on-chain</b>\n"
+                            f"💎 {ramount} {rasset} on {chain_label(rchain)}\n"
+                            f"🆔 <code>{rhash}</code>\n"
+                            + ("✅ User refunded." if refunded else "⚠️ Refund failed.")
+                        )
+                        print(f"[Wallet] ❌ #{rwid} reverted on-chain")
 
                 # Cap memory
                 if len(notified_manual) > 5000:

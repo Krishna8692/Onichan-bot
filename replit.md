@@ -42,12 +42,21 @@ The Telegram bot in `src/` runs alongside the workspace. Its custodial wallet:
   uses HD derivation index `0`; user deposit addresses start at `1`.
 - **Withdraw flow** — `/api/wallet/withdraw` (and `/withdraw` bot command) accept a
   smart `recipient` (username / Telegram id / wallet address). Internal recipients
-  are paid atomically inside `_wallet_txn()`. On-chain recipients debit the user,
-  insert a `pending` row in `wallet_transactions`, and `_withdrawal_worker` claims
-  rows with `UPDATE … FOR UPDATE SKIP LOCKED`, broadcasts, and writes the resulting
-  `tx_hash`. Hard failures refund inside the same `_wallet_txn()`; soft failures
-  (`insufficient_hot_balance`, `hd_unavailable`) park back to `pending` and ping
-  the owner.
+  are paid atomically inside `_wallet_txn()`. On-chain recipients debit the user
+  and insert a `pending` row in `wallet_transactions`, then move through a
+  three-stage state machine driven by `_withdrawal_worker`:
+  - `pending → broadcasting` — claimed atomically with `FOR UPDATE SKIP LOCKED`.
+    Token-balance precheck (`_evm_erc20_balance_of` / TRC-20 `balanceOf`) avoids
+    burning gas on guaranteed-revert transfers.
+  - `broadcasting → broadcast` — tx accepted by mempool, `tx_hash` recorded; user
+    DMed "📡 Broadcast — waiting for confirmation".
+  - `broadcast → confirmed | failed` — receipt poll (`get_receipt_status`) flips
+    to `confirmed` on success or `failed` + atomic refund on revert.
+  Crash recovery: on startup any `broadcasting` row with `tx_hash IS NULL` is
+  swept back to `pending`. `/rejectwd` and the `wdrej:` callback only act on
+  `pending`/`broadcasting` rows — never `broadcast` — so a live mempool tx can
+  never be double-credited. Soft failures (`insufficient_hot_balance`,
+  `hd_unavailable`) park back to `pending` and ping the owner.
 - **Explorer links** — every deposit/withdrawal DM and history row renders a 🔍
   link built from `chain_config.explorer_tx_url` / `explorer_addr_url`.
 
