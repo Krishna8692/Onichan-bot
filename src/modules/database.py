@@ -257,6 +257,14 @@ def _create_tables():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            # Throttle column for owner notifications about parked/blocked
+            # withdrawals. Persisting this on the row (instead of in-memory
+            # in the worker thread) prevents re-spamming the owner every
+            # time the bot restarts while a withdrawal is still pending.
+            cur.execute(
+                "ALTER TABLE wallet_transactions "
+                "ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMP"
+            )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_tg ON wallet_transactions(telegram_id, created_at DESC)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_status ON wallet_transactions(status)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_hash ON wallet_transactions(tx_hash)")

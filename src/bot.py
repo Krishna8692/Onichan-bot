@@ -18200,7 +18200,11 @@ def main():
         if not BOT_TOKEN:
             return
         OWNER_UID = 1857417752
-        notified_manual = set()  # wids escalated to owner
+        # How often (at most) we re-DM the owner about the SAME parked /
+        # blocked withdrawal row. Persisted on the row's last_notified_at
+        # column so the throttle survives bot restarts (otherwise we'd
+        # re-spam the owner about every still-pending row on every reboot).
+        NOTIFY_THROTTLE_HOURS = 6
         print("[Wallet] ⬆️ Withdrawal broadcaster started")
 
         # Crash recovery: any 'broadcasting' row left over from a previous
@@ -18230,6 +18234,36 @@ def main():
                 )
             except Exception:
                 pass
+
+        def _claim_notify_slot(wid):
+            """
+            Atomically check-and-set the row's last_notified_at to now if
+            it's NULL or older than NOTIFY_THROTTLE_HOURS. Returns True if
+            this caller "won" the slot (meaning: it should send the DM),
+            False if another notification was already sent recently.
+
+            Persisting this on the row means a bot restart cannot cause us
+            to re-DM the owner about every still-pending withdrawal — the
+            previous timestamp is still in the database.
+            """
+            try:
+                from modules.database import _execute_with_retry as _exec
+                rc = _exec(
+                    """UPDATE wallet_transactions
+                          SET last_notified_at = NOW()
+                        WHERE id = %s
+                          AND (last_notified_at IS NULL
+                               OR last_notified_at
+                                  < NOW() - (%s || ' hours')::interval)""",
+                    (wid, str(NOTIFY_THROTTLE_HOURS)),
+                    return_rowcount=True,
+                )
+                return bool(rc)
+            except Exception as e:
+                # If the throttle update fails, fall back to "don't notify"
+                # rather than risk spamming. The next poll will try again.
+                print(f"[Wallet] notify-throttle update failed for #{wid}: {e}")
+                return False
 
         def _send_user(uid, text, tx_url=None):
             payload = {"chat_id": int(uid), "text": text,
@@ -18292,8 +18326,7 @@ def main():
                             "WHERE id=%s AND status='broadcasting'",
                             (wid,),
                         )
-                        if wid not in notified_manual:
-                            notified_manual.add(wid)
+                        if _claim_notify_slot(wid):
                             short = f"{addr[:10]}…{addr[-8:]}" if len(addr) > 22 else addr
                             _send_owner(
                                 f"⚠️ <b>Manual Withdrawal #{wid}</b>\n"
@@ -18361,8 +18394,7 @@ def main():
                             "WHERE id=%s AND status='broadcasting'",
                             (wid,),
                         )
-                        if wid not in notified_manual:
-                            notified_manual.add(wid)
+                        if _claim_notify_slot(wid):
                             _send_owner(
                                 f"🚨 <b>Withdrawal #{wid} blocked: {err}</b>\n"
                                 f"💎 {amount} {asset} on {chain_label(chain)}\n"
@@ -18551,9 +18583,6 @@ def main():
                         )
                         print(f"[Wallet] ❌ #{rwid} reverted on-chain")
 
-                # Cap memory
-                if len(notified_manual) > 5000:
-                    notified_manual.clear()
             except Exception as e:
                 print(f"[Wallet] Withdrawal worker error: {e}")
             _time.sleep(45)
