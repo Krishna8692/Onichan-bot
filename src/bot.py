@@ -4151,7 +4151,7 @@ async def fake_address_generator(update: Update, context: ContextTypes.DEFAULT_T
 # SOCIAL MEDIA VIDEO DOWNLOADER
 # ============================================================================
 
-from modules.downloader import download_media, get_available_qualities, get_platform, get_platform_emoji, format_duration, SUPPORTED_PLATFORMS
+from modules.downloader import download_media, get_available_qualities, compress_video_to_limit, get_platform, get_platform_emoji, format_duration, SUPPORTED_PLATFORMS
 
 @require_approval
 async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4256,12 +4256,36 @@ async def _send_download_result(update, loading_msg, result, downloader, platfor
 
     file_path = result["file_path"]
     file_size = os.path.getsize(file_path) / (1024 * 1024)
+    original_size = file_size
+    compressed = False
+
+    if file_size > 49 and not file_path.endswith((".jpg", ".jpeg", ".png", ".mp3", ".m4a")):
+        await loading_msg.edit_text(
+            f"⚙️ <b>Compressing video...</b>\n\n"
+            f"Original size: <b>{file_size:.1f}MB</b> — fitting it under 50MB for Telegram...\n"
+            f"⏳ This may take a minute.",
+            parse_mode=ParseMode.HTML
+        )
+        compressed_path = await compress_video_to_limit(file_path, max_mb=49)
+        if compressed_path and os.path.exists(compressed_path):
+            file_path = compressed_path
+            file_size = os.path.getsize(file_path) / (1024 * 1024)
+            compressed = True
+        else:
+            await loading_msg.edit_text(
+                f"❌ <b>File Too Large</b>\n\n"
+                f"Original: {original_size:.1f}MB — compression failed.\n"
+                f"Try selecting a lower quality (360p / 480p) or use audio mode.",
+                parse_mode=ParseMode.HTML
+            )
+            downloader.cleanup()
+            return
 
     if file_size > 50:
         await loading_msg.edit_text(
-            f"❌ <b>File Too Large</b>\n\n"
-            f"File size: {file_size:.1f}MB (max 50MB for Telegram)\n"
-            f"Try a lower quality or use audio mode.",
+            f"❌ <b>File Still Too Large After Compression</b>\n\n"
+            f"Size: {file_size:.1f}MB — Telegram's 50MB bot limit cannot be exceeded.\n"
+            f"Please select a lower quality (360p / 480p) or audio mode.",
             parse_mode=ParseMode.HTML
         )
         downloader.cleanup()
@@ -4270,11 +4294,12 @@ async def _send_download_result(update, loading_msg, result, downloader, platfor
     await loading_msg.edit_text(f"📤 <b>Uploading to Telegram...</b>", parse_mode=ParseMode.HTML)
 
     duration_text = format_duration(result["duration"]) if result["duration"] else "Unknown"
+    size_note = f"{file_size:.1f}MB (compressed from {original_size:.1f}MB)" if compressed else f"{file_size:.1f}MB"
     caption = (
         f"{emoji} <b>{platform.title()}</b>\n\n"
         f"📌 <b>Title:</b> {result['title']}\n"
         f"⏱ <b>Duration:</b> {duration_text}\n"
-        f"📦 <b>Size:</b> {file_size:.1f}MB\n\n"
+        f"📦 <b>Size:</b> {size_note}\n\n"
         f"<i>Downloaded by @Onichanbabybot</i>"
     )
 
