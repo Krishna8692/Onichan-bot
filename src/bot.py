@@ -3569,47 +3569,35 @@ async def card_generator(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return t
 
-    # ── More than 10 cards → send as .txt file ────────────────────────────────
+    # ── More than 10 cards → send file only (no inline card list) ───────────
     if len(generated_cards) > 10:
         from io import BytesIO as _BytesIO
 
-        # First 10 cards shown inline as preview
-        preview_lines = "\n".join(f"<code>{c['full']}</code>" for c in generated_cards[:10])
-        remaining = len(generated_cards) - 10
-
-        text = ae(
-            f"📋 <b>ONICHAN • CC GENERATOR</b>\n\n"
-            f"{gen_sep}\n\n"
-            f"🔢 <b>BIN</b>       : <code>{display_prefix}</code>\n"
-            f"📊 <b>Generated</b> : <code>{len(generated_cards)}</code> cards\n\n"
-            f"{gen_sep}\n\n"
-            f"{preview_lines}\n"
-            f"<i>… and {remaining} more (see attached file)</i>\n\n"
-            + _bin_footer()
-        )
-
-        await _reply_with_gif(update.message, "success", text, reply_markup=reply_markup)
-
-        # Build and send the .txt file
         all_cards_txt = "\n".join(c["full"] for c in generated_cards)
-        fname = f"Onichan_Gen_By_{user.id}_{len(generated_cards)}.txt"
-        file_bytes = _BytesIO(all_cards_txt.encode("utf-8"))
+        fname         = f"Onichan_Gen_By_{user.id}_{len(generated_cards)}.txt"
+        file_bytes    = _BytesIO(all_cards_txt.encode("utf-8"))
         file_bytes.name = fname
 
+        caption_level = f"\n📋 <b>Level</b>   : <code>{b_level}</code>" if b_level and b_level != "UNKNOWN" else ""
         caption = ae(
-            f"📁 <b>Generated Cards</b>\n"
+            f"📁 <b>ONICHAN • CC GENERATOR</b>\n"
             f"{gen_sep}\n"
-            f"💳 <b>BIN</b>    : <code>{display_prefix}</code>\n"
-            f"🌐 <b>Network</b>: <code>{b_brand}</code>\n"
-            f"📊 <b>Count</b>  : <code>{len(generated_cards)} cards</code>\n"
-            f"📅 <b>Expiry</b> : <code>random</code>\n"
-            f"🔐 <b>CVV</b>    : <code>random</code>"
+            f"💳 <b>BIN</b>      : <code>{display_prefix}</code>\n"
+            f"💠 <b>Network</b>  : <code>{b_brand}</code> — <code>{b_type}</code>{caption_level}\n"
+            f"🏦 <b>Bank</b>     : <code>{b_bank}</code>\n"
+            f"🌍 <b>Country</b>  : {b_flag} <code>{b_country}</code> (<code>{b_iso}</code>)\n"
+            f"{gen_sep}\n"
+            f"📊 <b>Count</b>    : <code>{len(generated_cards)} cards</code>\n"
+            f"📅 <b>Expiry</b>   : <code>{'custom' if custom_month or custom_year else 'random'}</code>\n"
+            f"🔐 <b>CVV</b>      : <code>{'custom' if custom_cvv else 'random'}</code>\n"
+            f"⏱ <b>Time</b>     : <code>{elapsed_ms}ms</code>"
         )
         await update.message.reply_document(
             document=file_bytes,
             filename=fname,
             caption=caption,
             parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup,
         )
         return
 
