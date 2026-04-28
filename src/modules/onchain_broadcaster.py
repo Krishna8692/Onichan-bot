@@ -14,7 +14,11 @@ Result tuple from `broadcast(...)`:
       'unsupported_chain_auto'   → chain has no auto-broadcaster (manual fallback)
       'hd_unavailable'           → HD wallet keys not loaded
       'insufficient_hot_balance' → hot wallet doesn't have funds + gas
-      'rpc_error: …'             → RPC failure / signing error
+      'rpc_error: …'             → pre-broadcast RPC/signing failure (safe to refund)
+      'rpc_indeterminate: …'     → broadcast was attempted; outcome unknown.
+                                   The worker MUST NOT auto-refund — the tx may
+                                   have been accepted on-chain. Escalate to the
+                                   owner for manual reconciliation.
 """
 from __future__ import annotations
 
@@ -248,14 +252,33 @@ def _broadcast_evm(
             },
             pk_hex,
         )
-        tx_hash = _evm_send_raw(chain, signed_tx.raw_transaction.hex() if hasattr(signed_tx, "raw_transaction") else signed_tx.rawTransaction.hex())
+        raw_hex = (
+            signed_tx.raw_transaction.hex()
+            if hasattr(signed_tx, "raw_transaction")
+            else signed_tx.rawTransaction.hex()
+        )
+    except RuntimeError as e:
+        # Failure during pre-broadcast read (gas/nonce/balance) or signing.
+        # No tx ever hit the wire → safe to refund.
+        return ("", f"rpc_error: {e}")
+    except Exception as e:
+        return ("", f"rpc_error: {e}")
+
+    # ── BROADCAST BOUNDARY ──
+    # From here on, any RPC failure is INDETERMINATE: the tx may have been
+    # accepted by one of the upstream nodes even if our request looked like
+    # a failure (timeout, dropped TCP, gateway 502, etc.). The caller MUST
+    # NOT refund on this branch — only the receipt poller (or owner-driven
+    # /confirmwd / /rejectwd) may resolve it.
+    try:
+        tx_hash = _evm_send_raw(chain, raw_hex)
         if isinstance(tx_hash, str) and not tx_hash.startswith("0x"):
             tx_hash = "0x" + tx_hash
         return (tx_hash, None)
     except RuntimeError as e:
-        return ("", f"rpc_error: {e}")
+        return ("", f"rpc_indeterminate: {e}")
     except Exception as e:
-        return ("", f"rpc_error: {e}")
+        return ("", f"rpc_indeterminate: {e}")
 
 
 # ─── Tron ───────────────────────────────────────────────────────────────────
@@ -315,14 +338,28 @@ def _broadcast_tron(
                 .build()
                 .sign(priv)
             )
+    except Exception as e:
+        # Failure happened during balance read / build / sign — nothing went
+        # to the network. Safe to refund.
+        return ("", f"rpc_error: {e}")
+
+    # ── BROADCAST BOUNDARY ──
+    # The Tron node may have accepted txn.broadcast() even if we got an
+    # exception (e.g. HTTP timeout). Caller must escalate, not refund.
+    try:
         result = txn.broadcast()
+    except Exception as e:
+        return ("", f"rpc_indeterminate: {e}")
+    try:
         # tronpy returns dict; success usually has 'result': True and 'txid'
         if not (result.get("result") is True or result.get("code") in (None, "SUCCESS")):
-            return ("", f"rpc_error: {result}")
-        tx_hash = txn.txid
-        return (tx_hash, None)
+            # The node explicitly rejected — tx_hash exists locally but was
+            # not accepted. Treat as indeterminate to be safe (some Tron
+            # nodes return a soft-fail while others on the cluster accept).
+            return ("", f"rpc_indeterminate: {result}")
+        return (txn.txid, None)
     except Exception as e:
-        return ("", f"rpc_error: {e}")
+        return ("", f"rpc_indeterminate: {e}")
 
 
 # ─── Dispatcher ─────────────────────────────────────────────────────────────

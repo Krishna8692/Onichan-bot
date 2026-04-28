@@ -17013,7 +17013,7 @@ async def cmd_confirmwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = _execute_with_retry(
             """UPDATE wallet_transactions SET tx_hash = %s, status = 'confirmed'
                 WHERE id = %s AND tx_type = 'withdraw'
-                  AND status IN ('pending', 'broadcasting', 'broadcast')
+                  AND status IN ('pending', 'broadcasting', 'broadcast', 'needs_reconciliation')
                 RETURNING telegram_id, asset, amount, chain, address""",
             (tx_hash, wid), fetch_one=True
         )
@@ -17064,17 +17064,18 @@ async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with _wallet_txn() as conn:
             with conn.cursor() as cur:
                 # NOTE: Reject is only legal for rows that haven't been
-                # claimed by the worker yet ('pending'). Once the worker
-                # owns the row ('broadcasting') a tx may already be in
-                # flight to the network, and once it's accepted by the
-                # mempool ('broadcast') a tx_hash exists. Refunding either
-                # state risks double-credit if the on-chain tx eventually
-                # succeeds. Only the receipt-poller transitions those
-                # states forward.
+                # claimed by the worker yet ('pending'), OR that the worker
+                # has explicitly parked for owner triage
+                # ('needs_reconciliation' — see indeterminate-broadcast
+                # branch in _withdrawal_worker). Once the worker owns the
+                # row ('broadcasting') a tx may already be in flight, and
+                # once it's accepted by the mempool ('broadcast') a tx_hash
+                # exists; refunding either state risks double-credit. The
+                # owner must use /confirmwd in those cases.
                 cur.execute(
                     """UPDATE wallet_transactions SET status = 'failed', note = %s
                         WHERE id = %s AND tx_type = 'withdraw'
-                          AND status = 'pending'
+                          AND status IN ('pending', 'needs_reconciliation')
                         RETURNING telegram_id, asset, amount""",
                     (reason, wid)
                 )
@@ -17141,7 +17142,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     cur.execute(
                         """UPDATE wallet_transactions SET status = 'failed', note = 'Rejected via button'
                             WHERE id = %s AND tx_type = 'withdraw'
-                              AND status = 'pending'
+                              AND status IN ('pending', 'needs_reconciliation')
                             RETURNING telegram_id, asset, amount""",
                         (wid,)
                     )
@@ -17436,7 +17437,35 @@ def main():
         .post_init(_on_startup)
         .build()
     )
-    
+
+    # ── Passive user/username upsert ──────────────────────────────────
+    # Runs on EVERY incoming update (in its own group so it never blocks
+    # the normal handler chain). Saves (user_id, username) to the `users`
+    # table the first time anyone sends anything to the bot, so the
+    # wallet's recipient lookup (@username / Telegram ID) can find them.
+    from telegram.ext import TypeHandler
+
+    async def _passive_user_upsert(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            u = update.effective_user
+            if not u or u.is_bot:
+                return
+            # Fire-and-forget — never crash the handler chain.
+            try:
+                add_user_sync(u.id, u.username, "pending")
+            except Exception as _e:
+                # Database may be momentarily unavailable; ignore.
+                pass
+        except Exception:
+            pass
+
+    # group=-1 so it runs before command handlers; block=False so concurrent
+    # handlers in group 0 still fire normally.
+    application.add_handler(
+        TypeHandler(Update, _passive_user_upsert, block=False),
+        group=-1,
+    )
+
     # Add handlers
     # ── Custodial Wallet Commands ─────────────────────────────────────
     application.add_handler(CommandHandler("wallet", cmd_wallet))
@@ -18139,20 +18168,31 @@ def main():
 
         Status state machine for `wallet_transactions.status` (withdraw rows):
 
-            pending      → claimed by worker
-            broadcasting → atomically held while signing/sending; if the
-                           process dies in this window the next worker tick
-                           sweeps it back to pending (tx_hash is still NULL)
-            broadcast    → tx submitted, tx_hash recorded; awaiting receipt
-            confirmed    → receipt success — money is gone, user notified
-            failed       → reverted on chain or hard signing error;
-                           refunded atomically with the status flip
+            pending              → claimed by worker
+            broadcasting         → atomically held while signing/sending; if
+                                   the process dies in this window the next
+                                   worker tick sweeps it back to pending
+                                   (tx_hash is still NULL)
+            broadcast            → tx submitted, tx_hash recorded; awaiting
+                                   receipt
+            confirmed            → receipt success — money is gone, user
+                                   notified
+            failed               → reverted on chain or hard pre-broadcast
+                                   error; refunded atomically with the flip
+            needs_reconciliation → broadcast call failed AFTER the tx may
+                                   have been accepted by the network. NOT
+                                   refunded — owner must investigate the hot
+                                   wallet on the explorer and resolve via
+                                   /confirmwd <id> <hash> or /rejectwd.
 
           - EVM + Tron rows are signed & broadcast automatically.
           - Other chains (sol/ton/btc) are escalated to the owner for manual
             /confirmwd, since their broadcasters aren't wired up yet.
           - Soft failures (insufficient_hot_balance, hd_unavailable) park
-            back to pending and ping the owner once.
+            back to pending (status-guarded) and ping the owner once.
+          - All park-to-pending and refund writes are CAS-guarded against
+            the previous status so a racing /rejectwd or /confirmwd can
+            never be silently overwritten.
         """
         import time as _time
         import requests as req
@@ -18245,8 +18285,11 @@ def main():
 
                     if not ob.is_auto_broadcastable(chain):
                         # Park back to pending and escalate to owner once.
+                        # CAS guard: only flip from 'broadcasting' so a racing
+                        # admin /rejectwd or /confirmwd is never overwritten.
                         _execute_with_retry(
-                            "UPDATE wallet_transactions SET status='pending' WHERE id=%s",
+                            "UPDATE wallet_transactions SET status='pending' "
+                            "WHERE id=%s AND status='broadcasting'",
                             (wid,),
                         )
                         if wid not in notified_manual:
@@ -18311,8 +18354,11 @@ def main():
 
                     # Soft failures: leave row pending, ping owner once.
                     if err in ('insufficient_hot_balance', 'hd_unavailable'):
+                        # CAS guard prevents clobbering a concurrent admin
+                        # action (see manual-fallback comment above).
                         _execute_with_retry(
-                            "UPDATE wallet_transactions SET status='pending' WHERE id=%s",
+                            "UPDATE wallet_transactions SET status='pending' "
+                            "WHERE id=%s AND status='broadcasting'",
                             (wid,),
                         )
                         if wid not in notified_manual:
@@ -18323,6 +18369,36 @@ def main():
                                 f"Refill the hot wallet and it will retry automatically."
                             )
                         print(f"[Wallet] ⏸ #{wid} parked: {err}")
+                        continue
+
+                    # Indeterminate: broadcast was attempted but the RPC call
+                    # failed — the tx may already be on-chain. NEVER refund
+                    # here. Park into 'needs_reconciliation' (a status the
+                    # crash-recovery sweep does NOT touch) and force the
+                    # owner to investigate before the row can move again.
+                    if err and err.startswith('rpc_indeterminate'):
+                        _execute_with_retry(
+                            """UPDATE wallet_transactions
+                                  SET status='needs_reconciliation', note=%s
+                                WHERE id=%s AND status='broadcasting'""",
+                            ((err or '')[:200], wid),
+                        )
+                        _send_owner(
+                            f"⚠️ <b>Withdrawal #{wid} INDETERMINATE</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━\n"
+                            f"👤 User: <code>{user_id}</code>\n"
+                            f"💎 {amount} {asset} on {chain_label(chain)}\n"
+                            f"📤 <code>{addr}</code>\n"
+                            f"⚠️ {err}\n"
+                            f"━━━━━━━━━━━━━━━━━━\n"
+                            f"The broadcast call failed but the tx may have "
+                            f"already landed on-chain. Check the hot wallet "
+                            f"address on the explorer for an outgoing tx of "
+                            f"this exact amount near this timestamp.\n"
+                            f"• If it landed: /confirmwd {wid} &lt;tx_hash&gt;\n"
+                            f"• If not:      /rejectwd {wid} indeterminate_no_tx"
+                        )
+                        print(f"[Wallet] ❓ #{wid} INDETERMINATE — owner reconciliation required")
                         continue
 
                     # Hard failure: refund and notify both sides.

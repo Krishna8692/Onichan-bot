@@ -3482,10 +3482,84 @@ def admin_user_profile():
     """)
 
 
+def _install_api_json_error_handlers(_app):
+    """Install JSON error handlers ONLY for /api/* paths.
+
+    Without this, an unhandled exception in any /api/wallet/* route would
+    return Flask's default HTML error page, which the browser-side
+    `fetch().json()` then chokes on with "Unexpected token '<'".
+
+    We deliberately scope this to /api/* — non-API routes keep Flask's
+    normal HTML 404/500 behaviour.
+    """
+    from werkzeug.exceptions import HTTPException
+
+    def _is_api_request():
+        try:
+            return request.path.startswith('/api/')
+        except Exception:
+            return False
+
+    @_app.errorhandler(HTTPException)
+    def _api_http_error(e):
+        if _is_api_request():
+            resp = jsonify({
+                'error': (e.name or 'http_error').lower().replace(' ', '_'),
+                'message': e.description,
+                'status': e.code,
+            })
+            resp.status_code = e.code or 500
+            return resp
+        # Non-API: keep Flask's default response for HTTPExceptions.
+        return e.get_response()
+
+    @_app.errorhandler(Exception)
+    def _api_unhandled_error(e):
+        if _is_api_request():
+            print(
+                f"[api error] {request.method} {request.path} "
+                f"→ {type(e).__name__}: {e}",
+                flush=True,
+            )
+            resp = jsonify({
+                'error': 'server_error',
+                'message': 'An internal error occurred.',
+                'detail': str(e)[:200],
+            })
+            resp.status_code = 500
+            return resp
+        # Re-raise so Flask's normal 500 handler / debugger runs.
+        raise e
+
+
+_install_api_json_error_handlers(app)
+
+
 def user_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('user_id'):
+            # API requests must always get JSON, never an HTML redirect.
+            # Otherwise client-side fetch().json() blows up with
+            # "Unexpected token '<'" on the login page HTML.
+            try:
+                is_api = request.path.startswith('/api/')
+                wants_json = (
+                    is_api
+                    or 'application/json' in (request.headers.get('Accept') or '')
+                    or request.is_json
+                )
+            except Exception:
+                is_api = False
+                wants_json = False
+            if wants_json:
+                resp = jsonify({
+                    'error': 'unauthorized',
+                    'message': 'Session expired — please log in again.',
+                    'login_url': '/user/login',
+                })
+                resp.status_code = 401
+                return resp
             return redirect('/user/login')
         return f(*args, **kwargs)
     return decorated_function
@@ -13566,17 +13640,45 @@ def _log_wallet_tx(conn=None, **kw):
 
 
 def _resolve_recipient(query):
-    """Resolve @username (case-insensitive) or telegram_id to a users row."""
+    """Resolve @username (case-insensitive) or telegram_id to a row that
+    looks like {'user_id': int, 'username': Optional[str]}.
+
+    Lookup order:
+      1. `users` table by user_id (numeric input) or LOWER(username).
+      2. If still not found and the input is numeric, fall back to the wallet
+         bookkeeping tables (`wallet_balances`, `wallet_deposit_addresses`,
+         `wallet_addresses`) keyed by `telegram_id`. This catches users who
+         have received funds or have a deposit address but were never written
+         into `users` (e.g. they only chatted with the bot, never got
+         /approve'd).
+    """
     q = (query or "").strip().lstrip("@")
     if not q:
         return None
     try:
         from modules.database import _execute_with_retry
         if q.isdigit():
-            return _execute_with_retry(
+            tg_id = int(q)
+            row = _execute_with_retry(
                 "SELECT user_id, username FROM users WHERE user_id = %s",
-                (int(q),), fetch_one=True
+                (tg_id,), fetch_one=True
             )
+            if row:
+                return row
+            # Fallback: any wallet activity counts as a known recipient.
+            for sql in (
+                "SELECT telegram_id AS user_id FROM wallet_balances WHERE telegram_id = %s LIMIT 1",
+                "SELECT telegram_id AS user_id FROM wallet_deposit_addresses WHERE telegram_id = %s LIMIT 1",
+                "SELECT telegram_id AS user_id FROM wallet_addresses WHERE telegram_id = %s LIMIT 1",
+            ):
+                try:
+                    r = _execute_with_retry(sql, (tg_id,), fetch_one=True)
+                except Exception:
+                    r = None
+                if r:
+                    return {"user_id": tg_id, "username": None}
+            return None
+        # Non-numeric: must look up by username (only `users` carries this).
         return _execute_with_retry(
             "SELECT user_id, username FROM users WHERE LOWER(username) = LOWER(%s)",
             (q,), fetch_one=True
@@ -14096,6 +14198,7 @@ def user_wallet_page():
       <div style="font-size:.85em;color:rgba(255,255,255,.6);margin-bottom:8px">Connect your Telegram TON wallet to deposit TON or USDT-TON in one tap.</div>
       <div id="ton-connect-slot"></div>
       <button class="wlt-copy-btn" id="ton-quick-deposit" style="display:none;margin-top:10px" onclick="tonQuickDeposit()">💎 Send 1 TON to my deposit address</button>
+      <button class="wlt-copy-btn" id="ton-disconnect-btn" style="display:none;margin-top:8px;background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.35);color:#fca5a5" onclick="tonDisconnect()">🔌 Disconnect Wallet</button>
     </div>
   </div>
 
@@ -14249,17 +14352,51 @@ async function loadPrices() {{
   }} catch(e) {{}}
 }}
 
+// Wrapper around fetch+json that gives clean errors for the wallet API:
+//  - 401 → "Session expired — please log in again." (with login link)
+//  - HTML response → "Server returned HTML (status N) — please refresh."
+//    (instead of the raw "Unexpected token '<'" parse error)
+async function walletApi(url, opts) {{
+  var r = await fetch(url, opts || {{}});
+  var ct = (r.headers.get('content-type') || '').toLowerCase();
+  var isJson = ct.indexOf('application/json') >= 0;
+  if (r.status === 401) {{
+    var msg = 'Session expired — please log in again.';
+    if (isJson) {{
+      try {{ var d = await r.json(); if (d && d.message) msg = d.message; }} catch(_) {{}}
+    }}
+    var err = new Error(msg);
+    err.unauthorized = true;
+    throw err;
+  }}
+  if (!isJson) {{
+    throw new Error('Server returned ' + r.status + ' (not JSON). Please refresh the page.');
+  }}
+  var data = await r.json();
+  if (!r.ok) {{
+    throw new Error((data && (data.error || data.message)) || ('Request failed ('+r.status+')'));
+  }}
+  return data;
+}}
+function loginRedirectHtml(extra) {{
+  return '<div class="alert alert-warn">'+(extra || 'Session expired.')
+    +' <a href="/user/login" style="color:#fcd34d;text-decoration:underline">Log in again</a>.</div>';
+}}
+
 async function loadBalances() {{
   document.getElementById('assets-list').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Loading…</div>';
   try {{
-    var r = await fetch('/api/wallet/internal-balance');
-    var d = await r.json();
+    var d = await walletApi('/api/wallet/internal-balance');
     balances = {{}};
     (d.balances || []).forEach(function(b){{ balances[b.asset] = parseFloat(b.balance) || 0; }});
     renderBalances();
     populateAssetSelects();
   }} catch(e) {{
-    document.getElementById('assets-list').innerHTML = '<div class="wlt-empty">Failed to load: '+e.message+'</div>';
+    if (e.unauthorized) {{
+      document.getElementById('assets-list').innerHTML = loginRedirectHtml('You are signed out.');
+    }} else {{
+      document.getElementById('assets-list').innerHTML = '<div class="wlt-empty">Failed to load: '+e.message+'</div>';
+    }}
   }}
 }}
 
@@ -14392,8 +14529,7 @@ async function ensureDeposits() {{
   if (Object.keys(depositAddrs).length > 0) return;
   document.getElementById('deposit-grid').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Generating addresses…</div>';
   try {{
-    var r = await fetch('/api/wallet/deposit-addresses');
-    var d = await r.json();
+    var d = await walletApi('/api/wallet/deposit-addresses');
     if (d.error) {{
       document.getElementById('deposit-grid').innerHTML = '<div class="alert alert-error">'+d.error+'</div>';
       return;
@@ -14401,7 +14537,11 @@ async function ensureDeposits() {{
     depositAddrs = d.addresses || {{}};
     renderDepositGrid();
   }} catch(e) {{
-    document.getElementById('deposit-grid').innerHTML = '<div class="alert alert-error">Failed: '+e.message+'</div>';
+    if (e.unauthorized) {{
+      document.getElementById('deposit-grid').innerHTML = loginRedirectHtml('You are signed out.');
+    }} else {{
+      document.getElementById('deposit-grid').innerHTML = '<div class="alert alert-error">Failed: '+e.message+'</div>';
+    }}
   }}
 }}
 
@@ -14617,13 +14757,37 @@ function initTonConnect() {{
       buttonRootId: 'ton-connect-slot'
     }});
     tonConnectUI.onStatusChange(function(wallet){{
-      document.getElementById('ton-quick-deposit').style.display = wallet ? 'block' : 'none';
+      var quickBtn = document.getElementById('ton-quick-deposit');
+      var discBtn = document.getElementById('ton-disconnect-btn');
+      if (quickBtn) quickBtn.style.display = wallet ? 'block' : 'none';
+      if (discBtn) discBtn.style.display = wallet ? 'block' : 'none';
     }});
   }} catch(e) {{ console.warn('TON Connect init failed', e); }}
 }}
 
+async function tonDisconnect() {{
+  if (!tonConnectUI) {{ alert('TON Connect not initialized'); return; }}
+  try {{
+    await tonConnectUI.disconnect();
+    var quickBtn = document.getElementById('ton-quick-deposit');
+    var discBtn = document.getElementById('ton-disconnect-btn');
+    if (quickBtn) quickBtn.style.display = 'none';
+    if (discBtn) discBtn.style.display = 'none';
+  }} catch(e) {{ alert('Disconnect failed: ' + (e.message || e)); }}
+}}
+
 async function tonQuickDeposit() {{
-  if (!tonConnectUI || !depositAddrs.ton) {{ alert('TON wallet not ready'); return; }}
+  // If the deposit address hasn't loaded yet, try to fetch it on-demand
+  // before failing — fixes the "TON wallet not ready" alert that fires
+  // when the first /api/wallet/deposit-addresses call was racing the click.
+  if (!tonConnectUI) {{ alert('TON Connect not initialized — refresh and try again.'); return; }}
+  if (!depositAddrs.ton) {{
+    try {{ await ensureDeposits(); }} catch(_) {{}}
+  }}
+  if (!depositAddrs.ton) {{
+    alert('Your TON deposit address is still loading. Please open the Deposit tab once, then retry.');
+    return;
+  }}
   var addr = depositAddrs.ton;
   try {{
     await tonConnectUI.sendTransaction({{
