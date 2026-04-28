@@ -17120,7 +17120,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         guides = {
             "deposit": "Use /deposit to see your unique deposit addresses for each network.",
             "send":    "Use /send @user 0.5 ASSET note — instant P2P transfer.",
-            "withdraw":"Use /withdraw 0.5 ASSET chain address to queue an on-chain withdrawal.",
+            "withdraw":"Use <code>/withdraw &lt;amount&gt; &lt;ASSET&gt; &lt;recipient&gt; [chain]</code> — recipient can be @user, a Telegram id, or a wallet address.",
             "history": "Open the web wallet for full transaction history."
         }
         await q.edit_message_text(
@@ -18456,13 +18456,16 @@ def main():
                             print(f"[Wallet] revert-refund #{rwid} failed: {e}")
                         url = explorer_tx_url(rchain, rhash)
                         if refunded:
+                            # Failure DMs don't carry an explorer link per
+                            # product spec — the funds are back in-wallet
+                            # and we don't want to draw the user toward a
+                            # reverted on-chain hash.
                             _send_user(
                                 ruser,
                                 (f"❌ <b>Withdrawal Reverted On-Chain</b>\n"
                                  f"━━━━━━━━━━━━━━━━━━\n"
                                  f"💎 {ramount} {rasset} refunded to your wallet.\n"
                                  f"🆔 <code>{rhash}</code>"),
-                                tx_url=url,
                             )
                         _send_owner(
                             f"❌ <b>Withdrawal #{rwid} reverted on-chain</b>\n"

@@ -204,7 +204,18 @@ def _broadcast_evm(
         }
     else:
         # Treat as native
-        if asset.upper() != cfg["native_symbol"].upper() and asset.upper() != "ETH":
+        # Native-symbol aliases: ETH for any EVM chain (carryover habit),
+        # plus MATIC ⇔ POL on Polygon since both names are still in
+        # circulation across user balances and explorers.
+        sym = asset.upper()
+        native = cfg["native_symbol"].upper()
+        polygon_aliases = {"POL", "MATIC"}
+        ok = (
+            sym == native
+            or sym == "ETH"
+            or (chain.lower() == "polygon" and sym in polygon_aliases)
+        )
+        if not ok:
             return ("", "unsupported_asset")
         amount_smallest = int(Decimal(amount_decimal) * (Decimal(10) ** cfg["native_decimals"]))
         tx = {
