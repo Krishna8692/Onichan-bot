@@ -140,22 +140,89 @@ def _ssrf_redirect_hook(response, **kwargs):
                 raise requests.exceptions.InvalidURL(str(ve))
 
 
-def _make_session() -> requests.Session:
+class _SessionShim:
     """
-    Create a scraper session that transparently bypasses Cloudflare IUAM /
-    browser-challenge pages (cloudscraper solves the JS challenge), while
-    still applying SSRF redirect protection via our response hook.
-    Falls back to a plain requests.Session if cloudscraper is unavailable.
+    Thin shim that wraps a curl_cffi session (which lacks hooks support) so
+    it exposes the same get/post/request interface as requests.Session, while
+    still applying SSRF redirect validation on every response.
     """
+    def __init__(self, cffi_session):
+        self._s = cffi_session
+        # Expose headers / cookies as mutable objects on the session
+        self.headers = cffi_session.headers
+        self.cookies = cffi_session.cookies
+
+    def _check(self, resp):
+        """Validate each response for SSRF redirect targets."""
+        if getattr(resp, "is_redirect", False):
+            location = resp.headers.get("Location", "")
+            if location:
+                try:
+                    abs_loc = urljoin(resp.url, location)
+                    parsed = urlparse(abs_loc)
+                    if parsed.scheme not in ("http", "https"):
+                        raise ValueError(f"Redirect to non-http(s) scheme blocked: {parsed.scheme}")
+                    _check_host_ssrf(parsed.hostname or "")
+                except ValueError as ve:
+                    raise requests.exceptions.InvalidURL(str(ve))
+        return resp
+
+    def get(self, url, **kwargs):
+        return self._check(self._s.get(url, **kwargs))
+
+    def post(self, url, **kwargs):
+        return self._check(self._s.post(url, **kwargs))
+
+    def put(self, url, **kwargs):
+        return self._check(self._s.put(url, **kwargs))
+
+    def request(self, method, url, **kwargs):
+        return self._check(self._s.request(method, url, **kwargs))
+
+    def close(self):
+        try:
+            self._s.close()
+        except Exception:
+            pass
+
+
+def _make_session():
+    """
+    Create a scraper session that bypasses Cloudflare and similar anti-bot protections.
+
+    Priority order:
+      1. curl-cffi with Chrome 131 TLS impersonation — best Cloudflare bypass,
+         sends a real Chrome JA3/JA4 fingerprint that passes most JS challenges.
+      2. cloudscraper — handles older Cloudflare IUAM via JS evaluation.
+      3. Plain requests.Session — last resort fallback.
+
+    Returns a session-like object with get/post/request/headers/cookies.
+    """
+    # ── Priority 1: curl-cffi (real TLS fingerprint impersonation) ───────────
+    try:
+        from curl_cffi import requests as _cffi
+        _impersonate = "chrome131"
+        cffi_session = _cffi.Session(impersonate=_impersonate)
+        cffi_session.headers.update(_DEFAULT_HEADERS)
+        return _SessionShim(cffi_session)
+    except Exception:
+        pass
+
+    # ── Priority 2: cloudscraper (JS challenge solver) ────────────────────────
     try:
         import cloudscraper
         s = cloudscraper.create_scraper(
             browser={"browser": "chrome", "platform": "windows", "desktop": True},
             delay=5,
         )
+        s.headers.update(_DEFAULT_HEADERS)
+        s.hooks["response"].append(_ssrf_redirect_hook)
+        return s
     except Exception:
-        s = requests.Session()
+        pass
 
+    # ── Priority 3: plain requests.Session ───────────────────────────────────
+    s = requests.Session()
     s.headers.update(_DEFAULT_HEADERS)
     s.hooks["response"].append(_ssrf_redirect_hook)
     return s
@@ -828,23 +895,27 @@ def login_to_site(
         except Exception as e:
             return {"ok": False, "error": str(e)[:60]}
 
-    # If there was a definitive block (rate-limit / ban), stop here
-    if find_error and "blocking" in (find_error or "").lower():
-        return {"ok": False, "error": find_error}
-    if find_error and "captcha" in (find_error or "").lower():
-        return {"ok": False, "error": find_error}
-
     # ── Path 2: API / JSON login (SPA sites) ─────────────────────────────────
+    # Always try API login — even if the HTML form path was blocked by Cloudflare
+    # or CAPTCHA, the site's JSON auth endpoint may still be reachable.
     api_result = _api_login(session, site_url, email, password)
     if api_result.get("ok"):
         return api_result
 
-    # Report the most useful error
+    # Only surface a "wrong credentials" error if the API login explicitly said so
+    api_err = api_result.get("error", "")
+    if "invalid credentials" in api_err.lower() or "wrong email" in api_err.lower():
+        return {"ok": False, "error": api_err}
+
+    # Both paths failed — report the most informative error
+    # Prefer the bot-protection message if that's why HTML form failed,
+    # otherwise build a combined message.
+    if find_error and any(kw in (find_error or "").lower() for kw in ("blocking", "captcha", "rate")):
+        return {"ok": False, "error": find_error}
     html_err = find_error or "No HTML login form found"
-    api_err  = api_result.get("error", "API login failed")
     return {
         "ok": False,
-        "error": f"Form login: {html_err} | API login: {api_err}",
+        "error": f"Login failed — form: {html_err} | api: {api_err}",
     }
 
 
