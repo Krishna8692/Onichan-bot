@@ -541,7 +541,8 @@ class SocialMediaDownloader:
                 print(f"[yt-dlp] failed for {platform}: {ydl_error}")
                 ydl_success = False
 
-            # For Instagram — always try API fallbacks if yt-dlp didn't produce a file
+            # For Instagram — try Instagram-specific API scrapers first (they
+            # handle private/embed content yt-dlp can't reach without cookies)
             if platform == "instagram" and not audio_only:
                 file_from_ydl = self._find_downloaded_file() if ydl_success else None
                 if not file_from_ydl:
@@ -555,12 +556,14 @@ class SocialMediaDownloader:
                         result["duration"] = api_result.get("duration")
                         result["type"] = api_result.get("type", "video")
                         return result
-                    else:
-                        result["error"] = "Could not download this Instagram post. Make sure the URL is public and try again."
-                        return result
+                    # Instagram API scrapers failed too — fall through to cobalt
+                    ydl_success = False
 
             if not ydl_success:
-                # Try cobalt for other platforms too
+                # Universal fallback: cobalt supports 100+ platforms including
+                # Instagram, YouTube, TikTok, Twitter/X, Reddit, Vimeo, Twitch,
+                # Pinterest, Tumblr, SoundCloud, and more. Try it for *every*
+                # platform when yt-dlp fails.
                 cobalt_result = await download_via_cobalt(url, self.download_dir)
                 if cobalt_result:
                     result["success"] = True
@@ -569,7 +572,19 @@ class SocialMediaDownloader:
                     result["duration"] = cobalt_result.get("duration")
                     result["type"] = cobalt_result.get("type", "video")
                     return result
-                result["error"] = f"Download failed for {platform.title()}. Try a different URL or public content."
+                if platform == "instagram":
+                    result["error"] = (
+                        "Instagram is currently blocking anonymous downloads from this server. "
+                        "This usually means the post is private, deleted, or Instagram is rate-limiting. "
+                        "Try a different post, or paste a YouTube / TikTok / Twitter / Reddit / Vimeo / "
+                        "Twitch / Pinterest / SoundCloud / direct .mp4 URL — those work without restrictions."
+                    )
+                else:
+                    result["error"] = (
+                        f"Download failed for {platform.title()}. The link may be private, deleted, "
+                        f"region-locked, or behind a login wall. Try a public link, or paste any "
+                        f"YouTube / TikTok / Twitter / Reddit / Vimeo / direct .mp4 URL."
+                    )
                 return result
 
             result["title"] = (info.get("title", "Unknown") if info else "Unknown")[:100]

@@ -4162,20 +4162,22 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     if not context.args:
-        platforms_list = " · ".join([f"{get_platform_emoji(p)} {p.title()}" for p in list(SUPPORTED_PLATFORMS.keys())])
         await update.message.reply_text(
-            f"🎬 <b>Universal Downloader</b>\n\n"
+            f"🎬 <b>Universal Video Downloader</b>\n\n"
             f"<b>Usage:</b>\n"
             f"<code>/download [url]</code> — Pick quality then download\n"
-            f"<code>/download [url] audio</code> — Extract audio only\n\n"
-            f"<b>Works with any link!</b>\n"
-            f"Best support for:\n"
-            f"{platforms_list}\n\n"
+            f"<code>/download [url] audio</code> — Extract audio only (MP3)\n\n"
+            f"<b>Works with 1500+ sites</b>, including:\n"
+            f"📺 YouTube · 🎵 TikTok · 📸 Instagram · 🐦 Twitter / X\n"
+            f"🔴 Reddit · 🎬 Vimeo · 💜 Twitch · 📌 Pinterest\n"
+            f"📘 Facebook · 👻 Snapchat · 🧵 Threads · 🎧 SoundCloud\n"
+            f"📹 Dailymotion · plus most adult sites and any direct .mp4 link.\n\n"
             f"<b>Examples:</b>\n"
             f"<code>/download https://youtu.be/...</code>\n"
-            f"<code>/download https://instagram.com/reel/...</code>\n"
             f"<code>/download https://tiktok.com/... audio</code>\n"
-            f"<code>/download https://twitter.com/...</code>",
+            f"<code>/download https://twitter.com/...</code>\n\n"
+            f"<i>Note: Instagram often requires login from cloud servers — if it fails, the post may be private or rate-limited. YouTube / TikTok / Twitter / Reddit are the most reliable.</i>\n\n"
+            f"Use /dlpref to set how big files (&gt;49MB) are delivered.",
             parse_mode=ParseMode.HTML
         )
         return
@@ -4210,8 +4212,10 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         qualities = []
 
-    # Store URL in bot_data keyed by user id so callback can retrieve it
-    context.bot_data[f"dlurl_{user.id}"] = url
+    # Store URL in bot_data keyed by a per-request token so multiple parallel
+    # /download calls from the same user don't clobber each other.
+    qtoken = _py_secrets.token_hex(6)
+    context.bot_data[f"dlurl_{user.id}_{qtoken}"] = url
 
     if not qualities:
         # Could not fetch quality list — show simple options
@@ -4227,13 +4231,13 @@ async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buttons = []
     row = []
     for i, q in enumerate(qualities):
-        row.append(InlineKeyboardButton(q["label"], callback_data=f"dlq_{user.id}_{q['value']}"))
+        row.append(InlineKeyboardButton(q["label"], callback_data=f"dlq_{user.id}_{qtoken}_{q['value']}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
-    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data=f"dlq_{user.id}_cancel")])
+    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data=f"dlq_{user.id}_{qtoken}_cancel")])
 
     await analyzing_msg.edit_text(
         f"{emoji} <b>{platform.title()} — Choose Quality</b>\n\n"
@@ -4410,25 +4414,34 @@ async def download_quality_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    data = query.data  # dlq_{user_id}_{quality}
-    parts = data.split("_", 2)
-    if len(parts) < 3:
-        return
+    data = query.data  # dlq_{user_id}_{qtoken}_{quality}
+    parts = data.split("_", 3)
+    if len(parts) < 4:
+        # Backward compatibility with old buttons (dlq_{user_id}_{quality})
+        legacy = data.split("_", 2)
+        if len(legacy) == 3:
+            _, uid_str, quality = legacy
+            qtoken = None
+        else:
+            return
+    else:
+        _, uid_str, qtoken, quality = parts
 
-    _, uid_str, quality = parts
     user = update.effective_user
     if str(user.id) != uid_str:
         await query.answer("This isn't your download session.", show_alert=True)
         return
 
+    url_key = f"dlurl_{user.id}_{qtoken}" if qtoken else f"dlurl_{user.id}"
+
     if quality == "cancel":
         await query.edit_message_text("❌ Download cancelled.")
-        context.bot_data.pop(f"dlurl_{user.id}", None)
+        context.bot_data.pop(url_key, None)
         return
 
-    url = context.bot_data.get(f"dlurl_{user.id}")
+    url = context.bot_data.get(url_key)
     if not url:
-        await query.edit_message_text("❌ Session expired. Please send the command again.")
+        await query.edit_message_text("❌ Session expired. Please send /download again.")
         return
 
     audio_only = quality == "audio"
@@ -4447,7 +4460,7 @@ async def download_quality_callback(update: Update, context: ContextTypes.DEFAUL
     except Exception as e:
         await query.message.edit_text(f"❌ <b>Error</b>\n\n{str(e)[:200]}", parse_mode=ParseMode.HTML)
     finally:
-        context.bot_data.pop(f"dlurl_{user.id}", None)
+        context.bot_data.pop(url_key, None)
 
 
 # ── Large-file delivery helpers ─────────────────────────────────────────────
