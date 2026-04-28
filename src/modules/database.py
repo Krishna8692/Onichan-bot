@@ -260,6 +260,14 @@ def _create_tables():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_tg ON wallet_transactions(telegram_id, created_at DESC)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_status ON wallet_transactions(status)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_wtx_hash ON wallet_transactions(tx_hash)")
+            # Idempotency for on-chain deposit credits: a given (chain, tx_hash) deposit
+            # can only be inserted once. The deposit notifier relies on the matching
+            # ON CONFLICT (chain, tx_hash) WHERE tx_type='deposit' clause.
+            cur.execute(
+                """CREATE UNIQUE INDEX IF NOT EXISTS wallet_tx_deposit_uniq_idx
+                   ON wallet_transactions (chain, tx_hash)
+                   WHERE tx_type = 'deposit' AND tx_hash IS NOT NULL"""
+            )
 
             # Custodial wallet — HD-derived deposit addresses per user/chain
             cur.execute("""
