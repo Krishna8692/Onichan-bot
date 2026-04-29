@@ -167,9 +167,20 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
         if not items:
             cards_html = '<div style="text-align:center;color:#aaa;padding:40px">No listings found. <a href="/user/market/sell" style="color:#ff69b4">Be the first to sell!</a></div>'
 
+        # Escape ALL query params that appear in HTML attributes or JS strings
+        _q_he = _he(q)
+        _cat_he = _he(cat)
+        _ltype_he = _he(ltype)
+        _sort_he = _he(sort)
+        _min_price_he = _he(min_price)
+        _max_price_he = _he(max_price)
+        _min_rating_he = _he(min_rating)
+
         def pag_btn(p, label):
             active = "mkt-btn-primary" if p == page else "mkt-btn-outline"
-            href = f"?cat={_he(cat)}&type={_he(ltype)}&sort={_he(sort)}&q={_he(q)}&min_price={min_price}&max_price={max_price}&min_rating={min_rating}&page={p}"
+            href = (f"?cat={_cat_he}&type={_ltype_he}&sort={_sort_he}"
+                    f"&q={_q_he}&min_price={_min_price_he}"
+                    f"&max_price={_max_price_he}&min_rating={_min_rating_he}&page={p}")
             return f'<a href="{href}" class="mkt-btn {active}" style="padding:5px 12px">{label}</a>'
 
         pag_html = ""
@@ -179,13 +190,13 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
             next_btn = pag_btn(page+1, "Next") if page < pages else ""
             pag_html = f'<div style="display:flex;gap:6px;justify-content:center;margin-top:20px;flex-wrap:wrap">{prev_btn}{pag_btns}{next_btn}</div>'
 
-        cat_tags = f'<button class="mkt-tag {"active" if not cat else ""}" onclick="location.href=\'?type={ltype}&sort={sort}&q={_he(q)}\'">All</button>'
+        cat_tags = (f'<button class="mkt-tag {"active" if not cat else ""}" '
+                    f'onclick="location.href=\'?type={_ltype_he}&sort={_sort_he}&q={_q_he}\'">All</button>')
         for c in mkt.CATEGORIES:
             c_he = _he(c)
             cat_tags += (f'<button class="mkt-tag {"active" if c==cat else ""}" '
-                         f'onclick="location.href=\'?cat={c_he}&type={ltype}&sort={sort}&q={_he(q)}\'">{c_he}</button>')
+                         f'onclick="location.href=\'?cat={c_he}&type={_ltype_he}&sort={_sort_he}&q={_q_he}\'">{c_he}</button>')
 
-        _q_he = _he(q)
         sidebar = get_user_sidebar("market", "Marketplace")
         balance = get_balance(uid)
         _sel = lambda v, cur: "selected" if v == cur else ""
@@ -213,8 +224,8 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
     <option value="fixed" {_sel("fixed", ltype)}>Fixed Price</option>
     <option value="auction" {_sel("auction", ltype)}>Auction</option>
   </select>
-  <input name="min_price" type="number" min="0" placeholder="Min price" value="{min_price}" style="width:90px">
-  <input name="max_price" type="number" min="0" placeholder="Max price" value="{max_price}" style="width:90px">
+  <input name="min_price" type="number" min="0" placeholder="Min price" value="{_min_price_he}" style="width:90px">
+  <input name="max_price" type="number" min="0" placeholder="Max price" value="{_max_price_he}" style="width:90px">
   <select name="min_rating">
     <option value="" {_sel("", min_rating)}>Any Rating</option>
     <option value="4" {_sel("4", min_rating)}>4+ stars</option>

@@ -626,10 +626,19 @@ def finalize_auction(listing_id: int) -> dict:
     listing_title = listing["title"]
     seller_id = listing["seller_id"]
 
-    # Atomic: record purchase, mark listing sold, deactivate winner bid
+    # Atomic: lock listing, re-check status, record purchase, mark sold
     pid = None
     try:
         def _txn(conn, cur):
+            # Lock listing row under the transaction — serializes concurrent finalizers
+            cur.execute(
+                "SELECT status FROM market_listings WHERE id=%s FOR UPDATE",
+                (listing_id,)
+            )
+            lst_row = cur.fetchone()
+            if not lst_row or lst_row[0] != "active":
+                raise ValueError("Auction already finalized by another process")
+
             cur.execute(
                 """INSERT INTO market_purchases
                      (listing_id, listing_title, buyer_id, seller_id, amount,
@@ -639,10 +648,13 @@ def finalize_auction(listing_id: int) -> dict:
                  win_amount, commission, token)
             )
             pid_inner = cur.fetchone()[0]
+            # Use guarded UPDATE — only marks 'sold' if still 'active'
             cur.execute(
-                "UPDATE market_listings SET status='sold' WHERE id=%s",
+                "UPDATE market_listings SET status='sold' WHERE id=%s AND status='active'",
                 (listing_id,)
             )
+            if cur.rowcount == 0:
+                raise ValueError("Listing status changed concurrently")
             cur.execute(
                 "UPDATE market_bids SET hold_active=FALSE WHERE id=%s",
                 (win_bid_id,)
@@ -650,6 +662,8 @@ def finalize_auction(listing_id: int) -> dict:
             return pid_inner
 
         pid = _run_transaction(_txn)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     except Exception as exc:
         return {"ok": False, "error": f"Finalization DB error: {type(exc).__name__}"}
 
@@ -716,32 +730,33 @@ def _autoconfirm_loop():
 
 
 def _run_autoconfirm():
+    """Atomically claim pending purchases and pay out sellers.
+
+    Uses UPDATE … RETURNING to atomically transition purchases from
+    'pending' → 'confirmed' in a single statement, ensuring each purchase
+    is credited to the seller exactly once even if the background thread
+    runs concurrently (e.g. across a restart or on multiple worker processes).
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=AUTOCONFIRM_HOURS)
 
-    def _op(conn):
+    def _claim(conn):
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, seller_id, amount, commission, listing_id, listing_title
-                FROM market_purchases
+                UPDATE market_purchases
+                SET status='confirmed', confirmed_at=NOW()
                 WHERE status='pending' AND created_at < %s
+                RETURNING id, seller_id, amount, commission, listing_id, listing_title
             """, (cutoff,))
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
-    pending = _execute_with_retry(_op) or []
+    # This single UPDATE is atomic on Postgres; concurrent callers will each
+    # claim a disjoint set of rows (no double-confirm possible).
+    claimed = _execute_with_retry(_claim) or []
 
-    commission_rate = get_commission_rate()
-    for p in pending:
+    for p in claimed:
         seller_payout = int(p["amount"]) - int(p["commission"])
         add_credits(p["seller_id"], seller_payout, tx_type="market_sale",
                     description=f"Sale: {p['listing_title']} (listing #{p['listing_id']})")
-
-        def _confirm(conn, pid=p["id"]):
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE market_purchases SET status='confirmed', confirmed_at=NOW()
-                    WHERE id=%s
-                """, (pid,))
-        _execute_with_retry(_confirm)
         _notify(p["seller_id"], "auto_confirmed", {
             "listing_title": p["listing_title"],
             "payout": seller_payout,
