@@ -3830,7 +3830,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
     # Bottom-nav tab grouping — which active_page lights up which tab
     _shop_keys = {'ccshop', 'purchased', 'proxyshop', 'myproxies'}
     _tools_keys = {'checker', 'masscheck', 'generator', 'autohitter', 'bulkhitter', 'razorpay',
-                   'payu', 'shopify', 'cleaner', 'binlookup', 'proxychecker', 'proxygen'}
+                   'payu', 'shopify', 'cleaner', 'binlookup', 'proxychecker', 'proxygen', 'browser'}
     _casino_keys = {'casino'}
     _market_keys = {'market', 'market_sell', 'market_shop', 'market_orders'}
 
@@ -3973,6 +3973,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
             {link('binlookup', 'BIN Lookup', '/user/binlookup')}
             {link('proxychecker', 'Proxy Checker', '/user/proxychecker')}
             {link('proxygen', 'Proxy Generator', '/user/proxygen')}
+            {link('browser', '🌐 Browser', '/user/browser')}
             </div>
         </div>
         <div class="nav-section">
@@ -15294,6 +15295,9 @@ register_casino_routes(app, user_required, owner_required, get_user_sidebar, USE
 
 from market_routes import register_market_routes
 register_market_routes(app, user_required, admin_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
+
+from browser_routes import register_browser_routes
+register_browser_routes(app, user_required, get_user_sidebar, USER_CSS)
 
 
 # ===== Onichan Bypasser V1 — Direct Download =====
