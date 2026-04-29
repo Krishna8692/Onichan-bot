@@ -397,14 +397,16 @@ def place_bid(listing_id: int, bidder_id: int, bidder_name: str, amount: float) 
                 prev_bid_id = p_bid_id
                 prev_bidder = p_bidder
                 prev_amount_int = int(p_amount)
-                # Refund previous bidder atomically
+                # Refund previous bidder atomically (upsert guards against missing row)
                 cur.execute(
-                    """UPDATE user_credits
-                       SET credits = credits + %s,
-                           total_earned = total_earned + %s,
-                           updated_at = NOW()
-                       WHERE user_id = %s""",
-                    (prev_amount_int, prev_amount_int, p_bidder)
+                    """INSERT INTO user_credits (user_id, credits, total_earned, updated_at)
+                       VALUES (%s, %s, %s, NOW())
+                       ON CONFLICT (user_id) DO UPDATE SET
+                           credits = user_credits.credits + %s,
+                           total_earned = user_credits.total_earned + %s,
+                           updated_at = NOW()""",
+                    (p_bidder, prev_amount_int, prev_amount_int,
+                     prev_amount_int, prev_amount_int)
                 )
                 cur.execute(
                     "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
@@ -502,14 +504,15 @@ def _release_all_bid_holds(listing_id: int, winner_bid_id: int | None):
                 )
                 if cur.rowcount == 0:
                     return  # Already refunded/deactivated
-                # Credit the bidder in the same transaction
+                # Credit the bidder in the same transaction (upsert to handle new accounts)
                 cur.execute(
-                    """UPDATE user_credits
-                       SET credits = credits + %s,
-                           total_earned = total_earned + %s,
-                           updated_at = NOW()
-                       WHERE user_id = %s""",
-                    (_amt, _amt, _bidder)
+                    """INSERT INTO user_credits (user_id, credits, total_earned, updated_at)
+                       VALUES (%s, %s, %s, NOW())
+                       ON CONFLICT (user_id) DO UPDATE SET
+                           credits = user_credits.credits + %s,
+                           total_earned = user_credits.total_earned + %s,
+                           updated_at = NOW()""",
+                    (_bidder, _amt, _amt, _amt, _amt)
                 )
                 cur.execute(
                     "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
@@ -809,14 +812,15 @@ def _run_autoconfirm():
                 )
                 if cur.rowcount == 0:
                     return None  # Already processed by another runner
-                # Credit seller in the same transaction
+                # Credit seller in the same transaction (upsert to handle new accounts)
                 cur.execute(
-                    """UPDATE user_credits
-                       SET credits = credits + %s,
-                           total_earned = total_earned + %s,
-                           updated_at = NOW()
-                       WHERE user_id = %s""",
-                    (_payout, _payout, _sid)
+                    """INSERT INTO user_credits (user_id, credits, total_earned, updated_at)
+                       VALUES (%s, %s, %s, NOW())
+                       ON CONFLICT (user_id) DO UPDATE SET
+                           credits = user_credits.credits + %s,
+                           total_earned = user_credits.total_earned + %s,
+                           updated_at = NOW()""",
+                    (_sid, _payout, _payout, _payout, _payout)
                 )
                 cur.execute(
                     "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
@@ -1084,17 +1088,34 @@ def get_active_auctions() -> list:
 
 
 # ─── notifications ────────────────────────────────────────────────────────────
+def _get_base_url() -> str:
+    """Return the primary public base URL for this deployment (no trailing slash)."""
+    domains = os.environ.get("REPLIT_DOMAINS", "")
+    if domains:
+        primary = domains.split(",")[0].strip()
+        if primary:
+            return f"https://{primary}"
+    dev = os.environ.get("REPLIT_DEV_DOMAIN", "")
+    if dev:
+        return f"https://{dev}"
+    return ""
+
+
 def _notify(user_id: int, event: str, ctx: dict):
     try:
         import requests as _req
         token = os.environ.get("BOT_TOKEN", "")
         if not token:
             return
+        base = _get_base_url()
+        lid = ctx.get("listing_id", "")
+        listing_url = f"{base}/user/market/listing/{lid}" if base and lid else ""
+        view_link = f'\n🔗 <a href="{listing_url}">View Listing</a>' if listing_url else ""
         msgs = {
             "new_bid":      (f"🏷 <b>New Bid on Your Listing!</b>\n\n"
                              f"📦 <b>{ctx.get('listing_title','')}</b>\n"
-                             f"💰 New bid: <b>{int(ctx.get('amount',0))} credits</b> by {ctx.get('bidder','')}\n"
-                             f"🔗 <a href='/user/market/listing/{ctx.get('listing_id','')}'>View Listing</a>"),
+                             f"💰 New bid: <b>{int(ctx.get('amount',0))} credits</b> by {ctx.get('bidder','')}"
+                             + view_link),
             "outbid":       (f"⚡ <b>You've Been Outbid!</b>\n\n"
                              f"📦 <b>{ctx.get('listing_title','')}</b>\n"
                              f"💰 New highest bid: <b>{int(ctx.get('new_amount',0))} credits</b>\n"
@@ -1102,7 +1123,8 @@ def _notify(user_id: int, event: str, ctx: dict):
             "auction_won":  (f"🏆 <b>You Won the Auction!</b>\n\n"
                              f"📦 <b>{ctx.get('listing_title','')}</b>\n"
                              f"💰 Amount paid: <b>{int(ctx.get('amount',0))} credits</b>\n"
-                             f"🔑 Your product is ready — visit the marketplace to download it."),
+                             f"🔑 Your product is ready — check Telegram for delivery or visit the marketplace."
+                             + view_link),
             "buyer_purchased": "__SPECIAL__",
             "auction_sold": (f"✅ <b>Your Auction Sold!</b>\n\n"
                              f"📦 <b>{ctx.get('listing_title','')}</b>\n"
@@ -1122,37 +1144,47 @@ def _notify(user_id: int, event: str, ctx: dict):
             return
 
         if text == "__SPECIAL__":
-            # buyer_purchased: send header + product content as separate messages
+            # buyer_purchased: deliver product via DM
             prod_type = ctx.get("product_type", "text")
             prod_content = ctx.get("product_content", "")
-            lid = ctx.get("listing_id", "")
             title = ctx.get("listing_title", "")
             amount = int(ctx.get("amount", 0))
             token_dl = ctx.get("token", "")
+
+            # Build delivery line depending on product type
+            if prod_type == "text" and prod_content:
+                delivery_line = "📋 <b>Your product content is below:</b>"
+            elif token_dl and base:
+                dl_url = f"{base}/user/market/download/{token_dl}"
+                delivery_line = f'📁 <b>Download your file:</b> <a href="{dl_url}">{dl_url}</a>'
+            elif token_dl:
+                delivery_line = f"📁 <b>Your download token:</b> <code>{token_dl}</code>"
+            else:
+                delivery_line = "📁 Visit the marketplace to access your file."
+
             header = (
                 f"🎉 <b>Purchase Successful!</b>\n\n"
                 f"📦 <b>{title}</b>\n"
                 f"💰 Amount paid: <b>{amount} credits</b>\n\n"
+                + delivery_line
             )
-            if prod_type == "text" and prod_content:
-                header += "📋 <b>Your product content is below:</b>"
-            else:
-                header += "📁 Use your download token in the marketplace to retrieve your file."
             _req.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
                 json={"chat_id": user_id, "text": header,
-                      "parse_mode": "HTML", "disable_web_page_preview": True},
+                      "parse_mode": "HTML", "disable_web_page_preview": False},
                 timeout=6,
             )
             if prod_type == "text" and prod_content:
-                # Send content as a separate message (in a code block for clarity)
-                content_chunks = [prod_content[i:i+4000] for i in range(0, len(prod_content), 4000)]
-                for chunk in content_chunks:
+                # Send content in 4000-char chunks inside <pre> blocks
+                chunks = [prod_content[i:i+4000]
+                          for i in range(0, len(prod_content), 4000)]
+                for chunk in chunks:
                     _req.post(
                         f"https://api.telegram.org/bot{token}/sendMessage",
                         json={"chat_id": user_id,
                               "text": f"<pre>{chunk}</pre>",
-                              "parse_mode": "HTML", "disable_web_page_preview": True},
+                              "parse_mode": "HTML",
+                              "disable_web_page_preview": True},
                         timeout=6,
                     )
             return
