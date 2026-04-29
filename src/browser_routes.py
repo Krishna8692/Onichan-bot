@@ -563,87 +563,127 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
 
     BROWSER_CSS = """
 <style>
-:root{--tb-h:54px;--stat-h:32px;}
-body{overflow:hidden!important;height:100vh;display:flex;flex-direction:column;}
-.main-content{padding:0!important;flex:1;display:flex;flex-direction:column;overflow:hidden;height:100%;}
+*{box-sizing:border-box;}
+body{overflow:hidden!important;height:100vh;display:flex;flex-direction:column;margin:0;}
+.main-content{padding:0!important;flex:1;display:flex;flex-direction:column;overflow:hidden;}
 
-.br-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;
-  background:rgba(20,10,35,.97);border-bottom:1px solid rgba(255,105,180,.2);
-  height:var(--tb-h);flex-shrink:0;z-index:50;}
-.br-toolbar button{background:rgba(255,255,255,.08);border:1px solid rgba(255,105,180,.2);
-  color:#fff;border-radius:7px;padding:5px 9px;cursor:pointer;font-size:.9rem;
-  transition:background .15s;min-width:32px;}
-.br-toolbar button:hover{background:rgba(255,105,180,.2);}
-.br-toolbar button:disabled{opacity:.35;cursor:not-allowed;}
-.br-addr{flex:1;background:rgba(255,255,255,.07);border:1px solid rgba(255,105,180,.25);
-  color:#fff;border-radius:20px;padding:6px 16px;font-size:.88rem;outline:none;min-width:0;}
-.br-addr:focus{border-color:#ff69b4;background:rgba(255,255,255,.1);}
-.br-scheme{font-size:.8rem;padding:4px 8px;border-radius:6px;font-weight:700;margin-right:-4px;}
-.br-scheme.https{background:rgba(74,222,128,.15);color:#4ade80;}
-.br-scheme.http{background:rgba(255,190,0,.12);color:#fbbf24;}
+/* ── Toolbar ── */
+.br-toolbar{display:flex;align-items:center;gap:5px;padding:5px 8px;
+  background:rgba(20,10,35,.98);border-bottom:1px solid rgba(255,105,180,.2);
+  flex-shrink:0;z-index:50;}
+.br-tb-btn{background:rgba(255,255,255,.08);border:1px solid rgba(255,105,180,.18);
+  color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:.9rem;
+  transition:background .15s;min-width:34px;flex-shrink:0;}
+.br-tb-btn:hover{background:rgba(255,105,180,.2);}
+.br-tb-btn:disabled{opacity:.3;cursor:not-allowed;}
+.br-addr-wrap{flex:1;display:flex;align-items:center;background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,105,180,.22);border-radius:22px;padding:0 4px 0 12px;
+  min-width:0;transition:border-color .15s;}
+.br-addr-wrap:focus-within{border-color:#ff69b4;background:rgba(255,255,255,.1);}
+.br-scheme{font-size:.72rem;font-weight:700;flex-shrink:0;margin-right:4px;}
+.br-scheme.https{color:#4ade80;}
+.br-scheme.http{color:#fbbf24;}
 .br-scheme.none{display:none;}
+.br-addr{flex:1;background:transparent;border:none;color:#fff;
+  font-size:.85rem;outline:none;padding:7px 0;min-width:0;}
+.br-go-btn{background:linear-gradient(135deg,#e94560,#9b2e9b);border:none;
+  color:#fff;border-radius:18px;padding:5px 14px;cursor:pointer;font-weight:700;
+  font-size:.82rem;flex-shrink:0;}
 
-.br-status{display:flex;align-items:center;gap:10px;padding:2px 12px;
-  background:rgba(15,5,25,.9);border-bottom:1px solid rgba(255,105,180,.12);
-  height:var(--stat-h);flex-shrink:0;font-size:.72rem;color:#aaa;}
-.br-proxy-badge{display:flex;align-items:center;gap:4px;background:rgba(255,105,180,.1);
-  border:1px solid rgba(255,105,180,.25);border-radius:10px;padding:1px 8px;color:#ff99cc;}
-.br-proxy-badge.off{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);color:#666;}
-.br-ip{color:#7ec8e3;font-family:monospace;}
+/* ── Status bar ── */
+.br-status{display:flex;align-items:center;gap:8px;padding:3px 10px;
+  background:rgba(12,4,22,.95);border-bottom:1px solid rgba(255,105,180,.1);
+  flex-shrink:0;font-size:.7rem;color:#aaa;min-height:26px;}
+.br-proxy-badge{display:inline-flex;align-items:center;gap:3px;
+  background:rgba(255,105,180,.1);border:1px solid rgba(255,105,180,.22);
+  border-radius:10px;padding:1px 8px;color:#ff99cc;cursor:pointer;white-space:nowrap;}
+.br-proxy-badge:hover{background:rgba(255,105,180,.18);}
+.br-proxy-badge.off{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08);color:#666;}
+.br-ip{color:#7ec8e3;font-family:monospace;font-size:.68rem;}
 
-.br-main{flex:1;display:flex;overflow:hidden;}
-.br-frame-wrap{flex:1;position:relative;background:#111;}
+/* ── Frame area ── */
+.br-frame-wrap{flex:1;position:relative;background:#0d0520;overflow:hidden;}
 #br-frame{width:100%;height:100%;border:none;display:block;}
-.br-loading-overlay{position:absolute;inset:0;background:rgba(10,5,20,.95);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  z-index:10;transition:opacity .3s;}
-.br-spinner{width:44px;height:44px;border:3px solid rgba(255,105,180,.2);
-  border-top-color:#ff69b4;border-radius:50%;animation:br-spin .8s linear infinite;margin-bottom:14px;}
+.br-loading-overlay{position:absolute;inset:0;background:rgba(8,3,18,.97);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;}
+.br-spinner{width:42px;height:42px;border:3px solid rgba(255,105,180,.15);
+  border-top-color:#ff69b4;border-radius:50%;animation:br-spin .75s linear infinite;margin-bottom:12px;}
 @keyframes br-spin{to{transform:rotate(360deg);}}
-.br-load-txt{color:#aaa;font-size:.82rem;}
+.br-load-txt{color:#888;font-size:.8rem;}
+.br-welcome{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:10px;pointer-events:none;}
+.br-welcome-icon{font-size:3.5rem;opacity:.25;}
+.br-welcome-txt{color:rgba(255,255,255,.18);font-size:.9rem;}
 
-.br-side{width:300px;background:rgba(15,5,25,.98);border-left:1px solid rgba(255,105,180,.15);
-  display:flex;flex-direction:column;overflow:hidden;transition:width .25s;flex-shrink:0;}
-.br-side.collapsed{width:0;}
-.br-side-inner{min-width:300px;flex:1;display:flex;flex-direction:column;overflow:hidden;}
-.br-side-tabs{display:flex;border-bottom:1px solid rgba(255,105,180,.15);flex-shrink:0;}
-.br-side-tab{flex:1;padding:9px;text-align:center;cursor:pointer;font-size:.78rem;
-  color:#aaa;transition:all .2s;border-bottom:2px solid transparent;}
-.br-side-tab.active{color:#ff69b4;border-color:#ff69b4;background:rgba(255,105,180,.05);}
-.br-side-body{flex:1;overflow-y:auto;padding:10px;}
-.br-side-section{display:none;}
-.br-side-section.active{display:block;}
-.br-pitem{display:flex;align-items:center;gap:5px;padding:8px;border-radius:8px;
-  background:rgba(255,255,255,.05);border:1px solid rgba(255,105,180,.1);margin-bottom:6px;flex-wrap:wrap;}
-.br-pitem.active-proxy{border-color:#4ade80;background:rgba(74,222,128,.07);}
-.br-pitem-name{font-size:.82rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;}
-.br-pitem-type{font-size:.68rem;color:#aaa;padding:1px 5px;background:rgba(255,255,255,.07);border-radius:4px;}
-.br-pill-btn{padding:3px 7px;font-size:.68rem;border-radius:5px;cursor:pointer;border:none;font-weight:700;white-space:nowrap;}
+/* ── Settings modal (bottom sheet) ── */
+.br-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;
+  opacity:0;pointer-events:none;transition:opacity .25s;}
+.br-backdrop.open{opacity:1;pointer-events:all;}
+.br-modal{position:fixed;bottom:0;left:0;right:0;z-index:201;
+  background:rgba(14,5,28,.99);border-top:1px solid rgba(255,105,180,.25);
+  border-radius:18px 18px 0 0;transform:translateY(100%);
+  transition:transform .3s cubic-bezier(.32,.72,0,1);
+  display:flex;flex-direction:column;max-height:82vh;}
+.br-modal.open{transform:translateY(0);}
+.br-modal-drag{width:40px;height:4px;background:rgba(255,255,255,.15);
+  border-radius:2px;margin:10px auto 4px;}
+.br-modal-tabs{display:flex;border-bottom:1px solid rgba(255,105,180,.15);flex-shrink:0;padding:0 4px;}
+.br-modal-tab{flex:1;padding:10px 4px;text-align:center;cursor:pointer;font-size:.8rem;
+  color:#888;border-bottom:2px solid transparent;transition:all .2s;}
+.br-modal-tab.active{color:#ff69b4;border-color:#ff69b4;}
+.br-modal-body{flex:1;overflow-y:auto;padding:12px 14px 24px;}
+.br-modal-sec{display:none;}
+.br-modal-sec.active{display:block;}
+
+/* ── Proxy items ── */
+.br-pitem{display:flex;align-items:center;gap:6px;padding:10px;border-radius:10px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,105,180,.1);margin-bottom:8px;flex-wrap:wrap;}
+.br-pitem.active-proxy{border-color:#4ade80;background:rgba(74,222,128,.06);}
+.br-pitem-name{font-size:.84rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;flex:1;min-width:0;}
+.br-pitem-type{font-size:.67rem;color:#aaa;padding:1px 6px;background:rgba(255,255,255,.07);
+  border-radius:4px;flex-shrink:0;}
+.br-pill-btn{padding:4px 9px;font-size:.7rem;border-radius:6px;cursor:pointer;
+  border:none;font-weight:700;white-space:nowrap;flex-shrink:0;}
 .br-pill-activate{background:rgba(74,222,128,.2);color:#4ade80;}
 .br-pill-deactivate{background:rgba(255,190,0,.2);color:#fbbf24;}
 .br-pill-test{background:rgba(125,200,255,.15);color:#7ec8e3;}
 .br-pill-edit{background:rgba(255,165,0,.15);color:#ffa500;}
 .br-pill-del{background:rgba(239,68,68,.15);color:#f87171;}
-.br-add-form label{display:block;font-size:.75rem;color:#aaa;margin-bottom:2px;margin-top:8px;}
-.br-add-form input,.br-add-form select{width:100%;background:rgba(255,255,255,.07);
-  border:1px solid rgba(255,105,180,.2);color:#fff;border-radius:7px;padding:5px 10px;
-  font-size:.82rem;font-family:inherit;box-sizing:border-box;}
-.br-bm-item{display:flex;align-items:center;gap:6px;padding:6px;border-radius:7px;
-  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);margin-bottom:5px;cursor:pointer;}
-.br-bm-item:hover{background:rgba(255,105,180,.08);}
-.br-bm-title{flex:1;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ddd;}
-.br-bm-url{font-size:.68rem;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:2;}
-.br-hist-item{padding:5px 8px;border-radius:6px;cursor:pointer;font-size:.78rem;color:#ccc;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,.04);}
-.br-hist-item:hover{background:rgba(255,105,180,.08);}
-.br-toggle-side{background:rgba(255,255,255,.07)!important;padding:4px 8px!important;font-size:.8rem!important;}
-.br-msg{font-size:.75rem;padding:5px 8px;border-radius:5px;margin-top:6px;}
-.br-msg.ok{background:rgba(74,222,128,.12);color:#4ade80;}
-.br-msg.err{background:rgba(239,68,68,.12);color:#f87171;}
-.br-edit-row{display:none;padding:6px 0 2px;flex-direction:column;gap:4px;width:100%;}
+.br-edit-row{display:none;padding:6px 0 2px;flex-direction:column;gap:5px;width:100%;}
 .br-edit-row.open{display:flex;}
 .br-edit-row input{background:rgba(255,255,255,.07);border:1px solid rgba(255,105,180,.2);
-  color:#fff;border-radius:6px;padding:4px 8px;font-size:.78rem;font-family:inherit;width:100%;box-sizing:border-box;}
+  color:#fff;border-radius:7px;padding:6px 10px;font-size:.8rem;font-family:inherit;width:100%;}
+
+/* ── Add proxy form ── */
+.br-add-form label{display:block;font-size:.74rem;color:#aaa;margin:8px 0 3px;}
+.br-add-form input{width:100%;background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,105,180,.2);color:#fff;border-radius:8px;
+  padding:8px 12px;font-size:.84rem;font-family:inherit;}
+.br-add-form input:focus{outline:none;border-color:#ff69b4;}
+.br-submit-btn{width:100%;margin-top:12px;background:linear-gradient(135deg,#e94560,#9b2e9b);
+  color:#fff;border:none;border-radius:10px;padding:10px;cursor:pointer;
+  font-weight:700;font-size:.9rem;}
+
+/* ── Bookmarks / History ── */
+.br-bm-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);
+  margin-bottom:6px;cursor:pointer;}
+.br-bm-item:hover{background:rgba(255,105,180,.08);}
+.br-bm-title{flex:1;font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ddd;}
+.br-bm-url{font-size:.68rem;color:#777;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.br-hist-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:.8rem;color:#ccc;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  border-bottom:1px solid rgba(255,255,255,.05);}
+.br-hist-item:hover{background:rgba(255,105,180,.08);}
+
+/* ── Misc ── */
+.br-msg{font-size:.75rem;padding:6px 10px;border-radius:7px;margin-top:6px;}
+.br-msg.ok{background:rgba(74,222,128,.12);color:#4ade80;}
+.br-msg.err{background:rgba(239,68,68,.12);color:#f87171;}
+.br-section-title{font-size:.75rem;font-weight:700;color:#ff99cc;margin:10px 0 6px;
+  text-transform:uppercase;letter-spacing:.04em;}
+.br-divider{border:none;border-top:1px solid rgba(255,105,180,.12);margin:12px 0;}
 </style>
 """
 
@@ -748,82 +788,102 @@ body{overflow:hidden!important;height:100vh;display:flex;flex-direction:column;}
         sidebar = get_user_sidebar("browser", "Browser")
 
         page = """<!DOCTYPE html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <title>Browser — Onichan</title>
 """ + USER_CSS + BROWSER_CSS + """
 </head><body>
 """ + sidebar + """
 <div class="main-content">
 
+<!-- Toolbar -->
 <div class="br-toolbar">
-  <button id="btn-back" onclick="goBack()" title="Back" disabled>&#8592;</button>
-  <button id="btn-fwd" onclick="goForward()" title="Forward" disabled>&#8594;</button>
-  <button id="btn-reload" onclick="doReload()" title="Reload">&#10227;</button>
-  <button id="btn-stop" onclick="doStop()" title="Stop" style="display:none">&#10005;</button>
-  <span id="br-scheme" class="br-scheme none"></span>
-  <input id="br-addr" class="br-addr" type="text" placeholder="Enter URL and press Enter..."
-    onkeydown="if(event.key==='Enter'){navigateTo(this.value)}"
-    onfocus="this.select()">
-  <button onclick="navigateTo(document.getElementById('br-addr').value)" title="Go" style="padding:5px 14px;font-weight:700">Go</button>
-  <button onclick="addBookmark()" title="Bookmark" style="font-size:1rem">🔖</button>
-  <button class="br-toggle-side" onclick="toggleSide()" title="Panel">☰</button>
-</div>
-
-<div class="br-status">
-  """ + proxy_status_html + """
-  <span id="br-stat-txt" style="margin-left:auto;font-size:.7rem;color:#555">Ready</span>
-</div>
-
-<div class="br-main">
-  <div class="br-frame-wrap">
-    <div id="br-loading" class="br-loading-overlay" style="display:none">
-      <div class="br-spinner"></div>
-      <div class="br-load-txt" id="br-load-txt">Loading...</div>
-    </div>
-    <iframe id="br-frame"
-      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
-    ></iframe>
+  <button class="br-tb-btn" id="btn-back" onclick="goBack()" title="Back" disabled>&#8592;</button>
+  <button class="br-tb-btn" id="btn-fwd" onclick="goForward()" title="Forward" disabled>&#8594;</button>
+  <button class="br-tb-btn" id="btn-reload" onclick="doReload()" title="Reload">&#10227;</button>
+  <button class="br-tb-btn" id="btn-stop" onclick="doStop()" title="Stop" style="display:none">&#10005;</button>
+  <div class="br-addr-wrap">
+    <span id="br-scheme" class="br-scheme none"></span>
+    <input id="br-addr" class="br-addr" type="text" placeholder="Enter a URL or search..."
+      onkeydown="if(event.key==='Enter'){navigateTo(this.value)}" onfocus="this.select()">
+    <button class="br-go-btn" onclick="navigateTo(document.getElementById('br-addr').value)">Go</button>
   </div>
+  <button class="br-tb-btn" onclick="addBookmark()" title="Bookmark">🔖</button>
+  <button class="br-tb-btn" onclick="openSettings('proxy')" title="Settings">⚙️</button>
+</div>
 
-  <div class="br-side" id="br-side">
-    <div class="br-side-inner">
-      <div class="br-side-tabs">
-        <div class="br-side-tab active" id="tab-proxy" onclick="switchTab('proxy')">🛡 Proxy</div>
-        <div class="br-side-tab" id="tab-bm" onclick="switchTab('bm')">🔖 Marks</div>
-        <div class="br-side-tab" id="tab-hist" onclick="switchTab('hist')">🕐 History</div>
-      </div>
-      <div class="br-side-body">
+<!-- Status bar -->
+<div class="br-status">
+  <span class="br-proxy-badge """ + ("" if active_proxy else "off") + """" onclick="openSettings('proxy')">
+    """ + ("🛡 " + proxy_name_safe + " (" + proxy_type_safe + ")" if active_proxy else "🔓 No proxy (direct)") + """
+  </span>
+  <span id="br-ip" class="br-ip"></span>
+  <span id="br-stat-txt" style="margin-left:auto;color:#444">Ready</span>
+</div>
 
-        <div id="sec-proxy" class="br-side-section active">
-          <div id="proxy-list">""" + proxies_html + """</div>
-          <div id="proxy-test-result" style="margin-top:6px"></div>
-          <hr style="border-color:rgba(255,105,180,.15);margin:10px 0">
-          <div style="font-size:.78rem;font-weight:700;color:#ff99cc;margin-bottom:6px">Add Proxy</div>
-          <div class="br-add-form">
-            <label>Name</label>
-            <input id="add-name" placeholder="My Proxy" type="text">
-            <label>Proxy (ip:port, ip:port:user:pass, socks5://...)</label>
-            <input id="add-url" placeholder="192.168.1.1:8080">
-            <button onclick="addProxy()" style="margin-top:10px;width:100%;background:linear-gradient(135deg,#e94560,#9b2e9b);color:#fff;border:none;border-radius:8px;padding:7px;cursor:pointer;font-weight:700;">Add Proxy</button>
-            <div id="add-result" style="margin-top:4px"></div>
-          </div>
-        </div>
+<!-- Browser frame -->
+<div class="br-frame-wrap">
+  <div id="br-loading" class="br-loading-overlay" style="display:none">
+    <div class="br-spinner"></div>
+    <div class="br-load-txt" id="br-load-txt">Loading...</div>
+  </div>
+  <div class="br-welcome" id="br-welcome">
+    <div class="br-welcome-icon">🌐</div>
+    <div class="br-welcome-txt">Enter a URL above to start browsing</div>
+  </div>
+  <iframe id="br-frame"
+    sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+    style="display:none"
+  ></iframe>
+</div>
 
-        <div id="sec-bm" class="br-side-section">
-          <div id="bm-list">""" + bm_html + """</div>
-        </div>
+<!-- Settings backdrop -->
+<div class="br-backdrop" id="br-backdrop" onclick="closeSettings()"></div>
 
-        <div id="sec-hist" class="br-side-section">
-          <div id="hist-list"><div style="color:#666;font-size:.8rem;text-align:center;padding:20px">Navigate to build history.</div></div>
-        </div>
+<!-- Settings bottom sheet -->
+<div class="br-modal" id="br-modal">
+  <div class="br-modal-drag"></div>
+  <div class="br-modal-tabs">
+    <div class="br-modal-tab active" id="mtab-proxy" onclick="switchTab('proxy')">🛡 Proxy</div>
+    <div class="br-modal-tab" id="mtab-bm" onclick="switchTab('bm')">🔖 Bookmarks</div>
+    <div class="br-modal-tab" id="mtab-hist" onclick="switchTab('hist')">🕐 History</div>
+  </div>
+  <div class="br-modal-body">
 
+    <!-- Proxy tab -->
+    <div id="msec-proxy" class="br-modal-sec active">
+      <div class="br-section-title">Saved Proxies</div>
+      <div id="proxy-list">""" + proxies_html + """</div>
+      <div id="proxy-test-result"></div>
+      <hr class="br-divider">
+      <div class="br-section-title">Add Proxy</div>
+      <div class="br-add-form">
+        <label>Name</label>
+        <input id="add-name" placeholder="My Proxy" type="text">
+        <label>Proxy URL &nbsp;<span style="color:#666;font-weight:400">(ip:port &nbsp;·&nbsp; ip:port:user:pass &nbsp;·&nbsp; socks5://...)</span></label>
+        <input id="add-url" placeholder="192.168.1.1:8080">
+        <button class="br-submit-btn" onclick="addProxy()">Add Proxy</button>
+        <div id="add-result"></div>
       </div>
     </div>
+
+    <!-- Bookmarks tab -->
+    <div id="msec-bm" class="br-modal-sec">
+      <div class="br-section-title">Bookmarks</div>
+      <div id="bm-list">""" + bm_html + """</div>
+    </div>
+
+    <!-- History tab -->
+    <div id="msec-hist" class="br-modal-sec">
+      <div class="br-section-title">Recent History</div>
+      <div id="hist-list"><div style="color:#555;font-size:.8rem;text-align:center;padding:20px">Navigate somewhere to build history.</div></div>
+    </div>
+
   </div>
 </div>
 
 </div><!-- .main-content -->
 <script>
+// ── Navigation ────────────────────────────────────────────────────────────────
 var _hist=[], _histIdx=-1;
 function _updateNavBtns(){
   document.getElementById('btn-back').disabled=(_histIdx<=0);
@@ -838,10 +898,13 @@ function _setScheme(url){
 function navigateTo(url){
   if(!url||!url.trim())return;
   url=url.trim();
-  if(!/^https?:\/\//i.test(url)&&!url.startsWith('//')){url='https://'+url;}
+  if(!/^https?:\\/\\//i.test(url)&&!url.startsWith('//')){url='https://'+url;}
   document.getElementById('br-addr').value=url;
   _setScheme(url);
   _showLoading(url);
+  closeSettings();
+  document.getElementById('br-welcome').style.display='none';
+  document.getElementById('br-frame').style.display='block';
   if(_histIdx<_hist.length-1){_hist=_hist.slice(0,_histIdx+1);}
   _hist.push(url);_histIdx=_hist.length-1;_updateNavBtns();
   _pushServerHistory(url);
@@ -863,11 +926,20 @@ function goForward(){
   document.getElementById('br-frame').src='/user/browser/fetch?url='+encodeURIComponent(url);
   _updateNavBtns();
 }
-function doReload(){var f=document.getElementById('br-frame');if(f.src){_showLoading('');f.src=f.src;}}
-function doStop(){document.getElementById('br-frame').src='about:blank';_hideLoading();}
+function doReload(){
+  var f=document.getElementById('br-frame');
+  if(f.src&&f.src!=='about:blank'){_showLoading('');f.src=f.src;}
+}
+function doStop(){
+  document.getElementById('br-frame').src='about:blank';
+  document.getElementById('br-frame').style.display='none';
+  document.getElementById('br-welcome').style.display='flex';
+  _hideLoading();
+}
 function _showLoading(url){
   document.getElementById('br-loading').style.display='flex';
-  document.getElementById('br-load-txt').textContent=url?('Loading: '+url.substring(0,60)+(url.length>60?'...':'')):('Loading...');
+  document.getElementById('br-load-txt').textContent=
+    url?('Loading '+url.replace(/^https?:\\/\\//,'').substring(0,50)+'...'):'Loading...';
   document.getElementById('btn-stop').style.display='';
   document.getElementById('btn-reload').style.display='none';
   document.getElementById('br-stat-txt').textContent='Loading...';
@@ -879,32 +951,48 @@ function _hideLoading(){
   document.getElementById('br-stat-txt').textContent='Done';
 }
 document.getElementById('br-frame').addEventListener('load',_hideLoading);
-document.getElementById('br-frame').addEventListener('error',function(){_hideLoading();document.getElementById('br-stat-txt').textContent='Error';});
+document.getElementById('br-frame').addEventListener('error',function(){
+  _hideLoading();document.getElementById('br-stat-txt').textContent='Error';
+});
 window.addEventListener('message',function(e){
   if(!e.data||e.data.type!=='browser_nav')return;
   var url=e.data.url||'';
   var m=url.match(/[?&]url=([^&]+)/);
   if(m){try{url=decodeURIComponent(m[1]);}catch(ex){}}
-  if(url&&url!=='about:blank'&&!/^\/user\/browser\/fetch/.test(url)){
+  if(url&&url!=='about:blank'&&!/^\\/user\\/browser\\/fetch/.test(url)){
     document.getElementById('br-addr').value=url;_setScheme(url);
   }
 });
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+function openSettings(tab){
+  document.getElementById('br-backdrop').classList.add('open');
+  document.getElementById('br-modal').classList.add('open');
+  if(tab)switchTab(tab);
+}
+function closeSettings(){
+  document.getElementById('br-backdrop').classList.remove('open');
+  document.getElementById('br-modal').classList.remove('open');
+}
 function switchTab(n){
   ['proxy','bm','hist'].forEach(function(k){
-    var t=document.getElementById('tab-'+k),s=document.getElementById('sec-'+k);
-    if(t)t.className='br-side-tab'+(k===n?' active':'');
-    if(s)s.className='br-side-section'+(k===n?' active':'');
+    var t=document.getElementById('mtab-'+k),s=document.getElementById('msec-'+k);
+    if(t)t.className='br-modal-tab'+(k===n?' active':'');
+    if(s)s.className='br-modal-sec'+(k===n?' active':'');
   });
   if(n==='hist')_loadServerHistory();
 }
-function toggleSide(){document.getElementById('br-side').classList.toggle('collapsed');}
 
-// Proxy actions
+// ── Proxy actions ─────────────────────────────────────────────────────────────
 function activateProxy(id){
-  _post('/user/browser/api/proxy/activate',{proxy_id:id},function(d){if(d.ok)location.reload();else alert(d.error||'Error');});
+  _post('/user/browser/api/proxy/activate',{proxy_id:id},function(d){
+    if(d.ok)location.reload();else alert(d.error||'Error');
+  });
 }
 function deactivateProxy(){
-  _post('/user/browser/api/proxy/deactivate',{},function(d){if(d.ok)location.reload();else alert(d.error||'Error');});
+  _post('/user/browser/api/proxy/deactivate',{},function(d){
+    if(d.ok)location.reload();else alert(d.error||'Error');
+  });
 }
 function delProxy(id){
   if(!confirm('Delete this proxy?'))return;
@@ -927,16 +1015,17 @@ function saveEdit(id){
 }
 function testProxy(id){
   var res=document.getElementById('proxy-test-result');
-  res.innerHTML='<div class="br-msg ok">Testing...</div>';
+  res.innerHTML='<div class="br-msg ok" style="margin-bottom:6px">Testing proxy...</div>';
   _post('/user/browser/api/proxy/test',{proxy_id:id},function(d){
     if(d.ok){
       var flag='';
       if(d.country_code&&d.country_code.length===2){
         try{flag=' '+String.fromCodePoint(...[...d.country_code].map(c=>c.charCodeAt(0)+127397));}catch(e){}
       }
-      res.innerHTML='<div class="br-msg ok">✅ IP: '+(d.ip||'?')+flag+' | '+(d.country||'?')+' | '+(d.ms||'?')+'ms</div>';
+      res.innerHTML='<div class="br-msg ok" style="margin-bottom:6px">✅ '+
+        (d.ip||'?')+flag+' &nbsp;·&nbsp; '+(d.country||'?')+' &nbsp;·&nbsp; '+(d.ms||'?')+'ms</div>';
     }else{
-      res.innerHTML='<div class="br-msg err">❌ '+(d.error||'Failed')+'</div>';
+      res.innerHTML='<div class="br-msg err" style="margin-bottom:6px">❌ '+(d.error||'Failed')+'</div>';
     }
   });
 }
@@ -946,59 +1035,74 @@ function addProxy(){
   var res=document.getElementById('add-result');
   if(!url){res.innerHTML='<div class="br-msg err">Proxy URL required</div>';return;}
   _post('/user/browser/api/proxy/add',{name:name||'Proxy',proxy_url:url},function(d){
-    if(d.ok){res.innerHTML='<div class="br-msg ok">Added! Reloading...</div>';setTimeout(()=>location.reload(),700);}
-    else res.innerHTML='<div class="br-msg err">❌ '+(d.error||'Error')+'</div>';
+    if(d.ok){
+      res.innerHTML='<div class="br-msg ok">Added!</div>';
+      document.getElementById('add-name').value='';
+      document.getElementById('add-url').value='';
+      setTimeout(()=>location.reload(),600);
+    }else{
+      res.innerHTML='<div class="br-msg err">❌ '+(d.error||'Error')+'</div>';
+    }
   });
 }
 
-// Bookmarks
+// ── Bookmarks ─────────────────────────────────────────────────────────────────
 function addBookmark(){
-  var url=document.getElementById('br-addr').value.trim();if(!url)return;
+  var url=document.getElementById('br-addr').value.trim();
+  if(!url||!/^https?:\\/\\//i.test(url)){alert('Navigate to a page first');return;}
   var host='';try{host=new URL(url).hostname;}catch(e){host=url;}
-  var title=prompt('Bookmark title:',host)||url;
+  var title=prompt('Bookmark title:',host);
+  if(!title)return;
   _post('/user/browser/api/bookmark/add',{title:title,url:url},function(d){
-    if(!d.ok){return;}
+    if(!d.ok){alert(d.error||'Error');return;}
     var list=document.getElementById('bm-list');
-    var uSafe=url.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    var tSafe=title.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    var uJs=url.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    var uSafe=url.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var tSafe=title.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var uJs=url.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
     list.insertAdjacentHTML('afterbegin',
-      '<div class="br-bm-item" onclick="navigateTo(\''+uJs+'\')">'
-      +'<span style="flex:0 0 14px;font-size:.75rem">🔖</span>'
-      +'<div style="flex:1;min-width:0"><div class="br-bm-title">'+tSafe+'</div>'
-      +'<div class="br-bm-url">'+uSafe+'</div></div>'
-      +'<button class="br-pill-btn br-pill-del" onclick="event.stopPropagation();delBookmark('+d.id+')">✕</button></div>'
+      '<div class="br-bm-item" onclick="navigateTo(\''+uJs+'\')">'+
+      '<span style="flex-shrink:0">🔖</span>'+
+      '<div style="flex:1;min-width:0"><div class="br-bm-title">'+tSafe+'</div>'+
+      '<div class="br-bm-url">'+uSafe+'</div></div>'+
+      '<button class="br-pill-btn br-pill-del" '+
+      'onclick="event.stopPropagation();delBookmark('+d.id+')">✕</button></div>'
     );
   });
 }
 function delBookmark(id){
-  _post('/user/browser/api/bookmark/delete',{bookmark_id:id},function(d){if(d.ok)location.reload();});
+  _post('/user/browser/api/bookmark/delete',{bookmark_id:id},function(d){
+    if(d.ok)location.reload();
+  });
 }
 
-// Server-side history
+// ── History ───────────────────────────────────────────────────────────────────
 function _pushServerHistory(url){
-  fetch('/user/browser/api/history/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({url:url})}).catch(()=>{});
+  fetch('/user/browser/api/history/add',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})}).catch(()=>{});
 }
 function _loadServerHistory(){
   fetch('/user/browser/api/history').then(r=>r.json()).then(d=>{
     var list=document.getElementById('hist-list');if(!list)return;
-    if(!d.history||!d.history.length){list.innerHTML='<div style="color:#666;font-size:.8rem;text-align:center;padding:20px">No history yet.</div>';return;}
+    if(!d.history||!d.history.length){
+      list.innerHTML='<div style="color:#555;font-size:.8rem;text-align:center;padding:20px">No history yet.</div>';
+      return;
+    }
     list.innerHTML=d.history.map(function(u){
-      var uSafe=u.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      var uJs=u.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      var uSafe=u.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var uJs=u.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
       return '<div class="br-hist-item" onclick="navigateTo(\''+uJs+'\')">'+uSafe+'</div>';
     }).join('');
   }).catch(()=>{});
 }
 
-// Generic POST helper
+// ── Generic POST ──────────────────────────────────────────────────────────────
 function _post(url,data,cb){
-  fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
-  .then(r=>r.json()).then(cb).catch(function(){cb({ok:false,error:'Request failed'});});
+  fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(data)}).then(r=>r.json()).then(cb)
+    .catch(function(){cb({ok:false,error:'Request failed'});});
 }
 
-// IP check on load
+// ── IP check on load ──────────────────────────────────────────────────────────
 (function(){
   var ipEl=document.getElementById('br-ip');if(!ipEl)return;
   fetch('/user/browser/api/ip').then(r=>r.json()).then(d=>{
@@ -1007,7 +1111,7 @@ function _post(url,data,cb){
     if(d.country_code&&d.country_code.length===2){
       try{flag=' '+String.fromCodePoint(...[...d.country_code].map(c=>c.charCodeAt(0)+127397));}catch(e){}
     }
-    ipEl.textContent=d.ip+flag+(d.country?' ('+d.country+')':'');
+    ipEl.textContent=d.ip+flag;
   }).catch(()=>{});
 })();
 </script>
