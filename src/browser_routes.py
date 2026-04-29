@@ -106,7 +106,22 @@ def _get_http_session(uid: str) -> _req.Session:
     with _sessions_lock:
         if uid not in _user_http_sessions:
             s = _req.Session()
-            s.headers.update({"User-Agent": _BROWSER_UA})
+            s.headers.update({
+                "User-Agent": _BROWSER_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                # Let the upstream gzip/br/deflate-encode — requests transparently
+                # decompresses on iter_content (decode_content=True by default).
+                "Accept-Encoding": "gzip, deflate, br",
+            })
+            # Bigger connection pool so parallel subresource fetches don't queue.
+            try:
+                from requests.adapters import HTTPAdapter
+                adapter = HTTPAdapter(pool_connections=32, pool_maxsize=64, max_retries=0)
+                s.mount("http://", adapter)
+                s.mount("https://", adapter)
+            except Exception:
+                pass
             _user_http_sessions[uid] = s
         return _user_http_sessions[uid]
 
@@ -284,9 +299,15 @@ def _rewrite_html(raw: bytes, base_url: str, encoding: str = "utf-8") -> str:
         from bs4 import BeautifulSoup
     except ImportError:
         return raw.decode(encoding, errors="replace")
-    try:
-        soup = BeautifulSoup(raw, "html.parser")
-    except Exception:
+    # Try the much faster lxml parser first; fall back to stdlib html.parser.
+    soup = None
+    for parser_name in ("lxml", "html.parser"):
+        try:
+            soup = BeautifulSoup(raw, parser_name)
+            break
+        except Exception:
+            continue
+    if soup is None:
         return raw.decode(encoding, errors="replace")
 
     # Inject helper JS
@@ -864,6 +885,7 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
   </div>
   <iframe id="br-frame"
     sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+    loading="eager" fetchpriority="high" referrerpolicy="no-referrer"
     style="display:none"
   ></iframe>
 </div>
@@ -1263,11 +1285,7 @@ function _post(url,data,cb){
                         **fetch_kwargs,
                     )
                 else:
-                    resp = http_session.get(
-                        current_url,
-                        headers={"Accept-Encoding": "identity"},
-                        **fetch_kwargs,
-                    )
+                    resp = http_session.get(current_url, **fetch_kwargs)
                 if resp.status_code in (301, 302, 303, 307, 308):
                     location = resp.headers.get("Location", "").strip()
                     if not location:
@@ -1358,6 +1376,11 @@ function _post(url,data,cb){
         rewritten = _rewrite_html(raw_bytes, final_url, encoding)
         flask_resp = Response(rewritten, status=resp.status_code,
                               content_type="text/html; charset=utf-8")
+        # Pass through caching hints so the browser can revalidate / serve from cache.
+        for hdr in ("Cache-Control", "ETag", "Last-Modified", "Expires", "Vary"):
+            if hdr in resp.headers:
+                flask_resp.headers[hdr] = resp.headers[hdr]
+        # Strip headers that would block embedding the iframe.
         for h in ("X-Frame-Options", "Content-Security-Policy",
                   "X-Content-Type-Options", "Cross-Origin-Opener-Policy",
                   "Cross-Origin-Embedder-Policy"):
