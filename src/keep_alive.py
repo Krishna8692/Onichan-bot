@@ -5271,15 +5271,23 @@ textarea.acp-bcast{{width:100%;background:rgba(255,255,255,.08);border:1px solid
   window.toggleGate=function(gate,el){{
     var offline=!el.checked;
     var card=el.closest('.acp-gate-card');
-    var badge=card.querySelector('.acp-gate-badge');
+    var badge=card?card.querySelector('.acp-gate-badge'):null;
+    function applyBadge(isOffline){{
+      if(badge){{
+        badge.textContent=isOffline?'OFFLINE':'ONLINE';
+        badge.className='acp-gate-badge '+(isOffline?'acp-gate-off':'acp-gate-on');
+      }}
+    }}
+    function revert(){{el.checked=!el.checked;applyBadge(!offline);}}
+    applyBadge(offline);
+    var gr=document.getElementById('gate-bulk-result');
     fetch('/admin/control/gate-toggle',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{gate:gate,offline:offline}})}})
       .then(function(r){{return r.json();}})
       .then(function(d){{
         if(d.success){{
-          badge.textContent=offline?'OFFLINE':'ONLINE';
-          badge.className='acp-gate-badge '+(offline?'acp-gate-off':'acp-gate-on');
-        }}else{{el.checked=!el.checked;alert('Error: '+d.message);}}
-      }}).catch(function(){{el.checked=!el.checked;}});
+          showResult(gr,gate.toUpperCase()+' is now '+(offline?'OFFLINE':'ONLINE'),true);
+        }}else{{revert();showResult(gr,'Error: '+d.message,false);}}
+      }}).catch(function(){{revert();showResult(gr,'Request failed — try again',false);}});
   }};
 
   window.setAllGates=function(offline,btn){{
