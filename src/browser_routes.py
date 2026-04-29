@@ -142,6 +142,13 @@ def _he(s) -> str:
     return _html.escape(str(s) if s is not None else "")
 
 
+def _safe_int(val, default: int = 0) -> int:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_proxy_url(proxy_str: str) -> str | None:
     if not proxy_str or not proxy_str.strip():
         return None
@@ -1269,7 +1276,7 @@ function _post(url,data,cb){
     def browser_proxy_edit():
         uid = _uid()
         data = request.get_json(silent=True) or {}
-        pid = int(data.get("proxy_id", 0))
+        pid = _safe_int(data.get("proxy_id"))
         raw = str(data.get("proxy_url", "")).strip()
         name = str(data.get("name", "Proxy")).strip()[:80]
         if not pid:
@@ -1293,7 +1300,7 @@ function _post(url,data,cb){
     def browser_proxy_delete():
         uid = _uid()
         data = request.get_json(silent=True) or {}
-        pid = int(data.get("proxy_id", 0))
+        pid = _safe_int(data.get("proxy_id"))
         if not pid:
             return jsonify({"ok": False, "error": "proxy_id required"})
         _delete_proxy(uid, pid)
@@ -1305,7 +1312,7 @@ function _post(url,data,cb){
     def browser_proxy_activate():
         uid = _uid()
         data = request.get_json(silent=True) or {}
-        pid = int(data.get("proxy_id", 0))
+        pid = _safe_int(data.get("proxy_id"))
         if not pid:
             return jsonify({"ok": False, "error": "proxy_id required"})
         _activate_proxy(uid, pid)
@@ -1327,7 +1334,7 @@ function _post(url,data,cb){
     def browser_proxy_test():
         uid = _uid()
         data = request.get_json(silent=True) or {}
-        pid = int(data.get("proxy_id", 0))
+        pid = _safe_int(data.get("proxy_id"))
         proxies_list = _list_proxies(uid)
         target = next((p for p in proxies_list if p["id"] == pid), None)
         if not target:
@@ -1383,7 +1390,7 @@ function _post(url,data,cb){
     def browser_bm_delete():
         uid = _uid()
         data = request.get_json(silent=True) or {}
-        bid = int(data.get("bookmark_id", 0))
+        bid = _safe_int(data.get("bookmark_id"))
         if not bid:
             return jsonify({"ok": False, "error": "bookmark_id required"})
         _delete_bookmark(uid, bid)
