@@ -43,14 +43,16 @@ async function activeTabHasClass(page, cls) {
   }, cls);
 }
 
+/**
+ * Open a new tab via the "+" menu. Uses the stable
+ * `[data-mode="normal|incognito"]` attribute on the menu item, which is
+ * the contract the test relies on (see tests/browser_tabs.spec.js).
+ */
 async function openNewTab(page, mode /* 'normal' | 'incognito' */) {
   await page.click('.br-newtab-btn');
-  await page.waitForSelector('.br-newtab-menu', { state: 'visible' });
-  if (mode === 'incognito') {
-    await page.click('.br-newtab-menu .br-newtab-item.incognito');
-  } else {
-    await page.click('.br-newtab-menu .br-newtab-item:not(.incognito)');
-  }
+  await page.waitForSelector('#br-newtab-menu.open', { state: 'visible' });
+  const sel = `.br-newtab-menu-item[data-mode="${mode}"]`;
+  await page.click(sel);
   // give the TabManager a tick to update the strip
   await page.waitForTimeout(150);
 }
@@ -151,9 +153,10 @@ test.describe('/user/browser — Chrome-style multi-tab + Incognito', () => {
     await btn.evaluate(el => el.click());
   });
 
-  test('Tracking parameters are stripped before fetch', async ({ page }) => {
-    // Visit a URL with utm_*/fbclid/gclid params and verify the iframe's
-    // address bar reflects the cleaned URL.
+  test('Tracking parameters are stripped in Incognito tabs', async ({ page }) => {
+    // Per spec: tracking-param stripping is an Incognito-only privacy
+    // feature. Open an incognito tab and verify the cleaned URL.
+    await openNewTab(page, 'incognito');
     const dirty = 'https://example.com/?utm_source=foo&utm_campaign=bar' +
                   '&fbclid=xyz&gclid=abc&keep=ok';
     await page.fill('#br-addr', dirty);

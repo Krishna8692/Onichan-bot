@@ -1326,13 +1326,13 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
   <div class="br-newtab-wrap" id="br-newtab-wrap">
     <button class="br-newtab-btn" onclick="toggleNewTabMenu(event)" title="New tab" aria-haspopup="true">+</button>
     <div class="br-newtab-menu" id="br-newtab-menu" role="menu">
-      <div class="br-newtab-menu-item" onclick="newTabFromMenu('normal')" role="menuitem">
+      <div class="br-newtab-menu-item" data-mode="normal" onclick="newTabFromMenu('normal')" role="menuitem">
         <span class="ico">🌐</span><span>New tab</span><span class="kbd">Ctrl+T</span>
       </div>
-      <div class="br-newtab-menu-item" onclick="newTabFromMenu('incognito')" role="menuitem">
+      <div class="br-newtab-menu-item" data-mode="incognito" onclick="newTabFromMenu('incognito')" role="menuitem">
         <span class="ico">🕶</span><span>New Incognito tab</span><span class="kbd">Ctrl+Shift+N</span>
       </div>
-      <div class="br-newtab-menu-item" onclick="reopenLastClosedFromMenu()" role="menuitem">
+      <div class="br-newtab-menu-item" data-mode="reopen" onclick="reopenLastClosedFromMenu()" role="menuitem">
         <span class="ico">↺</span><span>Reopen last closed tab</span><span class="kbd">Ctrl+Shift+T</span>
       </div>
     </div>
