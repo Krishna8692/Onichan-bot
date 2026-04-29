@@ -199,41 +199,59 @@ def get_listing(listing_id: int, increment_view: bool = False) -> dict | None:
 def list_listings(category: str | None = None, listing_type: str | None = None,
                   status: str = "active", search: str | None = None,
                   sort: str = "newest", page: int = 1, per_page: int = 20,
-                  seller_id: int | None = None) -> dict:
+                  seller_id: int | None = None,
+                  min_price: float | None = None, max_price: float | None = None,
+                  min_rating: float | None = None) -> dict:
     offset = (page - 1) * per_page
-    conditions = ["status = %s"]
+    conditions = ["ml.status = %s"]
     params: list = [status]
 
     if category and category in CATEGORIES:
-        conditions.append("category = %s")
+        conditions.append("ml.category = %s")
         params.append(category)
     if listing_type and listing_type in LISTING_TYPES:
-        conditions.append("listing_type = %s")
+        conditions.append("ml.listing_type = %s")
         params.append(listing_type)
     if search:
-        conditions.append("(title ILIKE %s OR description ILIKE %s)")
+        conditions.append("(ml.title ILIKE %s OR ml.description ILIKE %s)")
         params += [f"%{search}%", f"%{search}%"]
     if seller_id:
-        conditions.append("seller_id = %s")
+        conditions.append("ml.seller_id = %s")
         params.append(seller_id)
+    if min_price is not None:
+        conditions.append("COALESCE(NULLIF(ml.current_bid,0), ml.price) >= %s")
+        params.append(min_price)
+    if max_price is not None:
+        conditions.append("COALESCE(NULLIF(ml.current_bid,0), ml.price) <= %s")
+        params.append(max_price)
+
+    # seller rating filter — join market_reviews
+    if min_rating is not None:
+        conditions.append("""(
+            SELECT COALESCE(AVG(r.rating),0)
+            FROM market_reviews r WHERE r.seller_id = ml.seller_id
+        ) >= %s""")
+        params.append(min_rating)
 
     where = " AND ".join(conditions)
     order = {
-        "newest":    "created_at DESC",
-        "oldest":    "created_at ASC",
-        "price_asc": "price ASC",
-        "price_desc":"price DESC",
-        "popular":   "views DESC",
-    }.get(sort, "created_at DESC")
+        "newest":    "ml.created_at DESC",
+        "oldest":    "ml.created_at ASC",
+        "price_asc": "ml.price ASC",
+        "price_desc":"ml.price DESC",
+        "popular":   "ml.views DESC",
+    }.get(sort, "ml.created_at DESC")
 
     def _op(conn):
         with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM market_listings WHERE {where}", params)
+            cur.execute(f"SELECT COUNT(*) FROM market_listings ml WHERE {where}", params)
             total = (cur.fetchone() or [0])[0]
             cur.execute(
-                f"SELECT id, seller_id, seller_name, title, category, listing_type, price,"
-                f" starting_bid, current_bid, bid_count, product_type, status, views,"
-                f" auction_end_at, created_at FROM market_listings WHERE {where}"
+                f"SELECT ml.id, ml.seller_id, ml.seller_name, ml.title, ml.category,"
+                f" ml.listing_type, ml.price, ml.starting_bid, ml.current_bid,"
+                f" ml.bid_count, ml.product_type, ml.status, ml.views,"
+                f" ml.auction_end_at, ml.created_at"
+                f" FROM market_listings ml WHERE {where}"
                 f" ORDER BY {order} LIMIT %s OFFSET %s",
                 params + [per_page, offset]
             )
@@ -425,6 +443,14 @@ def purchase_fixed(listing_id: int, buyer_id: int) -> dict:
         "listing_title": listing["title"],
         "amount": price,
     })
+    _notify(buyer_id, "buyer_purchased", {
+        "listing_id": listing_id,
+        "listing_title": listing["title"],
+        "amount": price,
+        "token": token,
+        "product_type": listing.get("product_type", "text"),
+        "product_content": listing.get("product_content", ""),
+    })
     return {"ok": True, "purchase_id": pid, "download_token": token}
 
 
@@ -477,11 +503,13 @@ def finalize_auction(listing_id: int) -> dict:
     # Refund all other bid holds
     _release_all_bid_holds(listing_id, winner_bid_id=win_bid_id)
 
-    _notify(win_buyer, "auction_won", {
+    _notify(win_buyer, "buyer_purchased", {
         "listing_id": listing_id,
         "listing_title": listing["title"],
         "amount": win_amount,
         "token": token,
+        "product_type": listing.get("product_type", "text"),
+        "product_content": listing.get("product_content", ""),
     })
     _notify(listing["seller_id"], "auction_sold", {
         "listing_id": listing_id,
@@ -677,6 +705,24 @@ def get_seller_stats(seller_id: int) -> dict:
     return _execute_with_retry(_op) or {}
 
 
+def get_monthly_earnings(seller_id: int, months: int = 6) -> list:
+    """Return list of {month, credits} for the last N months (oldest first)."""
+    def _op(conn):
+        with conn.cursor() as cur:
+            interval = f"{int(months)} months"
+            cur.execute("""
+                SELECT TO_CHAR(created_at, 'YYYY-MM') AS mo,
+                       COALESCE(SUM(amount - commission), 0) AS earned
+                FROM market_purchases
+                WHERE seller_id = %s AND status = 'confirmed'
+                  AND created_at >= NOW() - CAST(%s AS INTERVAL)
+                GROUP BY mo
+                ORDER BY mo
+            """, (seller_id, interval))
+            return [{"month": r[0], "credits": int(r[1])} for r in cur.fetchall()]
+    return _execute_with_retry(_op) or []
+
+
 # ─── buyer history ────────────────────────────────────────────────────────────
 def get_buyer_orders(buyer_id: int, page: int = 1, per_page: int = 20) -> dict:
     offset = (page - 1) * per_page
@@ -759,6 +805,37 @@ def admin_remove_listing(listing_id: int) -> dict:
     return {"ok": True}
 
 
+def admin_reinstate_listing(listing_id: int) -> dict:
+    """Reinstate a cancelled or ended listing back to active status."""
+    listing = get_listing(listing_id)
+    if not listing:
+        return {"ok": False, "error": "Not found"}
+    if listing["status"] not in ("cancelled", "ended"):
+        return {"ok": False, "error": "Only cancelled or ended listings can be reinstated"}
+
+    def _op(conn):
+        with conn.cursor() as cur:
+            cur.execute("UPDATE market_listings SET status='active' WHERE id=%s", (listing_id,))
+    _execute_with_retry(_op)
+    return {"ok": True}
+
+
+def get_active_auctions() -> list:
+    """Return all active auction listings ordered by soonest ending first."""
+    def _op(conn):
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, title, seller_name, starting_bid, current_bid,
+                       bid_count, auction_end_at, views
+                FROM market_listings
+                WHERE listing_type='auction' AND status='active'
+                ORDER BY auction_end_at ASC NULLS LAST
+            """)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    return _execute_with_retry(_op) or []
+
+
 # ─── notifications ────────────────────────────────────────────────────────────
 def _notify(user_id: int, event: str, ctx: dict):
     try:
@@ -779,6 +856,7 @@ def _notify(user_id: int, event: str, ctx: dict):
                              f"📦 <b>{ctx.get('listing_title','')}</b>\n"
                              f"💰 Amount paid: <b>{int(ctx.get('amount',0))} credits</b>\n"
                              f"🔑 Your product is ready — visit the marketplace to download it."),
+            "buyer_purchased": "__SPECIAL__",
             "auction_sold": (f"✅ <b>Your Auction Sold!</b>\n\n"
                              f"📦 <b>{ctx.get('listing_title','')}</b>\n"
                              f"👤 Buyer: {ctx.get('buyer','')}\n"
@@ -795,6 +873,43 @@ def _notify(user_id: int, event: str, ctx: dict):
         text = msgs.get(event, "")
         if not text:
             return
+
+        if text == "__SPECIAL__":
+            # buyer_purchased: send header + product content as separate messages
+            prod_type = ctx.get("product_type", "text")
+            prod_content = ctx.get("product_content", "")
+            lid = ctx.get("listing_id", "")
+            title = ctx.get("listing_title", "")
+            amount = int(ctx.get("amount", 0))
+            token_dl = ctx.get("token", "")
+            header = (
+                f"🎉 <b>Purchase Successful!</b>\n\n"
+                f"📦 <b>{title}</b>\n"
+                f"💰 Amount paid: <b>{amount} credits</b>\n\n"
+            )
+            if prod_type == "text" and prod_content:
+                header += "📋 <b>Your product content is below:</b>"
+            else:
+                header += "📁 Use your download token in the marketplace to retrieve your file."
+            _req.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": user_id, "text": header,
+                      "parse_mode": "HTML", "disable_web_page_preview": True},
+                timeout=6,
+            )
+            if prod_type == "text" and prod_content:
+                # Send content as a separate message (in a code block for clarity)
+                content_chunks = [prod_content[i:i+4000] for i in range(0, len(prod_content), 4000)]
+                for chunk in content_chunks:
+                    _req.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        json={"chat_id": user_id,
+                              "text": f"<pre>{chunk}</pre>",
+                              "parse_mode": "HTML", "disable_web_page_preview": True},
+                        timeout=6,
+                    )
+            return
+
         _req.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={"chat_id": user_id, "text": text,

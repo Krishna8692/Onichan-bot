@@ -4,8 +4,13 @@ Registered via register_market_routes(app, ...) called from keep_alive.py.
 """
 from __future__ import annotations
 import os
+import html as _html
 from flask import request, jsonify, session, redirect, render_template_string
 from functools import wraps
+
+def _he(s) -> str:
+    """HTML-escape a value for safe insertion into HTML. Call on every user-supplied field."""
+    return _html.escape(str(s) if s is not None else "")
 
 # ─── registration helper ──────────────────────────────────────────────────────
 def register_market_routes(app, user_required, admin_required, get_user_sidebar, USER_CSS, ADMIN_CSS):
@@ -104,15 +109,26 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
     @user_required
     def market_browse():
         uid = _uid()
-        cat   = request.args.get("cat", "")
-        ltype = request.args.get("type", "")
-        sort  = request.args.get("sort", "newest")
-        q     = request.args.get("q", "").strip()
-        page  = max(1, int(request.args.get("page", 1)))
+        cat      = request.args.get("cat", "")
+        ltype    = request.args.get("type", "")
+        sort     = request.args.get("sort", "newest")
+        q        = request.args.get("q", "").strip()
+        min_price = request.args.get("min_price", "")
+        max_price = request.args.get("max_price", "")
+        min_rating = request.args.get("min_rating", "")
+        page     = max(1, int(request.args.get("page", 1)))
+
+        try:
+            min_p = float(min_price) if min_price else None
+            max_p = float(max_price) if max_price else None
+            min_r = float(min_rating) if min_rating else None
+        except ValueError:
+            min_p = max_p = min_r = None
 
         data = mkt.list_listings(
             category=cat or None, listing_type=ltype or None,
-            search=q or None, sort=sort, page=page, per_page=16
+            search=q or None, sort=sort, page=page, per_page=16,
+            min_price=min_p, max_price=max_p, min_rating=min_r,
         )
         items = data["items"]
         total = data["total"]
@@ -125,21 +141,27 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
             price_val = item.get("price") or 0
             display_price = int(bid_val) if is_auc else int(price_val)
             price_label = "Current Bid" if is_auc else "Price"
-            tl_html = f'<div class="timeleft">⏱ {tl}</div>' if tl else ""
-            bid_cnt = f'<div class="bid-count">🔨 {item["bid_count"]} bid{"s" if item["bid_count"]!=1 else ""}</div>' if is_auc else ""
-            badge = ('<span class="badge badge-auction">🔨 Auction</span>'
-                     if is_auc else '<span class="badge badge-fixed">🏷 Fixed</span>')
-            cat_badge = f'<span class="badge badge-cat">{item["category"]}</span>'
-            return f"""
-<a href="/user/market/listing/{item['id']}" style="text-decoration:none">
-<div class="mkt-card">
-  {badge} {cat_badge}
-  <h3>📦 {item['title']}</h3>
-  <div class="price">{display_price:,} credits</div>
-  <div class="meta" style="font-size:.75rem;color:#bbb">{price_label}</div>
-  {tl_html}{bid_cnt}
-  <div class="meta">👤 {item['seller_name']} &nbsp;·&nbsp; 👁 {item['views']}</div>
-</div></a>"""
+            tl_html = f'<div class="timeleft">{_he(tl)}</div>' if tl else ""
+            bid_cnt_n = item["bid_count"]
+            bid_cnt = (f'<div class="bid-count">{bid_cnt_n} bid{"s" if bid_cnt_n!=1 else ""}</div>'
+                       if is_auc else "")
+            badge_cls = "badge-auction" if is_auc else "badge-fixed"
+            badge_lbl = "Auction" if is_auc else "Fixed"
+            item_cat = _he(item["category"])
+            item_title = _he(item["title"])
+            item_seller = _he(item["seller_name"])
+            return (
+                f'<a href="/user/market/listing/{item["id"]}" style="text-decoration:none">'
+                f'<div class="mkt-card">'
+                f'<span class="badge {badge_cls}">{badge_lbl}</span> '
+                f'<span class="badge badge-cat">{item_cat}</span>'
+                f'<h3>{item_title}</h3>'
+                f'<div class="price">{display_price:,} credits</div>'
+                f'<div class="meta" style="font-size:.75rem;color:#bbb">{price_label}</div>'
+                f'{tl_html}{bid_cnt}'
+                f'<div class="meta">{item_seller} &nbsp;&#183;&nbsp; {item["views"]} views</div>'
+                f'</div></a>'
+            )
 
         cards_html = "".join(card_html(i) for i in items)
         if not items:
@@ -147,39 +169,35 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
 
         def pag_btn(p, label):
             active = "mkt-btn-primary" if p == page else "mkt-btn-outline"
-            href = f"?cat={cat}&type={ltype}&sort={sort}&q={q}&page={p}"
+            href = f"?cat={_he(cat)}&type={_he(ltype)}&sort={_he(sort)}&q={_he(q)}&min_price={min_price}&max_price={max_price}&min_rating={min_rating}&page={p}"
             return f'<a href="{href}" class="mkt-btn {active}" style="padding:5px 12px">{label}</a>'
 
         pag_html = ""
         if pages > 1:
             pag_btns = "".join(pag_btn(p, p) for p in range(max(1,page-2), min(pages+1, page+3)))
-            prev_btn = pag_btn(page-1, "‹ Prev") if page > 1 else ""
-            next_btn = pag_btn(page+1, "Next ›") if page < pages else ""
+            prev_btn = pag_btn(page-1, "Prev") if page > 1 else ""
+            next_btn = pag_btn(page+1, "Next") if page < pages else ""
             pag_html = f'<div style="display:flex;gap:6px;justify-content:center;margin-top:20px;flex-wrap:wrap">{prev_btn}{pag_btns}{next_btn}</div>'
 
-        cat_tags = "".join(
-            f'<button class="mkt-tag {"active" if c==cat else ""}" onclick="location.href=\'?cat={c}&type={ltype}&sort={sort}&q={q}\'">{c}</button>'
-            for c in [""] + mkt.CATEGORIES
-        )
-        cat_tags = cat_tags.replace('cat=&', 'cat=&').replace(
-            'class="mkt-tag active"', 'class="mkt-tag active"', 1
-        )
-        # rebuild with All label
-        cat_tags = f'<button class="mkt-tag {"active" if not cat else ""}" onclick="location.href=\'?type={ltype}&sort={sort}&q={q}\'">All</button>'
+        cat_tags = f'<button class="mkt-tag {"active" if not cat else ""}" onclick="location.href=\'?type={ltype}&sort={sort}&q={_he(q)}\'">All</button>'
         for c in mkt.CATEGORIES:
-            cat_tags += f'<button class="mkt-tag {"active" if c==cat else ""}" onclick="location.href=\'?cat={c}&type={ltype}&sort={sort}&q={q}\'">{c}</button>'
+            c_he = _he(c)
+            cat_tags += (f'<button class="mkt-tag {"active" if c==cat else ""}" '
+                         f'onclick="location.href=\'?cat={c_he}&type={ltype}&sort={sort}&q={_he(q)}\'">{c_he}</button>')
 
+        _q_he = _he(q)
         sidebar = get_user_sidebar("market", "Marketplace")
         balance = get_balance(uid)
+        _sel = lambda v, cur: "selected" if v == cur else ""
         return render_template_string(f"""<!DOCTYPE html><html><head>
 <title>Marketplace — Onichan</title>{USER_CSS}{MARKET_CSS}</head>
 <body><div class="sparkles"></div>{sidebar}
 <div class="main-content">
 <div class="mkt-hero">
-  <h1>🛍 Marketplace</h1>
-  <p>Buy & sell digital products — cards, accounts, combos and more</p>
+  <h1>Marketplace</h1>
+  <p>Buy &amp; sell digital products &mdash; cards, accounts, combos and more</p>
   <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-    <span style="background:rgba(255,105,180,.1);border:1px solid rgba(255,105,180,.3);border-radius:20px;padding:4px 12px;font-size:.8rem">💳 Balance: <b>{balance:,} credits</b></span>
+    <span style="background:rgba(255,105,180,.1);border:1px solid rgba(255,105,180,.3);border-radius:20px;padding:4px 12px;font-size:.8rem">Balance: <b>{balance:,} credits</b></span>
     <a href="/user/market/sell" class="mkt-btn mkt-btn-primary">+ List a Product</a>
     <a href="/user/market/myshop" class="mkt-btn mkt-btn-outline">My Shop</a>
     <a href="/user/market/myorders" class="mkt-btn mkt-btn-outline">My Orders</a>
@@ -189,19 +207,26 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
 <div class="mkt-tag-row">{cat_tags}</div>
 
 <form method="GET" action="/user/market" class="mkt-filters">
-  <input name="q" placeholder="🔍 Search listings..." value="{q}" style="flex:1;min-width:160px">
+  <input name="q" placeholder="Search listings..." value="{_q_he}" style="flex:1;min-width:160px">
   <select name="type">
-    <option value="" {"selected" if not ltype else ""}>All Types</option>
-    <option value="fixed" {"selected" if ltype=="fixed" else ""}>Fixed Price</option>
-    <option value="auction" {"selected" if ltype=="auction" else ""}>Auction</option>
+    <option value="" {_sel("", ltype)}>All Types</option>
+    <option value="fixed" {_sel("fixed", ltype)}>Fixed Price</option>
+    <option value="auction" {_sel("auction", ltype)}>Auction</option>
+  </select>
+  <input name="min_price" type="number" min="0" placeholder="Min price" value="{min_price}" style="width:90px">
+  <input name="max_price" type="number" min="0" placeholder="Max price" value="{max_price}" style="width:90px">
+  <select name="min_rating">
+    <option value="" {_sel("", min_rating)}>Any Rating</option>
+    <option value="4" {_sel("4", min_rating)}>4+ stars</option>
+    <option value="3" {_sel("3", min_rating)}>3+ stars</option>
   </select>
   <select name="sort">
-    <option value="newest" {"selected" if sort=="newest" else ""}>Newest</option>
-    <option value="price_asc" {"selected" if sort=="price_asc" else ""}>Price ↑</option>
-    <option value="price_desc" {"selected" if sort=="price_desc" else ""}>Price ↓</option>
-    <option value="popular" {"selected" if sort=="popular" else ""}>Popular</option>
+    <option value="newest" {_sel("newest", sort)}>Newest</option>
+    <option value="price_asc" {_sel("price_asc", sort)}>Price ↑</option>
+    <option value="price_desc" {_sel("price_desc", sort)}>Price ↓</option>
+    <option value="popular" {_sel("popular", sort)}>Popular</option>
   </select>
-  <input type="hidden" name="cat" value="{cat}">
+  <input type="hidden" name="cat" value="{_he(cat)}">
   <button type="submit" class="mkt-btn mkt-btn-primary">Search</button>
 </form>
 
@@ -247,57 +272,72 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
 
         rev_html = ""
         for rv in reviews:
-            rev_html += f"""<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">
-<span class="stars">{_stars(rv['rating'])}</span>
-<span style="color:#aaa;font-size:.78rem;margin-left:8px">{_fmt_dt(rv['created_at'])}</span>
-<div style="font-size:.83rem;color:#ddd;margin-top:3px">{rv['comment'] or '<em>No comment</em>'}</div>
-</div>"""
+            rv_comment = _he(rv['comment']) if rv['comment'] else '<em>No comment</em>'
+            rev_html += (
+                f'<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">'
+                f'<span class="stars">{_stars(rv["rating"])}</span>'
+                f'<span style="color:#aaa;font-size:.78rem;margin-left:8px">{_fmt_dt(rv["created_at"])}</span>'
+                f'<div style="font-size:.83rem;color:#ddd;margin-top:3px">{rv_comment}</div>'
+                f'</div>'
+            )
 
         bid_rows = ""
         for b in bids:
-            bid_rows += f"""<div class="bid-row">
-<span style="color:#fff">🔨 {int(b['amount']):,} credits</span>
-<span style="color:#aaa;font-size:.75rem">{b['bidder_name']} · {_fmt_dt(b['created_at'])}</span></div>"""
+            bid_rows += (
+                f'<div class="bid-row">'
+                f'<span style="color:#fff">{int(b["amount"]):,} credits</span>'
+                f'<span style="color:#aaa;font-size:.75rem">{_he(b["bidder_name"])} &middot; {_fmt_dt(b["created_at"])}</span>'
+                f'</div>'
+            )
 
         # Action section
         if not is_active:
-            status_badge = {"sold":"💚 Sold","cancelled":"🔴 Cancelled","ended":"🔵 Ended"}.get(listing["status"],"⚠️")
-            action_html = f'<div style="text-align:center;padding:20px;color:#aaa">{status_badge} This listing is no longer active.</div>'
+            status_label = {"sold":"Sold","cancelled":"Cancelled","ended":"Ended"}.get(listing["status"],"Inactive")
+            action_html = f'<div style="text-align:center;padding:20px;color:#aaa">{status_label} &mdash; This listing is no longer active.</div>'
         elif is_mine:
             action_html = '<div style="color:#aaa;font-size:.85rem;padding:10px">This is your listing.</div>'
         elif existing_token:
-            action_html = f"""<div class="reveal-box" id="reveal-area">
-  <div style="font-weight:700;color:#4ade80;margin-bottom:8px">✅ You own this product</div>
-  <button class="mkt-btn mkt-btn-primary" onclick="revealProduct('{existing_token}')">🔑 Reveal Product</button>
-  <div id="reveal-content" style="margin-top:10px"></div>
-</div>"""
+            _tok_safe = _he(existing_token)
+            action_html = (
+                f'<div class="reveal-box" id="reveal-area">'
+                f'<div style="font-weight:700;color:#4ade80;margin-bottom:8px">You own this product</div>'
+                f'<button class="mkt-btn mkt-btn-primary" onclick="revealProduct(\'{_tok_safe}\')">Reveal Product</button>'
+                f'<div id="reveal-content" style="margin-top:10px"></div>'
+                f'</div>'
+            )
         elif is_auc:
             min_bid = int(bid_val) + 1
-            action_html = f"""<div class="detail-box mkt-form">
-  <h2>🔨 Place a Bid</h2>
-  <div style="font-size:.85rem;color:#ccc;margin-bottom:10px">
-    Current highest: <b style="color:#ff69b4">{int(bid_val):,} credits</b> &nbsp;·&nbsp; Time: <b style="color:#ffd700">{tl}</b>
-  </div>
-  <label>Your Bid (min {min_bid:,} credits) — Balance: {balance:,}</label>
-  <div style="display:flex;gap:8px;margin-top:6px">
-    <input type="number" id="bid-amount" min="{min_bid}" value="{min_bid}" style="flex:1">
-    <button class="mkt-btn mkt-btn-primary" onclick="placeBid({listing_id})">Place Bid</button>
-  </div>
-  <div class="mkt-result" id="bid-result"></div>
-</div>"""
+            _tl_safe = _he(tl)
+            action_html = (
+                f'<div class="detail-box mkt-form">'
+                f'<h2>Place a Bid</h2>'
+                f'<div style="font-size:.85rem;color:#ccc;margin-bottom:10px">'
+                f'Current highest: <b style="color:#ff69b4">{int(bid_val):,} credits</b>'
+                f' &nbsp;&middot;&nbsp; Time: <b style="color:#ffd700">{_tl_safe}</b>'
+                f'</div>'
+                f'<label>Your Bid (min {min_bid:,} credits) &mdash; Balance: {balance:,}</label>'
+                f'<div style="display:flex;gap:8px;margin-top:6px">'
+                f'<input type="number" id="bid-amount" min="{min_bid}" value="{min_bid}" style="flex:1">'
+                f'<button class="mkt-btn mkt-btn-primary" onclick="placeBid({listing_id})">Place Bid</button>'
+                f'</div>'
+                f'<div class="mkt-result" id="bid-result"></div>'
+                f'</div>'
+            )
         else:
             price_int = int(price_val)
-            action_html = f"""<div class="detail-box">
-  <h2>🛒 Buy Now</h2>
-  <div style="font-size:.85rem;color:#ccc;margin-bottom:12px">
-    Price: <b style="color:#ff69b4;font-size:1.1rem">{price_int:,} credits</b>
-    &nbsp;·&nbsp; Your balance: <b>{balance:,}</b>
-  </div>
-  <button class="mkt-btn mkt-btn-primary" style="width:100%" onclick="buyNow({listing_id},{price_int})">
-    Buy Now — {price_int:,} credits
-  </button>
-  <div class="mkt-result" id="buy-result"></div>
-</div>"""
+            action_html = (
+                f'<div class="detail-box">'
+                f'<h2>Buy Now</h2>'
+                f'<div style="font-size:.85rem;color:#ccc;margin-bottom:12px">'
+                f'Price: <b style="color:#ff69b4;font-size:1.1rem">{price_int:,} credits</b>'
+                f' &nbsp;&middot;&nbsp; Your balance: <b>{balance:,}</b>'
+                f'</div>'
+                f'<button class="mkt-btn mkt-btn-primary" style="width:100%" onclick="buyNow({listing_id},{price_int})">'
+                f'Buy Now &mdash; {price_int:,} credits'
+                f'</button>'
+                f'<div class="mkt-result" id="buy-result"></div>'
+                f'</div>'
+            )
 
         cancel_html = ""
         if is_mine and is_active:
@@ -310,15 +350,19 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
             _bid_body = bid_rows or '<div style="color:#aaa;font-size:.83rem">No bids yet — be the first!</div>'
             bid_history_html = '<div class="detail-box"><h2>Bid History (' + str(listing['bid_count']) + ')</h2>' + _bid_body + '</div>'
 
-        _desc = listing['description'] or '<em>No description provided.</em>'
+        _desc_raw = listing['description']
+        _desc = _he(_desc_raw) if _desc_raw else '<em>No description provided.</em>'
         _rev_body = rev_html or '<div style="color:#aaa;font-size:.83rem">No reviews yet.</div>'
         _badge_cls = "badge-auction" if is_auc else "badge-fixed"
         _badge_label = "Auction" if is_auc else "Fixed Price"
-        _views_line = str(listing['views']) + " views · Listed " + _fmt_dt(listing['created_at'])
+        _views_line = str(listing['views']) + " views &middot; Listed " + _fmt_dt(listing['created_at'])
+        _title_he = _he(listing['title'])
+        _seller_he = _he(listing['seller_name'])
+        _cat_he = _he(listing['category'])
 
         sidebar = get_user_sidebar("market", listing["title"])
         return render_template_string(f"""<!DOCTYPE html><html><head>
-<title>{listing['title']} — Marketplace</title>{USER_CSS}{MARKET_CSS}</head>
+<title>{_title_he} &mdash; Marketplace</title>{USER_CSS}{MARKET_CSS}</head>
 <body><div class="sparkles"></div>{sidebar}
 <div class="main-content">
 <div style="margin-bottom:10px"><a href="/user/market" style="color:#ff69b4;font-size:.85rem">&#8592; Back to Marketplace</a></div>
@@ -327,12 +371,12 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
   <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
     <div>
       <span class="badge {_badge_cls}" style="margin-right:6px">{_badge_label}</span>
-      <span class="badge badge-cat">{listing['category']}</span>
+      <span class="badge badge-cat">{_cat_he}</span>
     </div>
     <span style="font-size:.78rem;color:#aaa">{_views_line}</span>
   </div>
-  <h2 style="font-size:1.2rem;font-weight:800;margin:10px 0 6px;color:#fff">{listing['title']}</h2>
-  <div class="seller-chip">&#128100; {listing['seller_name']} &nbsp;<span class="stars" style="font-size:.8rem">{stars_html}</span><span style="color:#aaa">({review_count})</span></div>
+  <h2 style="font-size:1.2rem;font-weight:800;margin:10px 0 6px;color:#fff">{_title_he}</h2>
+  <div class="seller-chip">&#128100; {_seller_he} &nbsp;<span class="stars" style="font-size:.8rem">{stars_html}</span><span style="color:#aaa">({review_count})</span></div>
   <div style="margin-top:12px;font-size:.88rem;color:#ccc;line-height:1.6">{_desc}</div>
 </div>
 
@@ -386,9 +430,12 @@ function revealProduct(token) {{
     if(d.ok) {{
       var area = document.getElementById('reveal-content') || document.querySelector('.reveal-box');
       if(d.product_type === 'text') {{
-        area.innerHTML = '<div class="reveal-box"><div style="font-weight:700;color:#4ade80;margin-bottom:8px">📦 Product Content</div><pre>' + d.product_content + '</pre></div>';
+        var pre = document.createElement('pre');
+        pre.textContent = d.product_content;
+        area.innerHTML = '<div class="reveal-box"><div style="font-weight:700;color:#4ade80;margin-bottom:8px">&#128230; Product Content</div></div>';
+        area.querySelector('.reveal-box').appendChild(pre);
       }} else {{
-        area.innerHTML = '<div class="reveal-box"><div style="font-weight:700;color:#4ade80;margin-bottom:8px">📁 File Download</div><a href="/user/market/download/' + token + '" class="mkt-btn mkt-btn-primary" download>⬇ Download File</a></div>';
+        area.innerHTML = '<div class="reveal-box"><div style="font-weight:700;color:#4ade80;margin-bottom:8px">&#128193; File Download</div><a href="/user/market/download/' + token + '" class="mkt-btn mkt-btn-primary" download>&#11015; Download File</a></div>';
       }}
     }} else alert('Error: ' + d.error);
   }});
@@ -576,27 +623,36 @@ function toggleProductType() {{
         rows = ""
         for item in listings["items"]:
             is_auc = item["listing_type"] == "auction"
-            tl = mkt.time_left_str(item.get("auction_end_at")) if is_auc else "—"
+            tl = _he(mkt.time_left_str(item.get("auction_end_at"))) if is_auc else "&mdash;"
             display = int(item.get("current_bid") or item.get("price") or 0)
-            rows += f"""<tr>
-<td><a href="/user/market/listing/{item['id']}" style="color:#ff99cc">{item['title']}</a></td>
-<td><span class="badge {"badge-auction" if is_auc else "badge-fixed"}" style="font-size:.7rem">{"Auction" if is_auc else "Fixed"}</span></td>
-<td>{item['category']}</td>
-<td>{display:,} cr</td>
-<td>{"🔨 "+str(item['bid_count'])+" bids" if is_auc else "—"}</td>
-<td style="color:#ffd700">{tl}</td>
-<td>{item['views']}</td>
-<td><button class="mkt-btn mkt-btn-outline" style="padding:3px 10px;font-size:.75rem" onclick="cancelListing({item['id']})">Cancel</button></td>
-</tr>"""
+            badge_cls = "badge-auction" if is_auc else "badge-fixed"
+            badge_lbl = "Auction" if is_auc else "Fixed"
+            bid_cell = str(item['bid_count']) + " bids" if is_auc else "&mdash;"
+            iid = item['id']
+            rows += (
+                f'<tr>'
+                f'<td><a href="/user/market/listing/{iid}" style="color:#ff99cc">{_he(item["title"])}</a></td>'
+                f'<td><span class="badge {badge_cls}" style="font-size:.7rem">{badge_lbl}</span></td>'
+                f'<td>{_he(item["category"])}</td>'
+                f'<td>{display:,} cr</td>'
+                f'<td>{bid_cell}</td>'
+                f'<td style="color:#ffd700">{tl}</td>'
+                f'<td>{item["views"]}</td>'
+                f'<td><button class="mkt-btn mkt-btn-outline" style="padding:3px 10px;font-size:.75rem" onclick="cancelListing({iid})">Cancel</button></td>'
+                f'</tr>'
+            )
 
         sold_rows = ""
         for item in all_listings["items"]:
-            sold_rows += f"""<tr>
-<td><a href="/user/market/listing/{item['id']}" style="color:#aaa">{item['title']}</a></td>
-<td>{item['category']}</td>
-<td>{int(item.get('price') or item.get('current_bid') or 0):,} cr</td>
-<td>👁 {item['views']}</td>
-</tr>"""
+            iid = item['id']
+            sold_rows += (
+                f'<tr>'
+                f'<td><a href="/user/market/listing/{iid}" style="color:#aaa">{_he(item["title"])}</a></td>'
+                f'<td>{_he(item["category"])}</td>'
+                f'<td>{int(item.get("price") or item.get("current_bid") or 0):,} cr</td>'
+                f'<td>{item["views"]}</td>'
+                f'</tr>'
+            )
 
         sidebar = get_user_sidebar("market", "My Shop")
         balance = get_balance(uid)
@@ -623,6 +679,33 @@ function toggleProductType() {{
         _pending_payout = int(stats.get('pending_payout', 0))
         _active_total = listings['total']
 
+        # earnings chart (last 6 months)
+        monthly = mkt.get_monthly_earnings(uid, months=6)
+        _chart_html = ""
+        if monthly:
+            max_val = max((m["credits"] for m in monthly), default=1) or 1
+            bar_w = 100 // len(monthly)
+            bars = ""
+            labels = ""
+            for m in monthly:
+                pct = max(4, int(m["credits"] / max_val * 100))
+                short_mo = m["month"][5:]  # MM
+                bars += (
+                    f'<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">'
+                    f'<div style="font-size:.68rem;color:#ff99cc">{m["credits"]:,}</div>'
+                    f'<div style="background:linear-gradient(#ff69b4,#c94fb5);border-radius:4px 4px 0 0;'
+                    f'width:70%;height:{pct}px;transition:height .3s"></div>'
+                    f'<div style="font-size:.68rem;color:#aaa">{short_mo}</div>'
+                    f'</div>'
+                )
+            _chart_html = (
+                '<div class="detail-box" style="margin-top:14px">'
+                '<h2 style="margin-bottom:12px">Earnings Chart (Last 6 Months)</h2>'
+                '<div style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px 4px 0">'
+                + bars +
+                '</div></div>'
+            )
+
         return render_template_string(f"""<!DOCTYPE html><html><head>
 <title>My Shop — Marketplace</title>{USER_CSS}{MARKET_CSS}</head>
 <body><div class="sparkles"></div>{sidebar}
@@ -648,6 +731,7 @@ function toggleProductType() {{
   {_active_listings_html}
 </div>
 
+{_chart_html}
 {_sold_section_html}
 </div>
 <script>
@@ -672,9 +756,9 @@ function cancelListing(id) {{
         for item in items:
             iid = item["id"]
             ilid = item["listing_id"]
-            ititle = item["listing_title"]
+            ititle = _he(item["listing_title"])
             iamount = int(item["amount"])
-            iseller = item.get("seller_name") or "—"
+            iseller = _he(item.get("seller_name") or "")
             idate = _fmt_dt(item["created_at"])
             status_badge = {
                 "pending":   '<span style="color:#ffd700">Pending</span>',
@@ -752,8 +836,12 @@ function revealInline(token, pid) {{
   fetch('/user/market/api/reveal', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token:token}})}})
   .then(r=>r.json()).then(d=>{{
     if(d.ok) {{
-      if(d.product_type==='text') box.innerHTML='<div style="font-weight:700;color:#4ade80;margin-bottom:8px">📦 Product Content</div><pre>'+d.product_content+'</pre>';
-      else box.innerHTML='<div style="font-weight:700;color:#4ade80;margin-bottom:8px">📁 File</div><a href="/user/market/download/'+token+'" class="mkt-btn mkt-btn-primary" download>⬇ Download</a>';
+      if(d.product_type==='text') {{
+        box.innerHTML='<div style="font-weight:700;color:#4ade80;margin-bottom:8px">&#128230; Product Content</div>';
+        var pre=document.createElement('pre'); pre.textContent=d.product_content; box.appendChild(pre);
+      }} else {{
+        box.innerHTML='<div style="font-weight:700;color:#4ade80;margin-bottom:8px">&#128193; File</div><a href="/user/market/download/'+token+'" class="mkt-btn mkt-btn-primary" download>&#11015; Download</a>';
+      }}
       row.style.display='';
     }} else alert('Error: '+d.error);
   }});
@@ -880,7 +968,7 @@ function submitReview() {{
                     rate = float(request.form.get("commission_rate", 10))
                     rate = max(0, min(50, rate))
                     mkt.set_commission_rate(rate)
-                    msg = f"Commission rate updated to {rate}%"
+                    msg = "Commission rate updated to " + str(rate) + "%"
                 except ValueError:
                     msg = "Invalid rate"
             elif action == "remove":
@@ -888,6 +976,11 @@ function submitReview() {{
                 if lid:
                     res = mkt.admin_remove_listing(lid)
                     msg = "Listing removed" if res["ok"] else res.get("error", "Error")
+            elif action == "reinstate":
+                lid = int(request.form.get("listing_id", 0))
+                if lid:
+                    res = mkt.admin_reinstate_listing(lid)
+                    msg = "Listing reinstated" if res["ok"] else res.get("error", "Error")
 
         search = request.args.get("q", "")
         sf = request.args.get("status", "")
@@ -895,6 +988,7 @@ function submitReview() {{
         data = mkt.admin_list_listings(search=search or None,
                                         status_filter=sf or None,
                                         page=page, per_page=25)
+        active_auctions = mkt.get_active_auctions()
         stats = mkt.get_admin_market_stats()
         commission = mkt.get_commission_rate()
 
@@ -904,42 +998,96 @@ function submitReview() {{
             is_auc = item["listing_type"] == "auction"
             display = int(item.get("current_bid") or item.get("price") or 0)
             sc = {"active":"color:#4ade80","sold":"color:#7ec8e3","cancelled":"color:#f87171","ended":"color:#aaa"}.get(item["status"],"")
-            rows += f"""<tr>
-<td>{item['id']}</td>
-<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{item['title']}</td>
-<td>{item['seller_name']}</td>
-<td><span class="badge {"badge-auction" if is_auc else "badge-fixed"}" style="font-size:.7rem">{"Auc" if is_auc else "Fix"}</span> {item['category']}</td>
-<td>{display:,}</td>
-<td>{item['bid_count'] if is_auc else "—"}</td>
-<td style="{sc}">{item['status']}</td>
-<td>{item['views']}</td>
-<td>
-  <form method="POST" style="display:inline" onsubmit="return confirm('Remove this listing?')">
-    <input type="hidden" name="action" value="remove">
-    <input type="hidden" name="listing_id" value="{item['id']}">
-    <button type="submit" style="background:#e94560;color:#fff;border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:.75rem">Remove</button>
-  </form>
-</td>
-</tr>"""
+            badge_cls = "badge-auction" if is_auc else "badge-fixed"
+            badge_lbl = "Auc" if is_auc else "Fix"
+            bid_cell = str(item['bid_count']) if is_auc else "&mdash;"
+            iid = item["id"]
+            rows += (
+                f'<tr>'
+                f'<td>{iid}</td>'
+                f'<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{_he(item["title"])}</td>'
+                f'<td>{_he(item["seller_name"])}</td>'
+                f'<td><span class="badge {badge_cls}" style="font-size:.7rem">{badge_lbl}</span> {_he(item["category"])}</td>'
+                f'<td>{display:,}</td>'
+                f'<td>{bid_cell}</td>'
+                f'<td style="{sc}">{_he(item["status"])}</td>'
+                f'<td>{item["views"]}</td>'
+                f'<td style="white-space:nowrap">'
+                f'<form method="POST" style="display:inline" onsubmit="return confirm(\'Remove listing #{iid}?\')">'
+                f'<input type="hidden" name="action" value="remove">'
+                f'<input type="hidden" name="listing_id" value="{iid}">'
+                f'<button type="submit" style="background:#e94560;color:#fff;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:.73rem">Remove</button>'
+                f'</form>'
+                + (
+                    f' <form method="POST" style="display:inline">'
+                    f'<input type="hidden" name="action" value="reinstate">'
+                    f'<input type="hidden" name="listing_id" value="{iid}">'
+                    f'<button type="submit" style="background:#4ade80;color:#000;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:.73rem">Reinstate</button>'
+                    f'</form>'
+                    if item["status"] in ("cancelled", "ended") else ""
+                )
+                + f'</td></tr>'
+            )
+
+        # active auctions sub-panel
+        auc_rows = ""
+        for a in active_auctions:
+            tl = mkt.time_left_str(a.get("auction_end_at"))
+            is_expired = a.get("auction_end_at") and mkt._to_utc(a["auction_end_at"]) < mkt._now()
+            tl_color = "color:#f87171" if is_expired else "color:#ffd700"
+            auc_rows += (
+                f'<tr>'
+                f'<td>{a["id"]}</td>'
+                f'<td><a href="/user/market/listing/{a["id"]}" style="color:#ff99cc" target="_blank">{_he(a["title"])}</a></td>'
+                f'<td>{_he(a["seller_name"])}</td>'
+                f'<td>{int(a.get("current_bid") or a.get("starting_bid") or 0):,}</td>'
+                f'<td>{a["bid_count"]}</td>'
+                f'<td style="{tl_color}">{_he(tl)}</td>'
+                f'<td style="white-space:nowrap">'
+                f'<form method="POST" style="display:inline" onsubmit="return confirm(\'Remove auction {a["id"]}?\')">'
+                f'<input type="hidden" name="action" value="remove">'
+                f'<input type="hidden" name="listing_id" value="{a["id"]}">'
+                f'<button type="submit" style="background:#e94560;color:#fff;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:.73rem">Remove</button>'
+                f'</form>'
+                f'</td></tr>'
+            )
+
+        _auc_panel = ""
+        if active_auctions:
+            _auc_panel = (
+                '<div style="background:rgba(255,140,0,.08);border:1px solid rgba(255,140,0,.2);border-radius:10px;padding:14px;margin-bottom:18px">'
+                '<h2 style="font-size:.95rem;color:#ffd700;margin-bottom:10px">&#128295; Active Auctions (' + str(len(active_auctions)) + ')</h2>'
+                '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.8rem">'
+                '<thead><tr style="color:#ffd700;border-bottom:1px solid rgba(255,215,0,.2)">'
+                '<th style="padding:6px;text-align:left">ID</th><th>Title</th><th>Seller</th>'
+                '<th>Bid</th><th>Bids</th><th>Time Left</th><th></th></tr></thead>'
+                '<tbody>' + auc_rows + '</tbody></table></div></div>'
+            )
 
         total = data["total"]
         pages = max(1, (total + 24) // 25)
         pag_html = ""
+        _sq = _he(search)
+        _ssf = _he(sf)
         if pages > 1:
             pag_html = "<div style='margin-top:12px;display:flex;gap:6px;flex-wrap:wrap'>"
             for p in range(max(1,page-2), min(pages+1,page+3)):
                 active_style = "background:#e94560;color:#fff;" if p==page else "background:rgba(255,255,255,.07);color:#ccc;"
-                pag_html += f'<a href="?q={search}&status={sf}&page={p}" style="{active_style}padding:4px 10px;border-radius:6px;text-decoration:none;font-size:.82rem">{p}</a>'
+                pag_html += f'<a href="?q={_sq}&status={_ssf}&page={p}" style="{active_style}padding:4px 10px;border-radius:6px;text-decoration:none;font-size:.82rem">{p}</a>'
             pag_html += "</div>"
 
         status_opts = "".join(f'<option value="{s}" {"selected" if s==sf else ""}>{s.title()}</option>' for s in ["","active","sold","cancelled","ended"])
 
+        _msg_html = ""
+        if msg:
+            _msg_html = '<div style="background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);border-radius:8px;padding:8px 14px;margin-bottom:14px;color:#4ade80;font-size:.85rem">' + _he(msg) + '</div>'
+
         return render_template_string(f"""<!DOCTYPE html><html><head>
-<title>Market Admin — Onichan</title>{ADMIN_CSS}</head>
+<title>Market Admin &mdash; Onichan</title>{ADMIN_CSS}</head>
 <body>
 <div style="max-width:1100px;margin:30px auto;padding:20px">
-<h1 style="font-size:1.3rem;font-weight:800;color:#e94560;margin-bottom:18px">🛍 Marketplace Admin</h1>
-{"<div style='background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);border-radius:8px;padding:8px 14px;margin-bottom:14px;color:#4ade80;font-size:.85rem'>" + msg + "</div>" if msg else ""}
+<h1 style="font-size:1.3rem;font-weight:800;color:#e94560;margin-bottom:18px">&#128717; Marketplace Admin</h1>
+{_msg_html}
 
 <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px">
   <div style="background:rgba(255,255,255,.06);border-radius:10px;padding:12px 18px;min-width:110px;text-align:center">
@@ -964,6 +1112,8 @@ function submitReview() {{
   </div>
 </div>
 
+{_auc_panel}
+
 <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px">
   <form method="POST" style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);padding:10px 14px;border-radius:10px">
     <input type="hidden" name="action" value="set_commission">
@@ -975,7 +1125,7 @@ function submitReview() {{
 </div>
 
 <form method="GET" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-  <input name="q" value="{search}" placeholder="Search title / seller..." style="flex:1;min-width:160px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 12px;font-size:.85rem">
+  <input name="q" value="{_sq}" placeholder="Search title / seller..." style="flex:1;min-width:160px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 12px;font-size:.85rem">
   <select name="status" style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:8px;padding:6px 10px;font-size:.85rem">
     {status_opts}
   </select>
