@@ -304,6 +304,10 @@ class _ChromePool:
     async def _ensure_page(self, rec: _TabRecord) -> None:
         if rec.page is not None:
             return
+        # Capture the previous suspend state BEFORE we reset it so the
+        # lazy-resume branch below can decide whether to navigate back to
+        # the cached URL. Initial acquires never see suspended=True.
+        was_suspended = rec.suspended
         # Build/reuse the right context.
         if rec.incognito:
             ctx = await self._new_incognito_context(rec)
@@ -338,6 +342,19 @@ class _ChromePool:
             except Exception:
                 pass
         rec.page.on("domcontentloaded", lambda *_: asyncio.ensure_future(_on_title()))
+
+        # Lazy resume — when this page was just rebuilt after _suspend(), the
+        # cached destination URL must be restored. Without this, idle-suspended
+        # tabs come back as a blank page and the user has to re-navigate.
+        if was_suspended and rec.last_url and rec.last_url != "about:blank":
+            try:
+                self._emit_meta(rec, "loading", True)
+                await rec.page.goto(
+                    rec.last_url, timeout=20000, wait_until="domcontentloaded",
+                )
+                rec.navigated = True
+            except Exception as e:
+                self._emit_meta(rec, "error", f"resume nav failed: {e}"[:160])
 
     async def _get_persistent_context(self, uid: str, proxy_url: str | None):
         # If user already has a persistent context but the proxy has changed,

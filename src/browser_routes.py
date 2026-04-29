@@ -3006,6 +3006,36 @@ function _post(url,data,cb){
             participate in the same redirect path; instead we inspect the
             session directly and close the socket on auth failure.
             """
+            # Origin check — block cross-site WebSocket hijacking. The cookie
+            # session ALONE is not enough: a third-party page can open a
+            # cross-origin WS from the victim's browser and read/drive the
+            # whole stream. Reject anything whose Origin host isn't one of
+            # ours (request.host + REPLIT_DOMAINS).
+            origin = (request.headers.get("Origin") or "").strip()
+            if origin:
+                try:
+                    o_host = urlparse(origin).hostname or ""
+                except Exception:
+                    o_host = ""
+                allowed_hosts = {
+                    (request.host or "").split(":")[0].lower(),
+                    "localhost", "127.0.0.1",
+                }
+                import os as _os_origin
+                for d in (_os_origin.environ.get("REPLIT_DOMAINS") or "").split(","):
+                    d = d.strip().lower()
+                    if d:
+                        allowed_hosts.add(d)
+                if o_host.lower() not in allowed_hosts:
+                    try:
+                        ws.send(json.dumps({
+                            "type": "error",
+                            "value": "cross-origin websocket rejected",
+                        }))
+                    except Exception:
+                        pass
+                    return
+
             # Auth check — closes the socket if the user isn't logged in.
             uid = str(session.get("user_id") or "")
             if not uid:

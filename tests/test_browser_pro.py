@@ -278,16 +278,60 @@ class ProModeScreencastTests(unittest.TestCase):
             except Exception:
                 pass
         # Explicit release through the existing tab/close endpoint.
+        t0 = time.time()
         r = self.s.post(f"{BASE}/user/browser/api/tab/close",
                         json={"tab_key": tab_key}, timeout=10)
         self.assertEqual(r.status_code, 200)
-        # Allow the pool's release path to settle, then verify the tab is gone.
-        time.sleep(0.5)
-        d = self.s.get(f"{BASE}/user/browser/api/pro/state", timeout=10).json()
-        for u in d.get("users", []):
-            for t in u.get("tabs", []):
-                self.assertNotEqual(t.get("tab_key"), tab_key,
-                                    "pool still tracks closed tab")
+        # Spec: upstream Chromium page must be torn down within ~2s of
+        # the close beacon. Poll pool/state and assert the tab is gone.
+        deadline = t0 + 2.0
+        gone = False
+        while time.time() < deadline:
+            d = self.s.get(f"{BASE}/user/browser/api/pro/state", timeout=5).json()
+            still_there = any(
+                t.get("tab_key") == tab_key
+                for u in d.get("users", [])
+                for t in u.get("tabs", [])
+            )
+            if not still_there:
+                gone = True
+                break
+            time.sleep(0.1)
+        self.assertTrue(gone, "pool still tracks closed tab after 2s")
+
+    def test_interaction_keeps_frames_flowing(self):
+        """Sending an input event must (a) not break the WS and (b) keep
+        frames coming. This is the closest deterministic assertion we can
+        make for ‘canvas focus → keystroke → rendered frame update’ —
+        comparing JPEG bytes for visual change is non-deterministic.
+        """
+        tab_key = f"pytest-input-{int(time.time() * 1000)}"
+        self.__class__._tab_keys.append(tab_key)
+        ws = self._open_ws(tab_key, "https://example.com/", incognito=True)
+        try:
+            first, _metas, errs = self._drain(ws, max_frames=1, timeout=25)
+            self.assertFalse(errs, f"ws errors before input: {errs}")
+            self.assertTrue(first, "no first frame before input")
+            # Synthetic keystroke + click — the server forwards them to
+            # CDP via dispatch_input, which also bumps last_input_at.
+            ws.send(json.dumps({"type": "key",
+                                "action": "down", "code": "KeyA"}))
+            ws.send(json.dumps({"type": "key",
+                                "action": "up", "code": "KeyA"}))
+            ws.send(json.dumps({"type": "mouse",
+                                "action": "down", "x": 50, "y": 50,
+                                "button": "left"}))
+            ws.send(json.dumps({"type": "mouse",
+                                "action": "up", "x": 50, "y": 50,
+                                "button": "left"}))
+            after, _m2, errs2 = self._drain(ws, max_frames=2, timeout=10)
+            self.assertFalse(errs2, f"ws errors after input: {errs2}")
+            self.assertTrue(after, "no frames received after input")
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
