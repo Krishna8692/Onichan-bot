@@ -30,7 +30,7 @@ _BINARY_CONTENT_TYPES = (
 )
 _PASSTHROUGH_TYPES = {
     "application/javascript", "text/javascript",
-    "text/css", "text/plain", "application/json",
+    "text/plain", "application/json",
 }
 
 # ── SSRF protection ───────────────────────────────────────────────────────────
@@ -133,7 +133,8 @@ def _add_history(uid: str, url: str) -> None:
 
 def _get_history(uid: str) -> list:
     with _history_lock:
-        return list(reversed(_user_history.get(uid, [])[:20]))
+        hist = _user_history.get(uid, [])
+        return list(reversed(hist[-20:]))
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -773,7 +774,7 @@ body{overflow:hidden!important;height:100vh;display:flex;flex-direction:column;}
       <div class="br-load-txt" id="br-load-txt">Loading...</div>
     </div>
     <iframe id="br-frame"
-      sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
     ></iframe>
   </div>
 
@@ -1115,6 +1116,19 @@ function _post(url,data,cb){
         if _is_binary(ct) or _is_passthrough(ct):
             content = resp.raw.read(amt=_MAX_RESPONSE_BYTES)
             r = Response(content, status=resp.status_code, content_type=ct)
+            for hdr in ("Cache-Control", "ETag", "Last-Modified"):
+                if hdr in resp.headers:
+                    r.headers[hdr] = resp.headers[hdr]
+            return r
+
+        # CSS — rewrite url() references
+        if ct.lower().split(";")[0].strip() == "text/css":
+            raw_bytes = resp.raw.read(amt=_MAX_RESPONSE_BYTES)
+            encoding = resp.encoding or "utf-8"
+            css_text = raw_bytes.decode(encoding, errors="replace")
+            rewritten_css = _rewrite_css_text(css_text, final_url)
+            r = Response(rewritten_css, status=resp.status_code,
+                         content_type="text/css; charset=utf-8")
             for hdr in ("Cache-Control", "ETag", "Last-Modified"):
                 if hdr in resp.headers:
                     r.headers[hdr] = resp.headers[hdr]
