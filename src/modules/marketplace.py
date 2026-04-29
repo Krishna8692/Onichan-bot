@@ -107,12 +107,17 @@ def init_marketplace_tables() -> bool:
                     status         TEXT NOT NULL DEFAULT 'pending',
                     download_token TEXT UNIQUE,
                     confirmed_at   TIMESTAMP WITH TIME ZONE,
-                    created_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    created_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    dispute_reason TEXT,
+                    disputed_at    TIMESTAMP WITH TIME ZONE
                 )
             """)
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_mp_buyer  ON market_purchases(buyer_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_mp_seller ON market_purchases(seller_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_mp_token  ON market_purchases(download_token)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_mp_buyer    ON market_purchases(buyer_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_mp_seller   ON market_purchases(seller_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_mp_token    ON market_purchases(download_token)")
+            # Migration: add dispute columns to existing tables
+            cur.execute("ALTER TABLE market_purchases ADD COLUMN IF NOT EXISTS dispute_reason TEXT")
+            cur.execute("ALTER TABLE market_purchases ADD COLUMN IF NOT EXISTS disputed_at TIMESTAMP WITH TIME ZONE")
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS market_reviews (
@@ -986,7 +991,8 @@ def get_buyer_orders(buyer_id: int, page: int = 1, per_page: int = 20) -> dict:
                 SELECT mp.id, mp.listing_id, mp.listing_title, mp.amount, mp.status,
                        mp.download_token, mp.created_at,
                        ml.product_type, ml.seller_name,
-                       (SELECT id FROM market_reviews WHERE purchase_id=mp.id LIMIT 1) AS reviewed
+                       (SELECT id FROM market_reviews WHERE purchase_id=mp.id LIMIT 1) AS reviewed,
+                       mp.dispute_reason, mp.disputed_at
                 FROM market_purchases mp
                 LEFT JOIN market_listings ml ON ml.id = mp.listing_id
                 WHERE mp.buyer_id=%s
@@ -997,6 +1003,194 @@ def get_buyer_orders(buyer_id: int, page: int = 1, per_page: int = 20) -> dict:
             return {"items": [dict(zip(cols, r)) for r in cur.fetchall()],
                     "total": total, "page": page, "per_page": per_page}
     return _execute_with_retry(_op) or {"items": [], "total": 0, "page": page, "per_page": per_page}
+
+
+# ─── dispute system ───────────────────────────────────────────────────────────
+DISPUTE_WINDOW_HOURS = 72   # buyer may open a dispute within 72h of purchase
+
+def open_dispute(purchase_id: int, buyer_id: int, reason: str) -> dict:
+    """Buyer opens a dispute on a pending purchase (within the dispute window).
+
+    Transitions status: pending → disputed.
+    _run_autoconfirm() skips rows with status != 'pending', so disputed purchases
+    are held indefinitely until an admin resolves them.
+    """
+    reason = (reason or "").strip()[:1000]
+    if not reason:
+        return {"ok": False, "error": "Please provide a reason for the dispute."}
+
+    def _txn(conn, cur):
+        cur.execute("""
+            SELECT buyer_id, seller_id, status, amount, listing_title, created_at
+            FROM market_purchases WHERE id=%s
+        """, (purchase_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("Purchase not found.")
+        db_buyer, seller_id, status, amount, listing_title, created_at = row
+        if db_buyer != buyer_id:
+            raise ValueError("Not authorised.")
+        if status != "pending":
+            raise ValueError(
+                "Only pending purchases can be disputed."
+                if status != "disputed" else "Already disputed."
+            )
+        created_utc = _to_utc(created_at)
+        if _now() - created_utc > timedelta(hours=DISPUTE_WINDOW_HOURS):
+            raise ValueError(
+                f"Dispute window has closed ({DISPUTE_WINDOW_HOURS}h after purchase)."
+            )
+        cur.execute(
+            """UPDATE market_purchases
+               SET status='disputed', dispute_reason=%s, disputed_at=NOW()
+               WHERE id=%s AND status='pending'""",
+            (reason, purchase_id)
+        )
+        if cur.rowcount == 0:
+            raise ValueError("Purchase status changed — please refresh.")
+        return {"seller_id": seller_id, "listing_title": listing_title, "amount": float(amount)}
+
+    try:
+        info = _run_transaction(_txn)
+        if info:
+            _notify(info["seller_id"], "dispute_opened", {
+                "listing_title": info["listing_title"],
+                "amount": info["amount"],
+                "purchase_id": purchase_id,
+            })
+        return {"ok": True}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+
+def get_disputed_purchases(limit: int = 100) -> list:
+    """Return all disputed purchases for the admin panel."""
+    def _op(conn):
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT mp.id, mp.listing_id, mp.listing_title, mp.buyer_id,
+                       mp.seller_id, mp.amount, mp.dispute_reason, mp.disputed_at,
+                       mp.created_at
+                FROM market_purchases mp
+                WHERE mp.status='disputed'
+                ORDER BY mp.disputed_at DESC
+                LIMIT %s
+            """, (limit,))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    return _execute_with_retry(_op) or []
+
+
+def admin_resolve_dispute_release(purchase_id: int) -> dict:
+    """Admin: resolve dispute in seller's favour — confirm purchase and pay seller."""
+    try:
+        def _txn(conn, cur):
+            cur.execute(
+                """SELECT seller_id, amount, commission, listing_title, listing_id
+                   FROM market_purchases WHERE id=%s AND status='disputed'""",
+                (purchase_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("Purchase not found or not disputed.")
+            seller_id, amount, commission, listing_title, listing_id = row
+            seller_payout = int(amount) - int(commission)
+
+            cur.execute(
+                """UPDATE market_purchases
+                   SET status='confirmed', confirmed_at=NOW()
+                   WHERE id=%s AND status='disputed'""",
+                (purchase_id,)
+            )
+            if cur.rowcount == 0:
+                raise ValueError("Dispute status changed — please refresh.")
+
+            # Credit seller (upsert)
+            cur.execute(
+                """INSERT INTO user_credits (user_id, credits, total_earned, updated_at)
+                   VALUES (%s, %s, %s, NOW())
+                   ON CONFLICT (user_id) DO UPDATE SET
+                       credits = user_credits.credits + %s,
+                       total_earned = user_credits.total_earned + %s,
+                       updated_at = NOW()""",
+                (seller_id, seller_payout, seller_payout, seller_payout, seller_payout)
+            )
+            cur.execute(
+                "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
+                (seller_id, seller_payout, "dispute_resolved_seller",
+                 f"Dispute resolved (seller): {listing_title} (#{listing_id})")
+            )
+            return {"seller_id": seller_id, "listing_title": listing_title, "payout": seller_payout}
+
+        info = _run_transaction(_txn)
+        if info:
+            _notify(info["seller_id"], "dispute_resolved_seller", {
+                "listing_title": info["listing_title"],
+                "payout": info["payout"],
+            })
+        return {"ok": True}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+
+def admin_resolve_dispute_refund(purchase_id: int) -> dict:
+    """Admin: resolve dispute in buyer's favour — refund buyer and void purchase."""
+    try:
+        def _txn(conn, cur):
+            cur.execute(
+                """SELECT buyer_id, seller_id, amount, listing_title, listing_id
+                   FROM market_purchases WHERE id=%s AND status='disputed'""",
+                (purchase_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("Purchase not found or not disputed.")
+            buyer_id, seller_id, amount, listing_title, listing_id = row
+            refund_amt = int(amount)
+
+            cur.execute(
+                """UPDATE market_purchases
+                   SET status='refunded', confirmed_at=NOW()
+                   WHERE id=%s AND status='disputed'""",
+                (purchase_id,)
+            )
+            if cur.rowcount == 0:
+                raise ValueError("Dispute status changed — please refresh.")
+
+            # Refund buyer (upsert)
+            cur.execute(
+                """INSERT INTO user_credits (user_id, credits, total_earned, updated_at)
+                   VALUES (%s, %s, %s, NOW())
+                   ON CONFLICT (user_id) DO UPDATE SET
+                       credits = user_credits.credits + %s,
+                       total_earned = user_credits.total_earned + %s,
+                       updated_at = NOW()""",
+                (buyer_id, refund_amt, refund_amt, refund_amt, refund_amt)
+            )
+            cur.execute(
+                "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
+                (buyer_id, refund_amt, "dispute_refund",
+                 f"Dispute refund: {listing_title} (#{listing_id})")
+            )
+            return {
+                "buyer_id": buyer_id,
+                "seller_id": seller_id,
+                "listing_title": listing_title,
+                "refund": refund_amt,
+            }
+
+        info = _run_transaction(_txn)
+        if info:
+            _notify(info["buyer_id"], "dispute_resolved_buyer", {
+                "listing_title": info["listing_title"],
+                "refund": info["refund"],
+            })
+            _notify(info["seller_id"], "dispute_resolved_seller_loss", {
+                "listing_title": info["listing_title"],
+            })
+        return {"ok": True}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
 
 
 # ─── admin stats ──────────────────────────────────────────────────────────────
@@ -1138,6 +1332,19 @@ def _notify(user_id: int, event: str, ctx: dict):
             "auto_confirmed":(f"💰 <b>Payout Released!</b>\n\n"
                               f"📦 <b>{ctx.get('listing_title','')}</b>\n"
                               f"✅ <b>{int(ctx.get('payout',0))} credits</b> have been added to your balance."),
+            "dispute_opened": (f"⚠️ <b>Dispute Opened on Your Sale!</b>\n\n"
+                               f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                               f"💰 Amount: <b>{int(ctx.get('amount',0))} credits</b>\n"
+                               f"An admin will review the dispute. Funds are held pending resolution."),
+            "dispute_resolved_seller": (f"✅ <b>Dispute Resolved — Funds Released to You!</b>\n\n"
+                                        f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                                        f"💰 <b>{int(ctx.get('payout',0))} credits</b> have been added to your balance."),
+            "dispute_resolved_buyer":  (f"✅ <b>Dispute Resolved — Refund Issued!</b>\n\n"
+                                        f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                                        f"💰 <b>{int(ctx.get('refund',0))} credits</b> have been refunded to your balance."),
+            "dispute_resolved_seller_loss": (f"❌ <b>Dispute Resolved — Refund Issued to Buyer</b>\n\n"
+                                             f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                                             f"The admin ruled in the buyer's favour. No payout will be released."),
         }
         text = msgs.get(event, "")
         if not text:

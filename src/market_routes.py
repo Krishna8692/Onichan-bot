@@ -771,14 +771,24 @@ function cancelListing(id) {{
             iamount = int(item["amount"])
             iseller = _he(item.get("seller_name") or "")
             idate = _fmt_dt(item["created_at"])
+            istatus = item["status"]
             status_badge = {
                 "pending":   '<span style="color:#ffd700">Pending</span>',
                 "confirmed": '<span style="color:#4ade80">Confirmed</span>',
-            }.get(item["status"], item["status"])
+                "disputed":  '<span style="color:#f87171">Disputed</span>',
+                "refunded":  '<span style="color:#7ec8e3">Refunded</span>',
+            }.get(istatus, f'<span style="color:#aaa">{_he(istatus)}</span>')
             reviewed = item.get("reviewed")
             review_btn = ""
-            if item["status"] == "confirmed" and not reviewed:
+            if istatus == "confirmed" and not reviewed:
                 review_btn = f'<button class="mkt-btn mkt-btn-outline" style="padding:3px 10px;font-size:.73rem" onclick="openReview({iid})">Review</button>'
+
+            dispute_btn = ""
+            if istatus == "pending":
+                dispute_btn = f'<button class="mkt-btn" style="padding:3px 10px;font-size:.73rem;background:#e94560;color:#fff;border:none;border-radius:6px;cursor:pointer" onclick="openDispute({iid})">Dispute</button>'
+
+            dispute_reason = _he(item.get("dispute_reason") or "")
+            dispute_note = f'<div style="color:#f87171;font-size:.75rem;margin-top:4px">Dispute: {dispute_reason}</div>' if istatus == "disputed" and dispute_reason else ""
 
             token = item.get("download_token") or ""
             if token:
@@ -789,9 +799,9 @@ function cancelListing(id) {{
 <td><a href="/user/market/listing/{ilid}" style="color:#ff99cc">{ititle}</a></td>
 <td>{iseller}</td>
 <td>{iamount:,} cr</td>
-<td>{status_badge}</td>
+<td>{status_badge}{dispute_note}</td>
 <td>{idate}</td>
-<td style="white-space:nowrap">{reveal_btn} {review_btn}</td>
+<td style="white-space:nowrap">{reveal_btn} {review_btn} {dispute_btn}</td>
 </tr>
 <tr id="reveal-row-{item['id']}" style="display:none">
   <td colspan="6"><div class="reveal-box" id="reveal-box-{item['id']}"></div></td>
@@ -838,6 +848,24 @@ function cancelListing(id) {{
     <div class="mkt-result" id="review-result"></div>
   </div>
 </div>
+
+<!-- dispute modal -->
+<div id="dispute-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#1e0f2d;border:1px solid rgba(248,113,113,.4);border-radius:14px;padding:20px;width:90%;max-width:420px">
+    <h3 style="color:#f87171;margin-bottom:8px">&#9888;&#65039; Open a Dispute</h3>
+    <p style="color:#ccc;font-size:.85rem;margin-bottom:12px">Funds will be held until an admin reviews and resolves the dispute. Only open a dispute if you have a genuine issue with the purchase.</p>
+    <input type="hidden" id="dispute-pid">
+    <div class="mkt-form">
+      <label>Reason (required)</label>
+      <textarea id="dispute-reason" rows="4" placeholder="Describe the issue clearly..." style="min-height:80px"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="mkt-btn" style="flex:1;background:#e94560;color:#fff;border:none;border-radius:8px;padding:8px;cursor:pointer;font-weight:700" onclick="submitDispute()">Submit Dispute</button>
+      <button class="mkt-btn mkt-btn-outline" onclick="document.getElementById('dispute-modal').style.display='none'">Cancel</button>
+    </div>
+    <div class="mkt-result" id="dispute-result"></div>
+  </div>
+</div>
 </div>
 <script>
 function revealInline(token, pid) {{
@@ -873,6 +901,26 @@ function submitReview() {{
     el.textContent = d.ok ? '✅ Review submitted!' : '❌ '+d.error;
     el.className = 'mkt-result '+(d.ok?'ok':'err');
     if(d.ok) setTimeout(()=>location.reload(), 1200);
+  }});
+}}
+function openDispute(pid) {{
+  document.getElementById('dispute-pid').value = pid;
+  document.getElementById('dispute-reason').value = '';
+  document.getElementById('dispute-result').style.display = 'none';
+  document.getElementById('dispute-modal').style.display = 'flex';
+}}
+function submitDispute() {{
+  var pid = document.getElementById('dispute-pid').value;
+  var reason = document.getElementById('dispute-reason').value.trim();
+  if(!reason) {{ alert('Please describe the issue.'); return; }}
+  fetch('/user/market/api/dispute', {{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{purchase_id:parseInt(pid),reason:reason}})}})
+  .then(r=>r.json()).then(d=>{{
+    var el = document.getElementById('dispute-result');
+    el.style.display='block';
+    el.textContent = d.ok ? '✅ Dispute submitted. An admin will review it.' : '❌ '+d.error;
+    el.className = 'mkt-result '+(d.ok?'ok':'err');
+    if(d.ok) setTimeout(()=>location.reload(), 1800);
   }});
 }}
 </script>
@@ -967,6 +1015,22 @@ function submitReview() {{
         )
         return jsonify(res)
 
+    # ── API: dispute ──────────────────────────────────────────────────────────
+    @app.route("/user/market/api/dispute", methods=["POST"])
+    @user_required
+    def market_api_dispute():
+        uid = _uid()
+        data = request.get_json(silent=True) or {}
+        try:
+            pid = int(data.get("purchase_id", 0))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Invalid purchase_id"})
+        reason = str(data.get("reason", "")).strip()[:1000]
+        if not pid:
+            return jsonify({"ok": False, "error": "Missing purchase_id"})
+        res = mkt.open_dispute(pid, uid, reason)
+        return jsonify(res)
+
     # ── admin market ──────────────────────────────────────────────────────────
     @app.route("/admin/market", methods=["GET", "POST"])
     @admin_required
@@ -992,6 +1056,16 @@ function submitReview() {{
                 if lid:
                     res = mkt.admin_reinstate_listing(lid)
                     msg = "Listing reinstated" if res["ok"] else res.get("error", "Error")
+            elif action == "dispute_release":
+                pid = int(request.form.get("purchase_id", 0))
+                if pid:
+                    res = mkt.admin_resolve_dispute_release(pid)
+                    msg = "Dispute resolved — funds released to seller." if res["ok"] else res.get("error", "Error")
+            elif action == "dispute_refund":
+                pid = int(request.form.get("purchase_id", 0))
+                if pid:
+                    res = mkt.admin_resolve_dispute_refund(pid)
+                    msg = "Dispute resolved — buyer refunded." if res["ok"] else res.get("error", "Error")
 
         search = request.args.get("q", "")
         sf = request.args.get("status", "")
@@ -1000,6 +1074,7 @@ function submitReview() {{
                                         status_filter=sf or None,
                                         page=page, per_page=25)
         active_auctions = mkt.get_active_auctions()
+        disputed_purchases = mkt.get_disputed_purchases()
         stats = mkt.get_admin_market_stats()
         commission = mkt.get_commission_rate()
 
@@ -1075,6 +1150,44 @@ function submitReview() {{
                 '<tbody>' + auc_rows + '</tbody></table></div></div>'
             )
 
+        # disputed purchases panel
+        disp_rows = ""
+        for d in disputed_purchases:
+            ddt = _fmt_dt(d.get("disputed_at"))
+            disp_rows += (
+                f'<tr>'
+                f'<td style="padding:6px">{d["id"]}</td>'
+                f'<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{_he(d["listing_title"])}</td>'
+                f'<td>{d["buyer_id"]}</td>'
+                f'<td>{d["seller_id"]}</td>'
+                f'<td>{int(d["amount"]):,}</td>'
+                f'<td style="max-width:200px;color:#fca5a5;font-size:.76rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{_he(d.get("dispute_reason") or "")}</td>'
+                f'<td>{ddt}</td>'
+                f'<td style="white-space:nowrap">'
+                f'<form method="POST" style="display:inline" onsubmit="return confirm(\'Release funds to seller for purchase #{d["id"]}?\')">'
+                f'<input type="hidden" name="action" value="dispute_release">'
+                f'<input type="hidden" name="purchase_id" value="{d["id"]}">'
+                f'<button type="submit" style="background:#4ade80;color:#000;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:.72rem;margin-right:4px">Release&#x2192;Seller</button>'
+                f'</form>'
+                f'<form method="POST" style="display:inline" onsubmit="return confirm(\'Refund buyer for purchase #{d["id"]}?\')">'
+                f'<input type="hidden" name="action" value="dispute_refund">'
+                f'<input type="hidden" name="purchase_id" value="{d["id"]}">'
+                f'<button type="submit" style="background:#e94560;color:#fff;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:.72rem">Refund&#x2192;Buyer</button>'
+                f'</form>'
+                f'</td></tr>'
+            )
+        _disp_panel = ""
+        if disputed_purchases:
+            _disp_panel = (
+                '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:14px;margin-bottom:18px">'
+                '<h2 style="font-size:.95rem;color:#f87171;margin-bottom:10px">&#9878; Open Disputes (' + str(len(disputed_purchases)) + ')</h2>'
+                '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.8rem">'
+                '<thead><tr style="color:#f87171;border-bottom:1px solid rgba(248,113,113,.2)">'
+                '<th style="padding:6px;text-align:left">ID</th><th>Product</th><th>Buyer</th>'
+                '<th>Seller</th><th>Amount</th><th>Reason</th><th>Filed</th><th>Action</th></tr></thead>'
+                '<tbody>' + disp_rows + '</tbody></table></div></div>'
+            )
+
         total = data["total"]
         pages = max(1, (total + 24) // 25)
         pag_html = ""
@@ -1124,6 +1237,7 @@ function submitReview() {{
 </div>
 
 {_auc_panel}
+{_disp_panel}
 
 <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px">
   <form method="POST" style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);padding:10px 14px;border-radius:10px">
