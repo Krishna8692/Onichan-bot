@@ -573,10 +573,27 @@ _META_REFRESH_RE = re.compile(r"(\d+)\s*;\s*url\s*=\s*(.*)", re.IGNORECASE)
 _INJECT_JS = """
 (function(){
 try{
-// Report current URL to parent frame
-function _bpm(u){try{window.top.postMessage({type:'browser_nav',url:u},'*');}catch(e){}}
+// Report current URL + page title to parent frame so the tab strip
+// can render a real Chrome-style title.
+function _bpm(u){
+  try{
+    window.top.postMessage({
+      type:'browser_nav',
+      url:u,
+      title:(document.title||'').slice(0,200)
+    },'*');
+  }catch(e){}
+}
 _bpm(window.location.href);
 window.addEventListener('load',function(){_bpm(window.location.href);});
+// Re-emit when the page title changes (SPAs).
+try{
+  var _ttEl=document.querySelector('title');
+  if(_ttEl&&window.MutationObserver){
+    new MutationObserver(function(){_bpm(window.location.href);})
+      .observe(_ttEl,{childList:true,characterData:true,subtree:true});
+  }
+}catch(e){}
 var _bpo=history.pushState;
 history.pushState=function(){_bpo.apply(this,arguments);_bpm(window.location.href);};
 var _bpr=history.replaceState;
@@ -1097,10 +1114,19 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
 .br-tab-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .br-tab-close{flex-shrink:0;width:18px;height:18px;border-radius:50%;
   background:transparent;border:none;color:inherit;font-size:.85rem;line-height:1;
-  cursor:pointer;opacity:.45;display:flex;align-items:center;justify-content:center;
-  padding:0;-webkit-tap-highlight-color:rgba(255,255,255,.2);}
+  cursor:pointer;opacity:0;display:flex;align-items:center;justify-content:center;
+  padding:0;-webkit-tap-highlight-color:rgba(255,255,255,.2);
+  transition:opacity .12s ease;}
+/* Chrome behaviour: × shows on tab hover OR when the tab is active. */
+.br-tab:hover .br-tab-close{opacity:.7;}
+.br-tab.active .br-tab-close{opacity:.85;}
 .br-tab-close:hover{background:rgba(255,255,255,.16);opacity:1;}
-.br-tab.active .br-tab-close{opacity:.7;}
+.br-tab-favicon{flex-shrink:0;width:14px;height:14px;border-radius:2px;
+  object-fit:contain;background:rgba(255,255,255,.06);}
+/* Disabled bookmark button (active tab is Incognito) */
+.br-tb-btn.disabled{opacity:.35;cursor:not-allowed;
+  background:rgba(192,132,252,.06)!important;}
+.br-tb-btn.disabled:hover{background:rgba(192,132,252,.06)!important;}
 .br-newtab-wrap{position:relative;flex-shrink:0;display:flex;align-items:flex-end;}
 .br-newtab-btn{height:26px;width:34px;margin:0 2px 2px 4px;
   background:rgba(255,255,255,.06);border:1px solid rgba(255,105,180,.18);
@@ -1172,7 +1198,10 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
   .br-tab{min-width:60px;max-width:140px;padding:0 4px 0 10px;
     font-size:.72rem;height:30px;}
   .br-tab-icon{display:none;}
-  .br-tab-close{opacity:.85;}
+  /* On touch the close × is shown only on the active tab — there is no
+     hover state on touch screens, so always-on for inactive would be too
+     noisy. Active tab gets the × so it's still closeable with one tap. */
+  .br-tab.active .br-tab-close{opacity:.9;}
   .br-tabstrip{padding:5px 4px 0 4px;}
   .br-newtab-btn{width:30px;}
   .br-newtab-menu{min-width:200px;}
@@ -1323,7 +1352,7 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
       placeholder="URL or search..." onfocus="this.select()">
     <button type="submit" class="br-go-btn">Go</button>
   </form>
-  <button class="br-tb-btn" onclick="addBookmark()" title="Bookmark">🔖</button>
+  <button class="br-tb-btn" id="btn-bookmark" onclick="addBookmark()" title="Bookmark">🔖</button>
   <button class="br-tb-btn" onclick="openSettings('proxy')" title="Settings">⚙️</button>
 </div>
 
@@ -1700,11 +1729,27 @@ TabManager.prototype._refreshBlocked=function(tab){
     }).catch(function(){});
 };
 TabManager.prototype._tabTitle=function(t){
-  if(!t.url)return t.mode==='incognito'?'Incognito':'New Tab';
+  if(t&&t.title)return t.title;
+  if(!t||!t.url)return (t&&t.mode==='incognito')?'Incognito':'New Tab';
   try{
     var u=new URL(t.url);
     return u.hostname.replace(/^www\\./,'')||t.url;
   }catch(e){return t.url.substring(0,30);}
+};
+TabManager.prototype._faviconUrl=function(t){
+  // Incognito tabs show NO favicon — fetching one would leak the visited
+  // hostname to the favicon provider, defeating the privacy guarantee.
+  if(!t||!t.url||t.mode==='incognito')return '';
+  try{
+    var u=new URL(t.url);
+    if(!/^https?:$/.test(u.protocol))return '';
+    // Use Google's favicon service via our own proxy so the user's
+    // browser never directly contacts a third party.
+    var fav='https://www.google.com/s2/favicons?domain='+
+            encodeURIComponent(u.hostname)+'&sz=32';
+    return '/user/browser/fetch?url='+encodeURIComponent(fav)+
+           '&t='+encodeURIComponent(t.tabKey||'');
+  }catch(e){return '';}
 };
 TabManager.prototype._render=function(){
   var strip=document.getElementById('br-tabstrip');if(!strip)return;
@@ -1719,9 +1764,29 @@ TabManager.prototype._render=function(){
                    (t.mode==='incognito'?' incognito':'');
       el.dataset.tabId=t.id;
       el.title=t.url||(t.mode==='incognito'?'Incognito tab':'New Tab');
-      var iconSpan=document.createElement('span');
-      iconSpan.className='br-tab-icon';
-      iconSpan.textContent=(t.mode==='incognito')?'🕶':'🌐';
+      // Real favicon for normal tabs (proxied through our backend so the
+      // user's browser never speaks directly to the favicon provider);
+      // emoji glyph for Incognito and pre-navigation tabs.
+      var iconNode;
+      var favUrl=self._faviconUrl(t);
+      if(favUrl){
+        iconNode=document.createElement('img');
+        iconNode.className='br-tab-favicon';
+        iconNode.alt='';
+        iconNode.referrerPolicy='no-referrer';
+        iconNode.src=favUrl;
+        iconNode.addEventListener('error',function(){
+          // Replace broken favicon with a generic glyph.
+          var span=document.createElement('span');
+          span.className='br-tab-icon';
+          span.textContent='🌐';
+          if(iconNode.parentNode)iconNode.parentNode.replaceChild(span,iconNode);
+        });
+      }else{
+        iconNode=document.createElement('span');
+        iconNode.className='br-tab-icon';
+        iconNode.textContent=(t.mode==='incognito')?'🕶':'🌐';
+      }
       var titleSpan=document.createElement('span');
       titleSpan.className='br-tab-title';
       titleSpan.textContent=self._tabTitle(t);
@@ -1734,7 +1799,7 @@ TabManager.prototype._render=function(){
         e.stopPropagation();
         self.closeTab(t.id);
       });
-      el.appendChild(iconSpan);
+      el.appendChild(iconNode);
       el.appendChild(titleSpan);
       el.appendChild(closeBtn);
       el.addEventListener('click',function(){self.activate(t.id);});
@@ -1771,6 +1836,27 @@ TabManager.prototype._updateShellMode=function(){
   if(!sh)return;
   if(t&&t.mode==='incognito')sh.classList.add('incognito');
   else sh.classList.remove('incognito');
+  this._updateBookmarkBtn();
+};
+TabManager.prototype._updateBookmarkBtn=function(){
+  // Required by task spec: bookmark icon is replaced with a disabled
+  // lock icon (tooltip explains why) when the active tab is Incognito.
+  var btn=document.getElementById('btn-bookmark');
+  if(!btn)return;
+  var t=this.active();
+  if(t&&t.mode==='incognito'){
+    btn.classList.add('disabled');
+    btn.setAttribute('aria-disabled','true');
+    btn.dataset.priv='1';
+    btn.textContent='🔒';
+    btn.title='Bookmarks are disabled in Incognito tabs';
+  }else{
+    btn.classList.remove('disabled');
+    btn.removeAttribute('aria-disabled');
+    delete btn.dataset.priv;
+    btn.textContent='🔖';
+    btn.title='Bookmark';
+  }
 };
 TabManager.prototype._updateWelcome=function(){
   var w=document.getElementById('br-welcome');
@@ -1830,8 +1916,15 @@ window.addEventListener('message',function(e){
   var url=e.data.url||'';
   var m=url.match(/[?&]url=([^&]+)/);
   if(m){try{url=decodeURIComponent(m[1]);}catch(ex){}}
+  // Real page title from the loaded document (Chrome-style tabs).
+  if(typeof e.data.title==='string'){
+    tab.title=e.data.title.replace(/\\s+/g,' ').trim().slice(0,120);
+  }
   if(url&&url!=='about:blank'&&!/^\\/user\\/browser\\/fetch/.test(url)){
     TM.updateUrlFromIframe(tab.id,url);
+  }else{
+    // URL didn't change but title may have — re-render the strip.
+    TM._render();
   }
 });
 
@@ -1991,12 +2084,14 @@ function addProxy(){
 // ── Bookmarks ─────────────────────────────────────────────────────────────────
 function addBookmark(){
   var t=TM.active();
-  var url=t&&t.url?t.url:document.getElementById('br-addr').value.trim();
-  if(!url||!/^https?:\\/\\//i.test(url)){alert('Navigate to a page first');return;}
+  // Hard guard FIRST: in Incognito the bookmark button is rendered as a
+  // disabled lock; the click handler still fires though, so block it here.
   if(t&&t.mode==='incognito'){
     alert('Bookmarks are disabled in Incognito tabs.');
     return;
   }
+  var url=t&&t.url?t.url:document.getElementById('br-addr').value.trim();
+  if(!url||!/^https?:\\/\\//i.test(url)){alert('Navigate to a page first');return;}
   var host='';try{host=new URL(url).hostname;}catch(e){host=url;}
   var title=prompt('Bookmark title:',host);
   if(!title)return;
@@ -2142,7 +2237,10 @@ function _post(url,data,cb){
             blk_host = urlparse(raw_url).hostname or ""
         except Exception:
             blk_host = ""
-        if _is_blocked_host(blk_host):
+        # Tracker blocking is an Incognito-only feature per the task spec —
+        # normal tabs keep their existing behaviour (no blocklist enforcement)
+        # so users don't see surprising blocks outside Incognito.
+        if private and _is_blocked_host(blk_host):
             new_count = 0
             if tab_key:
                 _ensure_tab_meta(uid, tab_key, private)
@@ -2252,12 +2350,12 @@ function _post(url,data,cb){
                     if not ssrf_ok:
                         err_msg = "Redirect blocked (SSRF): " + ssrf_err
                         break
-                    # Block redirects to tracker hosts too
+                    # Block redirects to tracker hosts too — Incognito only.
                     try:
                         nh = urlparse(next_url).hostname or ""
                     except Exception:
                         nh = ""
-                    if _is_blocked_host(nh):
+                    if private and _is_blocked_host(nh):
                         if tab_key:
                             _ensure_tab_meta(uid, tab_key, private)
                             _bump_blocked(uid, tab_key)
