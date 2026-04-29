@@ -266,11 +266,13 @@ def list_listings(category: str | None = None, listing_type: str | None = None,
         params.append(min_rating)
 
     where = " AND ".join(conditions)
+    # Use the effective display price for sort: current_bid > price > starting_bid
+    eff_price = "COALESCE(NULLIF(ml.current_bid,0), NULLIF(ml.price,0), ml.starting_bid)"
     order = {
         "newest":    "ml.created_at DESC",
         "oldest":    "ml.created_at ASC",
-        "price_asc": "ml.price ASC",
-        "price_desc":"ml.price DESC",
+        "price_asc": f"{eff_price} ASC",
+        "price_desc": f"{eff_price} DESC",
         "popular":   "ml.views DESC",
     }.get(sort, "ml.created_at DESC")
 
@@ -1282,6 +1284,11 @@ def get_active_auctions() -> list:
 
 
 # ─── notifications ────────────────────────────────────────────────────────────
+def _tge(s) -> str:
+    """Escape a string for safe insertion into a Telegram HTML message."""
+    return (str(s) if s is not None else "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _get_base_url() -> str:
     """Return the primary public base URL for this deployment (no trailing slash)."""
     domains = os.environ.get("REPLIT_DOMAINS", "")
@@ -1305,45 +1312,46 @@ def _notify(user_id: int, event: str, ctx: dict):
         lid = ctx.get("listing_id", "")
         listing_url = f"{base}/user/market/listing/{lid}" if base and lid else ""
         view_link = f'\n🔗 <a href="{listing_url}">View Listing</a>' if listing_url else ""
+        _lt = _tge(ctx.get("listing_title", ""))
         msgs = {
             "new_bid":      (f"🏷 <b>New Bid on Your Listing!</b>\n\n"
-                             f"📦 <b>{ctx.get('listing_title','')}</b>\n"
-                             f"💰 New bid: <b>{int(ctx.get('amount',0))} credits</b> by {ctx.get('bidder','')}"
+                             f"📦 <b>{_lt}</b>\n"
+                             f"💰 New bid: <b>{int(ctx.get('amount',0))} credits</b> by {_tge(ctx.get('bidder',''))}"
                              + view_link),
             "outbid":       (f"⚡ <b>You've Been Outbid!</b>\n\n"
-                             f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                             f"📦 <b>{_lt}</b>\n"
                              f"💰 New highest bid: <b>{int(ctx.get('new_amount',0))} credits</b>\n"
                              f"Place a higher bid to stay in the race!"),
             "auction_won":  (f"🏆 <b>You Won the Auction!</b>\n\n"
-                             f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                             f"📦 <b>{_lt}</b>\n"
                              f"💰 Amount paid: <b>{int(ctx.get('amount',0))} credits</b>\n"
                              f"🔑 Your product is ready — check Telegram for delivery or visit the marketplace."
                              + view_link),
             "buyer_purchased": "__SPECIAL__",
             "auction_sold": (f"✅ <b>Your Auction Sold!</b>\n\n"
-                             f"📦 <b>{ctx.get('listing_title','')}</b>\n"
-                             f"👤 Buyer: {ctx.get('buyer','')}\n"
+                             f"📦 <b>{_lt}</b>\n"
+                             f"👤 Buyer: {_tge(ctx.get('buyer',''))}\n"
                              f"💰 Amount: <b>{int(ctx.get('amount',0))} credits</b>\n"
                              f"⏳ Payout releases in {AUTOCONFIRM_HOURS}h automatically."),
             "fixed_sale":   (f"✅ <b>Your Listing Was Purchased!</b>\n\n"
-                             f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                             f"📦 <b>{_lt}</b>\n"
                              f"💰 Amount: <b>{int(ctx.get('amount',0))} credits</b>\n"
                              f"⏳ Payout releases in {AUTOCONFIRM_HOURS}h automatically."),
             "auto_confirmed":(f"💰 <b>Payout Released!</b>\n\n"
-                              f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                              f"📦 <b>{_lt}</b>\n"
                               f"✅ <b>{int(ctx.get('payout',0))} credits</b> have been added to your balance."),
             "dispute_opened": (f"⚠️ <b>Dispute Opened on Your Sale!</b>\n\n"
-                               f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                               f"📦 <b>{_lt}</b>\n"
                                f"💰 Amount: <b>{int(ctx.get('amount',0))} credits</b>\n"
                                f"An admin will review the dispute. Funds are held pending resolution."),
             "dispute_resolved_seller": (f"✅ <b>Dispute Resolved — Funds Released to You!</b>\n\n"
-                                        f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                                        f"📦 <b>{_lt}</b>\n"
                                         f"💰 <b>{int(ctx.get('payout',0))} credits</b> have been added to your balance."),
             "dispute_resolved_buyer":  (f"✅ <b>Dispute Resolved — Refund Issued!</b>\n\n"
-                                        f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                                        f"📦 <b>{_lt}</b>\n"
                                         f"💰 <b>{int(ctx.get('refund',0))} credits</b> have been refunded to your balance."),
             "dispute_resolved_seller_loss": (f"❌ <b>Dispute Resolved — Refund Issued to Buyer</b>\n\n"
-                                             f"📦 <b>{ctx.get('listing_title','')}</b>\n"
+                                             f"📦 <b>{_lt}</b>\n"
                                              f"The admin ruled in the buyer's favour. No payout will be released."),
         }
         text = msgs.get(event, "")
@@ -1354,7 +1362,7 @@ def _notify(user_id: int, event: str, ctx: dict):
             # buyer_purchased: deliver product via DM
             prod_type = ctx.get("product_type", "text")
             prod_content = ctx.get("product_content", "")
-            title = ctx.get("listing_title", "")
+            title_esc = _tge(ctx.get("listing_title", ""))
             amount = int(ctx.get("amount", 0))
             token_dl = ctx.get("token", "")
 
@@ -1365,13 +1373,13 @@ def _notify(user_id: int, event: str, ctx: dict):
                 dl_url = f"{base}/user/market/download/{token_dl}"
                 delivery_line = f'📁 <b>Download your file:</b> <a href="{dl_url}">{dl_url}</a>'
             elif token_dl:
-                delivery_line = f"📁 <b>Your download token:</b> <code>{token_dl}</code>"
+                delivery_line = f"📁 <b>Your download token:</b> <code>{_tge(token_dl)}</code>"
             else:
                 delivery_line = "📁 Visit the marketplace to access your file."
 
             header = (
                 f"🎉 <b>Purchase Successful!</b>\n\n"
-                f"📦 <b>{title}</b>\n"
+                f"📦 <b>{title_esc}</b>\n"
                 f"💰 Amount paid: <b>{amount} credits</b>\n\n"
                 + delivery_line
             )
@@ -1382,15 +1390,15 @@ def _notify(user_id: int, event: str, ctx: dict):
                 timeout=6,
             )
             if prod_type == "text" and prod_content:
-                # Send content in 4000-char chunks inside <pre> blocks
+                # Send content in 4000-char chunks as plain text (no HTML parse mode)
+                # to avoid any HTML injection risk from user-generated product content
                 chunks = [prod_content[i:i+4000]
                           for i in range(0, len(prod_content), 4000)]
                 for chunk in chunks:
                     _req.post(
                         f"https://api.telegram.org/bot{token}/sendMessage",
                         json={"chat_id": user_id,
-                              "text": f"<pre>{chunk}</pre>",
-                              "parse_mode": "HTML",
+                              "text": chunk,
                               "disable_web_page_preview": True},
                         timeout=6,
                     )

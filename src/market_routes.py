@@ -12,6 +12,20 @@ def _he(s) -> str:
     """HTML-escape a value for safe insertion into HTML. Call on every user-supplied field."""
     return _html.escape(str(s) if s is not None else "")
 
+def _safe_int(val, default: int = 0) -> int:
+    """Convert val to int, returning default on any error (prevents 500 on malformed input)."""
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+def _safe_float(val, default: float = 0.0) -> float:
+    """Convert val to float, returning default on any error."""
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
 # ─── registration helper ──────────────────────────────────────────────────────
 def register_market_routes(app, user_required, admin_required, get_user_sidebar, USER_CSS, ADMIN_CSS):
     from modules import marketplace as mkt
@@ -116,7 +130,7 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
         min_price = request.args.get("min_price", "")
         max_price = request.args.get("max_price", "")
         min_rating = request.args.get("min_rating", "")
-        page     = max(1, int(request.args.get("page", 1)))
+        page     = max(1, _safe_int(request.args.get("page", 1), 1))
 
         try:
             min_p = float(min_price) if min_price else None
@@ -759,7 +773,7 @@ function cancelListing(id) {{
     @user_required
     def market_myorders():
         uid = _uid()
-        page = max(1, int(request.args.get("page", 1)))
+        page = max(1, _safe_int(request.args.get("page", 1), 1))
         data = mkt.get_buyer_orders(uid, page=page)
         items = data["items"]
 
@@ -951,7 +965,7 @@ function submitDispute() {{
     def market_api_buy():
         uid = _uid()
         data = request.get_json(silent=True) or {}
-        lid = int(data.get("listing_id", 0))
+        lid = _safe_int(data.get("listing_id", 0))
         if not lid:
             return jsonify({"ok": False, "error": "Missing listing_id"})
         res = mkt.purchase_fixed(lid, uid)
@@ -964,8 +978,8 @@ function submitDispute() {{
         uid = _uid()
         uname = _uname()
         data = request.get_json(silent=True) or {}
-        lid = int(data.get("listing_id", 0))
-        amount = float(data.get("amount", 0))
+        lid = _safe_int(data.get("listing_id", 0))
+        amount = _safe_float(data.get("amount", 0))
         if not lid or amount <= 0:
             return jsonify({"ok": False, "error": "Invalid parameters"})
         res = mkt.place_bid(lid, uid, uname, amount)
@@ -995,7 +1009,7 @@ function submitDispute() {{
     def market_api_cancel():
         uid = _uid()
         data = request.get_json(silent=True) or {}
-        lid = int(data.get("listing_id", 0))
+        lid = _safe_int(data.get("listing_id", 0))
         if not lid:
             return jsonify({"ok": False, "error": "Missing listing_id"})
         res = mkt.cancel_listing(lid, uid)
@@ -1008,9 +1022,9 @@ function submitDispute() {{
         uid = _uid()
         data = request.get_json(silent=True) or {}
         res = mkt.submit_review(
-            purchase_id=int(data.get("purchase_id", 0)),
+            purchase_id=_safe_int(data.get("purchase_id", 0)),
             reviewer_id=uid,
-            rating=int(data.get("rating", 0)),
+            rating=_safe_int(data.get("rating", 0)),
             comment=str(data.get("comment", "")).strip()[:400],
         )
         return jsonify(res)
@@ -1039,37 +1053,37 @@ function submitDispute() {{
         if request.method == "POST":
             action = request.form.get("action")
             if action == "set_commission":
-                try:
-                    rate = float(request.form.get("commission_rate", 10))
-                    rate = max(0, min(50, rate))
+                rate = _safe_float(request.form.get("commission_rate", ""), -1.0)
+                if rate < 0:
+                    msg = "Invalid rate"
+                else:
+                    rate = max(0.0, min(50.0, rate))
                     mkt.set_commission_rate(rate)
                     msg = "Commission rate updated to " + str(rate) + "%"
-                except ValueError:
-                    msg = "Invalid rate"
             elif action == "remove":
-                lid = int(request.form.get("listing_id", 0))
+                lid = _safe_int(request.form.get("listing_id", 0))
                 if lid:
                     res = mkt.admin_remove_listing(lid)
                     msg = "Listing removed" if res["ok"] else res.get("error", "Error")
             elif action == "reinstate":
-                lid = int(request.form.get("listing_id", 0))
+                lid = _safe_int(request.form.get("listing_id", 0))
                 if lid:
                     res = mkt.admin_reinstate_listing(lid)
                     msg = "Listing reinstated" if res["ok"] else res.get("error", "Error")
             elif action == "dispute_release":
-                pid = int(request.form.get("purchase_id", 0))
+                pid = _safe_int(request.form.get("purchase_id", 0))
                 if pid:
                     res = mkt.admin_resolve_dispute_release(pid)
                     msg = "Dispute resolved — funds released to seller." if res["ok"] else res.get("error", "Error")
             elif action == "dispute_refund":
-                pid = int(request.form.get("purchase_id", 0))
+                pid = _safe_int(request.form.get("purchase_id", 0))
                 if pid:
                     res = mkt.admin_resolve_dispute_refund(pid)
                     msg = "Dispute resolved — buyer refunded." if res["ok"] else res.get("error", "Error")
 
         search = request.args.get("q", "")
         sf = request.args.get("status", "")
-        page = max(1, int(request.args.get("page", 1)))
+        page = max(1, _safe_int(request.args.get("page", 1), 1))
         data = mkt.admin_list_listings(search=search or None,
                                         status_filter=sf or None,
                                         page=page, per_page=25)
