@@ -826,11 +826,11 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
   <button class="br-tb-btn" id="btn-fwd" onclick="goForward()" title="Forward" disabled>&#8594;</button>
   <button class="br-tb-btn" id="btn-reload" onclick="doReload()" title="Reload">&#10227;</button>
   <button class="br-tb-btn" id="btn-stop" onclick="doStop()" title="Stop" style="display:none">&#10005;</button>
-  <form class="br-addr-wrap" id="br-addr-form" onsubmit="navigateTo(document.getElementById('br-addr').value);return false;" action="javascript:void(0)">
+  <form class="br-addr-wrap" id="br-addr-form" novalidate onsubmit="navigateTo(document.getElementById('br-addr').value);return false;" action="javascript:void(0)">
     <span id="br-scheme" class="br-scheme none"></span>
-    <input id="br-addr" class="br-addr" type="url" inputmode="url"
+    <input id="br-addr" class="br-addr" type="text" inputmode="url"
       enterkeyhint="go" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"
-      placeholder="Enter a URL or search..." onfocus="this.select()">
+      placeholder="URL or search..." onfocus="this.select()">
     <button type="submit" class="br-go-btn">Go</button>
   </form>
   <button class="br-tb-btn" onclick="addBookmark()" title="Bookmark">🔖</button>
@@ -927,10 +927,26 @@ function _setScheme(url){
   if(/^https/i.test(url)){el.textContent='🔒';el.className='br-scheme https';}
   else{el.textContent='⚠️';el.className='br-scheme http';}
 }
+function _normalizeUrl(input){
+  if(!input)return '';
+  var s=input.trim();
+  if(!s)return '';
+  // Already has a scheme (http/https/about/data/etc.)
+  if(/^[a-z][a-z0-9+.-]*:\\/\\//i.test(s))return s;
+  if(s.startsWith('//'))return 'https:'+s;
+  // about: pages
+  if(/^about:/i.test(s))return s;
+  // Looks like a domain or IP if it has a dot, OR is localhost-ish (which we'll let the server reject)
+  // Heuristic: contains a dot or colon (port), no spaces, first segment is alphanumeric/dash/dot
+  var firstSpace=s.indexOf(' ');
+  var hasDotOrPort=/^[^\\s\\/]+\\.[^\\s\\/]+/.test(s)||/^[^\\s\\/]+:[0-9]+(\\/|$)/.test(s);
+  if(firstSpace===-1&&hasDotOrPort){return 'https://'+s;}
+  // Otherwise treat as a search query → DuckDuckGo
+  return 'https://duckduckgo.com/?q='+encodeURIComponent(s);
+}
 function navigateTo(url){
-  if(!url||!url.trim())return;
-  url=url.trim();
-  if(!/^https?:\\/\\//i.test(url)&&!url.startsWith('//')){url='https://'+url;}
+  url=_normalizeUrl(url);
+  if(!url)return;
   document.getElementById('br-addr').value=url;
   _setScheme(url);
   _showLoading(url);
