@@ -14,6 +14,33 @@ from typing import Optional
 from modules.database import _execute_with_retry, get_connection_with_retry, return_connection
 from modules.credits import get_balance, add_credits, deduct_credits
 
+
+def _run_transaction(fn):
+    """Run `fn(conn, cur)` inside a real DB transaction (autocommit=False).
+    Returns fn's return value on success, or raises on failure (caller handles rollback).
+    Guarantees the connection is left with autocommit=True regardless of outcome.
+    """
+    conn = get_connection_with_retry()
+    if not conn:
+        raise RuntimeError("DB unavailable")
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            result = fn(conn, cur)
+        conn.commit()
+        return result
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            conn.autocommit = True
+        except Exception:
+            pass
+
 # ─── constants ───────────────────────────────────────────────────────────────
 CATEGORIES = ["Cards", "Accounts", "Combos", "Cookies", "Other"]
 LISTING_TYPES = ["fixed", "auction"]
@@ -283,79 +310,143 @@ def cancel_listing(listing_id: int, user_id: int) -> dict:
 
 # ─── bidding ─────────────────────────────────────────────────────────────────
 def place_bid(listing_id: int, bidder_id: int, bidder_name: str, amount: float) -> dict:
+    """Place a bid on an auction listing, atomically.
+
+    Uses a single DB transaction with SELECT … FOR UPDATE on the listing row
+    to re-validate amount > current_bid under the lock, eliminating the race
+    condition where two concurrent bids at the same amount could both succeed.
+    Credit hold deduction and previous-bidder refund also happen inside the
+    transaction, so there are no partial-state windows.
+    """
+    # Fast pre-checks (no locks; cheap reads before taking the row lock)
     listing = get_listing(listing_id)
     if not listing:
         return {"ok": False, "error": "Listing not found"}
     if listing["listing_type"] != "auction":
         return {"ok": False, "error": "This listing is not an auction"}
-    if listing["status"] != "active":
-        return {"ok": False, "error": "Auction is not active"}
     if listing["seller_id"] == bidder_id:
         return {"ok": False, "error": "You cannot bid on your own listing"}
 
-    end = listing.get("auction_end_at")
-    if end and _now() > _to_utc(end):
-        return {"ok": False, "error": "Auction has ended"}
+    amount = float(amount)
+    listing_title = listing["title"]
+    seller_id = listing["seller_id"]
 
-    current = float(listing["current_bid"] or listing["starting_bid"] or 0)
-    if amount <= current:
-        return {"ok": False, "error": f"Bid must be > {current:.0f} credits (current highest)"}
+    prev_bid_id = None
+    prev_bidder = None
+    prev_amount_int = 0
+    new_bid_id = None
+    try:
+        def _txn(conn, cur):
+            nonlocal prev_bid_id, prev_bidder, prev_amount_int
 
-    balance = get_balance(bidder_id)
-    if balance < int(amount):
-        return {"ok": False, "error": f"Insufficient credits — you have {balance}"}
+            # Lock listing row — forces concurrent bids to serialize
+            cur.execute(
+                """SELECT status, listing_type, seller_id, auction_end_at,
+                          current_bid, starting_bid
+                   FROM market_listings WHERE id=%s FOR UPDATE""",
+                (listing_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("Listing not found")
 
-    # Deduct bid amount as hold
-    ok = deduct_credits(bidder_id, int(amount), tx_type="bid_hold",
-                        description=f"Bid hold on listing #{listing_id}")
-    if not ok:
-        return {"ok": False, "error": "Failed to hold credits — try again"}
+            status, ltype, s_id, end_at, current_bid, starting_bid = row
+            if status != "active":
+                raise ValueError("Auction is not active")
+            if ltype != "auction":
+                raise ValueError("This listing is not an auction")
 
-    def _op(conn):
-        with conn.cursor() as cur:
-            # Get previous highest bidder to refund
-            cur.execute("""
-                SELECT id, bidder_id, amount FROM market_bids
-                WHERE listing_id=%s AND hold_active=TRUE
-                ORDER BY amount DESC LIMIT 1
-            """, (listing_id,))
+            # Re-validate auction time under the lock
+            if end_at and _now() > _to_utc(end_at):
+                raise ValueError("Auction has ended")
+
+            current = float(current_bid or starting_bid or 0)
+            if amount <= current:
+                raise ValueError(
+                    f"Bid must be > {current:.0f} credits (current highest)"
+                )
+
+            # Deduct credits from bidder atomically (credits row lock)
+            amt_int = int(amount)
+            cur.execute(
+                """UPDATE user_credits
+                   SET credits = credits - %s,
+                       total_spent = total_spent + %s,
+                       updated_at = NOW()
+                   WHERE user_id = %s AND credits >= %s""",
+                (amt_int, amt_int, bidder_id, amt_int)
+            )
+            if cur.rowcount == 0:
+                raise ValueError(f"Insufficient credits — need {amt_int}")
+            cur.execute(
+                "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
+                (bidder_id, -amt_int, "bid_hold",
+                 f"Bid hold on listing #{listing_id}")
+            )
+
+            # Find and refund previous highest bidder (inside lock)
+            cur.execute(
+                """SELECT id, bidder_id, amount FROM market_bids
+                   WHERE listing_id=%s AND hold_active=TRUE
+                   ORDER BY amount DESC LIMIT 1""",
+                (listing_id,)
+            )
             prev = cur.fetchone()
+            if prev:
+                p_bid_id, p_bidder, p_amount = prev
+                prev_bid_id = p_bid_id
+                prev_bidder = p_bidder
+                prev_amount_int = int(p_amount)
+                # Refund previous bidder atomically
+                cur.execute(
+                    """UPDATE user_credits
+                       SET credits = credits + %s,
+                           total_earned = total_earned + %s,
+                           updated_at = NOW()
+                       WHERE user_id = %s""",
+                    (prev_amount_int, prev_amount_int, p_bidder)
+                )
+                cur.execute(
+                    "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
+                    (p_bidder, prev_amount_int, "bid_outbid_refund",
+                     f"Outbid refund on listing #{listing_id}")
+                )
+                cur.execute(
+                    "UPDATE market_bids SET hold_active=FALSE WHERE id=%s",
+                    (p_bid_id,)
+                )
 
-            # Insert new bid
-            cur.execute("""
-                INSERT INTO market_bids (listing_id, bidder_id, bidder_name, amount)
-                VALUES (%s,%s,%s,%s) RETURNING id
-            """, (listing_id, bidder_id, bidder_name, amount))
-            new_bid_id = cur.fetchone()[0]
+            # Insert new bid and update listing
+            cur.execute(
+                "INSERT INTO market_bids (listing_id, bidder_id, bidder_name, amount) VALUES (%s,%s,%s,%s) RETURNING id",
+                (listing_id, bidder_id, bidder_name, amount)
+            )
+            bid_id = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE market_listings SET current_bid=%s, bid_count=bid_count+1 WHERE id=%s",
+                (amount, listing_id)
+            )
+            return bid_id
 
-            # Update listing current bid
-            cur.execute("""
-                UPDATE market_listings
-                SET current_bid=%s, bid_count=bid_count+1
-                WHERE id=%s
-            """, (amount, listing_id))
-            return prev, new_bid_id
-    result = _execute_with_retry(_op)
-    if not result:
-        # Rollback hold if DB failed
-        add_credits(bidder_id, int(amount), tx_type="bid_hold_refund",
-                    description=f"Bid hold refund (DB error) listing #{listing_id}")
-        return {"ok": False, "error": "DB error — bid hold refunded"}
+        new_bid_id = _run_transaction(_txn)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "error": f"Transaction failed — try again ({type(exc).__name__})"}
 
-    prev, new_bid_id = result
-    # Refund previous highest bidder
-    if prev:
-        prev_bid_id, prev_bidder, prev_amount = prev
-        add_credits(prev_bidder, int(prev_amount), tx_type="bid_outbid_refund",
-                    description=f"Outbid refund on listing #{listing_id}")
-        _mark_bid_hold_inactive(prev_bid_id)
-        _notify(prev_bidder, "outbid", {"listing_id": listing_id,
-                                         "listing_title": listing["title"],
-                                         "new_amount": amount})
-    _notify(listing["seller_id"], "new_bid", {"listing_id": listing_id,
-                                               "listing_title": listing["title"],
-                                               "bidder": bidder_name,
-                                               "amount": amount})
+    # Post-commit notifications (outside transaction — fire-and-forget)
+    if prev_bidder:
+        _notify(prev_bidder, "outbid", {
+            "listing_id": listing_id,
+            "listing_title": listing_title,
+            "new_amount": amount,
+        })
+    _notify(seller_id, "new_bid", {
+        "listing_id": listing_id,
+        "listing_title": listing_title,
+        "bidder": bidder_name,
+        "amount": amount,
+    })
     return {"ok": True, "bid_id": new_bid_id}
 
 
@@ -396,73 +487,117 @@ def _release_all_bid_holds(listing_id: int, winner_bid_id: int | None):
 
 # ─── fixed-price purchase ─────────────────────────────────────────────────────
 def purchase_fixed(listing_id: int, buyer_id: int) -> dict:
+    """Atomically purchase a fixed-price listing.
+
+    Uses a single DB transaction with SELECT … FOR UPDATE to eliminate the
+    TOCTOU race condition where two concurrent buyers could both pass the
+    status='active' check and both be charged.
+    """
+    # Fast pre-checks outside the transaction (no locks, cheap reads)
     listing = get_listing(listing_id)
     if not listing:
         return {"ok": False, "error": "Listing not found"}
     if listing["listing_type"] != "fixed":
         return {"ok": False, "error": "Use bidding for auction listings"}
-    if listing["status"] != "active":
-        return {"ok": False, "error": "Listing is not available"}
     if listing["seller_id"] == buyer_id:
         return {"ok": False, "error": "You cannot buy your own listing"}
 
     price = int(listing["price"])
-    balance = get_balance(buyer_id)
-    if balance < price:
-        return {"ok": False, "error": f"Insufficient credits — you have {balance}, need {price}"}
-
     commission_rate = get_commission_rate()
     commission = round(price * commission_rate / 100)
     token = secrets.token_urlsafe(24)
 
-    ok = deduct_credits(buyer_id, price, tx_type="market_purchase",
-                        description=f"Purchase listing #{listing_id}: {listing['title']}")
-    if not ok:
-        return {"ok": False, "error": "Failed to deduct credits — try again"}
+    # Capture product fields before the transaction (avoids cursor closure issues)
+    prod_type = listing.get("product_type", "text")
+    prod_content = listing.get("product_content", "")
+    seller_id = listing["seller_id"]
+    listing_title = listing["title"]
 
-    def _op(conn):
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO market_purchases
-                  (listing_id, listing_title, buyer_id, seller_id, amount, commission,
-                   status, download_token)
-                VALUES (%s,%s,%s,%s,%s,%s,'pending',%s) RETURNING id
-            """, (listing_id, listing["title"], buyer_id, listing["seller_id"],
-                  price, commission, token))
-            pid = cur.fetchone()[0]
-            cur.execute("UPDATE market_listings SET status='sold' WHERE id=%s", (listing_id,))
-            return pid
-    pid = _execute_with_retry(_op)
-    if not pid:
-        add_credits(buyer_id, price, tx_type="market_purchase_refund",
-                    description=f"Purchase refund (DB error) listing #{listing_id}")
-        return {"ok": False, "error": "DB error — credits refunded"}
+    pid = None
+    try:
+        def _txn(conn, cur):
+            # Lock listing row so no concurrent buyer can sneak through
+            cur.execute(
+                "SELECT status, price FROM market_listings WHERE id=%s FOR UPDATE",
+                (listing_id,)
+            )
+            row = cur.fetchone()
+            if not row or row[0] != "active":
+                raise ValueError("Listing is not available")
 
-    _notify(listing["seller_id"], "fixed_sale", {
+            locked_price = int(row[1])
+
+            # Atomically deduct credits (also locks the credits row)
+            cur.execute(
+                """UPDATE user_credits
+                   SET credits = credits - %s,
+                       total_spent = total_spent + %s,
+                       updated_at = NOW()
+                   WHERE user_id = %s AND credits >= %s""",
+                (locked_price, locked_price, buyer_id, locked_price)
+            )
+            if cur.rowcount == 0:
+                raise ValueError(f"Insufficient credits — need {locked_price}")
+            cur.execute(
+                "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
+                (buyer_id, -locked_price, "market_purchase",
+                 f"Purchase listing #{listing_id}: {listing_title}")
+            )
+
+            # Record purchase and mark listing sold in same transaction
+            cur.execute(
+                """INSERT INTO market_purchases
+                     (listing_id, listing_title, buyer_id, seller_id, amount,
+                      commission, status, download_token)
+                   VALUES (%s,%s,%s,%s,%s,%s,'pending',%s) RETURNING id""",
+                (listing_id, listing_title, buyer_id, seller_id,
+                 locked_price, commission, token)
+            )
+            pid_inner = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE market_listings SET status='sold' WHERE id=%s",
+                (listing_id,)
+            )
+            return pid_inner
+
+        pid = _run_transaction(_txn)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "error": f"Transaction failed — try again ({type(exc).__name__})"}
+
+    _notify(seller_id, "fixed_sale", {
         "listing_id": listing_id,
-        "listing_title": listing["title"],
+        "listing_title": listing_title,
         "amount": price,
     })
     _notify(buyer_id, "buyer_purchased", {
         "listing_id": listing_id,
-        "listing_title": listing["title"],
+        "listing_title": listing_title,
         "amount": price,
         "token": token,
-        "product_type": listing.get("product_type", "text"),
-        "product_content": listing.get("product_content", ""),
+        "product_type": prod_type,
+        "product_content": prod_content,
     })
     return {"ok": True, "purchase_id": pid, "download_token": token}
 
 
 # ─── auction finalization ─────────────────────────────────────────────────────
 def finalize_auction(listing_id: int) -> dict:
+    """Finalize an expired auction: find winner, create purchase, refund losers.
+
+    The purchase insert + listing update + winner-bid deactivation all happen
+    inside a single transaction.  Notifications and loser refunds only fire
+    AFTER the transaction commits successfully.
+    """
     listing = get_listing(listing_id)
     if not listing:
         return {"ok": False, "error": "Listing not found"}
     if listing["listing_type"] != "auction" or listing["status"] != "active":
         return {"ok": False, "error": "Not an active auction"}
 
-    def _op(conn):
+    # Find the highest active bid
+    def _find_winner(conn):
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, bidder_id, bidder_name, amount FROM market_bids
@@ -470,12 +605,16 @@ def finalize_auction(listing_id: int) -> dict:
                 ORDER BY amount DESC, created_at ASC LIMIT 1
             """, (listing_id,))
             return cur.fetchone()
-    winner = _execute_with_retry(_op)
+    winner = _execute_with_retry(_find_winner)
 
     if not winner:
+        # No bids — mark ended
         def _no_bids(conn):
             with conn.cursor() as cur:
-                cur.execute("UPDATE market_listings SET status='ended' WHERE id=%s", (listing_id,))
+                cur.execute(
+                    "UPDATE market_listings SET status='ended' WHERE id=%s",
+                    (listing_id,)
+                )
         _execute_with_retry(_no_bids)
         return {"ok": True, "winner": None}
 
@@ -484,36 +623,57 @@ def finalize_auction(listing_id: int) -> dict:
     commission_rate = get_commission_rate()
     commission = round(win_amount * commission_rate / 100)
     token = secrets.token_urlsafe(24)
+    listing_title = listing["title"]
+    seller_id = listing["seller_id"]
 
-    def _op2(conn):
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO market_purchases
-                  (listing_id, listing_title, buyer_id, seller_id, amount, commission,
-                   status, download_token)
-                VALUES (%s,%s,%s,%s,%s,%s,'pending',%s) RETURNING id
-            """, (listing_id, listing["title"], win_buyer, listing["seller_id"],
-                  win_amount, commission, token))
-            pid = cur.fetchone()[0]
-            cur.execute("UPDATE market_listings SET status='sold' WHERE id=%s", (listing_id,))
-            cur.execute("UPDATE market_bids SET hold_active=FALSE WHERE id=%s", (win_bid_id,))
-            return pid
-    pid = _execute_with_retry(_op2)
+    # Atomic: record purchase, mark listing sold, deactivate winner bid
+    pid = None
+    try:
+        def _txn(conn, cur):
+            cur.execute(
+                """INSERT INTO market_purchases
+                     (listing_id, listing_title, buyer_id, seller_id, amount,
+                      commission, status, download_token)
+                   VALUES (%s,%s,%s,%s,%s,%s,'pending',%s) RETURNING id""",
+                (listing_id, listing_title, win_buyer, seller_id,
+                 win_amount, commission, token)
+            )
+            pid_inner = cur.fetchone()[0]
+            cur.execute(
+                "UPDATE market_listings SET status='sold' WHERE id=%s",
+                (listing_id,)
+            )
+            cur.execute(
+                "UPDATE market_bids SET hold_active=FALSE WHERE id=%s",
+                (win_bid_id,)
+            )
+            return pid_inner
 
-    # Refund all other bid holds
+        pid = _run_transaction(_txn)
+    except Exception as exc:
+        return {"ok": False, "error": f"Finalization DB error: {type(exc).__name__}"}
+
+    # Only after successful commit: refund all other bidders
     _release_all_bid_holds(listing_id, winner_bid_id=win_bid_id)
 
+    # Notify winner with both the win headline and product content
+    _notify(win_buyer, "auction_won", {
+        "listing_id": listing_id,
+        "listing_title": listing_title,
+        "amount": win_amount,
+        "token": token,
+    })
     _notify(win_buyer, "buyer_purchased", {
         "listing_id": listing_id,
-        "listing_title": listing["title"],
+        "listing_title": listing_title,
         "amount": win_amount,
         "token": token,
         "product_type": listing.get("product_type", "text"),
         "product_content": listing.get("product_content", ""),
     })
-    _notify(listing["seller_id"], "auction_sold", {
+    _notify(seller_id, "auction_sold", {
         "listing_id": listing_id,
-        "listing_title": listing["title"],
+        "listing_title": listing_title,
         "buyer": win_name,
         "amount": win_amount,
     })
