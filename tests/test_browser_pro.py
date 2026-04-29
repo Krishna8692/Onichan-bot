@@ -178,6 +178,22 @@ class ProModeRestTests(unittest.TestCase):
             self.assertEqual(u.get("user_id"), TG_ID,
                              "pool/state leaked another user's tabs")
 
+    def test_key_forwarding_contract_is_one_message_per_keystroke(self):
+        """Regression: printable keys must NOT send both 'down' and 'press'
+        (would duplicate every character upstream). The renderer's
+        _wireInput contract is: printable → press only; non-printable →
+        down/up pairs."""
+        r = self.s.get(f"{BASE}/user/browser", timeout=10)
+        self.assertEqual(r.status_code, 200)
+        html = r.text
+        self.assertIn("_isPrintable", html,
+                      "ProRenderer must use the printable/non-printable split")
+        # The old buggy contract sent both 'down' and 'press' on the same
+        # keydown handler — guard against that ever returning.
+        self.assertNotIn("self._send({type:'key',action:'down',key:e.key});\n"
+                         "    if(e.key.length===1", html,
+                         "printable keydown must not emit both down + press")
+
     def test_browser_page_contains_pro_toggle(self):
         """The /user/browser shell must expose the Pro toggle markup."""
         r = self.s.get(f"{BASE}/user/browser", timeout=10)

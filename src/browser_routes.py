@@ -1752,17 +1752,28 @@ ProRenderer.prototype._wireInput=function(){
     var p=self._coords(e);
     self._send({type:'wheel',x:p[0],y:p[1],dx:e.deltaX,dy:e.deltaY});
   },{passive:false});
+  // Key-forwarding contract — exactly ONE wire message per logical
+  // keystroke so we never produce duplicate characters in the upstream
+  // page. Printable keys go through 'press' (which is down+up on the
+  // backend); non-printable / modified keys use 'down'/'up' pairs so
+  // hold-shift, arrow navigation, ctrl-shortcuts, etc. work.
+  function _isPrintable(e){
+    return e.key.length===1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+  }
   c.addEventListener('keydown',function(e){
     if(e.target!==c)return;
     e.preventDefault();
-    self._send({type:'key',action:'down',key:e.key});
-    if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+    if(_isPrintable(e)){
       self._send({type:'key',action:'press',key:e.key,text:e.key});
+    } else {
+      self._send({type:'key',action:'down',key:e.key});
     }
   });
   c.addEventListener('keyup',function(e){
     if(e.target!==c)return;
     e.preventDefault();
+    // For printable keys, the press above already covered both edges.
+    if(_isPrintable(e))return;
     self._send({type:'key',action:'up',key:e.key});
   });
 };
