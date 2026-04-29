@@ -89,6 +89,64 @@ def tearDownModule():  # noqa: N802 — required name for unittest hooks
         pass
 
 
+class SSRFGateUnitTests(unittest.TestCase):
+    """Pure unit tests for the SSRF gate that protects every request the
+    headless Chromium makes (top-level nav, redirects, subresources,
+    fetch/XHR, websockets). These do not need the bot running."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+            from browser_chrome_pool import _ssrf_block  # type: ignore
+            cls._ssrf_block = staticmethod(_ssrf_block)
+        except Exception as e:
+            raise unittest.SkipTest(f"could not import _ssrf_block: {e}")
+
+    def test_blocks_metadata_ip(self):
+        self.assertTrue(self._ssrf_block("http://169.254.169.254/latest"))
+
+    def test_blocks_private_v4_ranges(self):
+        for u in (
+            "http://10.0.0.1/", "http://10.255.255.1/",
+            "http://172.16.0.1/", "http://172.31.255.1/",
+            "http://192.168.0.1/", "http://192.168.255.1/",
+            "http://100.64.0.1/",
+        ):
+            self.assertTrue(self._ssrf_block(u), f"should block {u}")
+
+    def test_blocks_loopback_and_link_local(self):
+        for u in (
+            "http://127.0.0.1/", "http://127.255.255.1/",
+            "http://localhost/", "http://169.254.0.1/",
+        ):
+            self.assertTrue(self._ssrf_block(u), f"should block {u}")
+
+    def test_blocks_disallowed_schemes(self):
+        for u in (
+            "file:///etc/passwd", "gopher://attacker/",
+            "ftp://example.com/", "javascript:alert(1)",
+        ):
+            # data:, blob:, about:, javascript: are evaluated in the renderer
+            # — the gate intentionally only blocks navigation/network ones.
+            if u.startswith("javascript:"):
+                self.assertFalse(self._ssrf_block(u), u)
+            else:
+                self.assertTrue(self._ssrf_block(u), f"should block {u}")
+
+    def test_allows_public_host(self):
+        # If the test sandbox can't reach DNS at all we skip — the cache
+        # would otherwise pin a fail-closed result for example.com.
+        try:
+            import socket as _s
+            _s.getaddrinfo("example.com", None)
+        except Exception:
+            self.skipTest("no DNS available")
+        self.assertFalse(self._ssrf_block("https://example.com/"))
+
+
 @unittest.skipUnless(_server_alive(), f"bot server not reachable at {BASE}")
 class ProModeRestTests(unittest.TestCase):
     """REST surface — runs even when Chromium is unavailable."""

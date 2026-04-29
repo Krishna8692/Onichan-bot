@@ -25,9 +25,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
+import ipaddress
 import logging
 import os
 import shutil
+import socket
 import threading
 import time
 from concurrent.futures import Future
@@ -69,6 +72,81 @@ try:
 except Exception as _e:  # pragma: no cover
     UNAVAILABLE_REASON = f"playwright import failed: {_e}"
     _log.warning("[ChromePool] %s", UNAVAILABLE_REASON)
+
+
+# ── SSRF guard for ALL Chromium requests ────────────────────────────────────
+# When an attacker-controlled page is loaded through Pro Mode, Chromium will
+# happily fetch any subresource (img/script/xhr/ws/redirects). Without an
+# interceptor, that turns the bot into an SSRF primitive against private
+# networks and cloud metadata. We install a route("**/*") on every context
+# that resolves the host, blocks reserved/private IPs and the metadata IP,
+# and aborts the request before any bytes leave Chromium.
+
+_SSRF_BLOCKED_HOSTNAMES = {"localhost", "ip6-localhost", "ip6-loopback"}
+_SSRF_BLOCKED_EXACT_IPS = {"169.254.169.254", "fd00:ec2::254"}
+_SSRF_PRIVATE_NETS = [
+    ipaddress.ip_network(n) for n in (
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+        "100.64.0.0/10", "fc00::/7",
+    )
+]
+_SSRF_NON_NETWORK_SCHEMES = {"data", "blob", "about", "javascript", "chrome"}
+_SSRF_ALLOWED_SCHEMES = {"http", "https", "ws", "wss"}
+
+
+@functools.lru_cache(maxsize=2048)
+def _ssrf_resolve_host(host: str) -> bool:
+    """Cached: True if host resolves to ONLY safe (public) addresses.
+
+    Fail closed on resolution error — a host we can't classify is treated
+    as unsafe so a typo or DNS poisoning attempt cannot bypass the gate.
+    """
+    if not host:
+        return False
+    if host.lower() in _SSRF_BLOCKED_HOSTNAMES:
+        return False
+    try:
+        addrs = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return False
+    for _f, _t, _p, _c, sa in addrs:
+        ip_str = sa[0].split("%")[0]
+        if ip_str in _SSRF_BLOCKED_EXACT_IPS:
+            return False
+        try:
+            ip_obj = ipaddress.ip_address(ip_str)
+            if (ip_obj.is_loopback or ip_obj.is_link_local
+                    or ip_obj.is_multicast or ip_obj.is_reserved):
+                return False
+            for net in _SSRF_PRIVATE_NETS:
+                if ip_obj in net:
+                    return False
+        except ValueError:
+            return False
+    return True
+
+
+def _ssrf_block(url: str) -> bool:
+    """Return True iff this request must be blocked. Safe to call from sync
+    or async code — does no I/O for non-network schemes."""
+    try:
+        parsed = urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        # data:, blob:, about:, javascript: are evaluated entirely inside
+        # the renderer and cannot reach the network — never block them.
+        if scheme in _SSRF_NON_NETWORK_SCHEMES:
+            return False
+        # Everything that isn't a recognised network scheme is blocked
+        # (file://, gopher://, ftp://, etc.) — Chromium should not be
+        # ferrying those back to the user.
+        if scheme not in _SSRF_ALLOWED_SCHEMES:
+            return True
+        host = (parsed.hostname or "").lower().strip("[]")
+        if not host:
+            return True
+        return not _ssrf_resolve_host(host)
+    except Exception:
+        return True  # fail closed
 
 
 def _proxy_to_playwright(proxy_url: str | None) -> dict | None:
@@ -146,6 +224,10 @@ class _ChromePool:
         self._started = False
         self._start_failure: str | None = None
         self._idle_task_started = False
+        # Counter + ring-buffer of SSRF-blocked request URLs. Surfaces in
+        # pool/state for ops visibility and lets tests assert blocking.
+        self._ssrf_blocks: int = 0
+        self._ssrf_blocked_urls: list[str] = []
 
     # ── Bootstrapping ────────────────────────────────────────────────────────
     def _ensure_started(self) -> None:
@@ -249,6 +331,10 @@ class _ChromePool:
             "max_per_user": MAX_PRO_TABS_PER_USER,
             "idle_suspend_secs": IDLE_SUSPEND_SECONDS,
             "users": out_users,
+            # Counter exposed so ops + tests can verify the SSRF interceptor
+            # is actually firing on subresource/redirect attempts.
+            "ssrf_blocked_count": int(self._ssrf_blocks),
+            "ssrf_blocked_recent": list(self._ssrf_blocked_urls[-5:]),
         }
 
     # ── Public API: tab acquisition ──────────────────────────────────────────
@@ -392,6 +478,7 @@ class _ChromePool:
         if proxy:
             opts["proxy"] = proxy
         ctx = await self._browser.new_context(**opts)  # type: ignore[union-attr]
+        await self._install_ssrf_route(ctx)
         self._user_contexts[uid] = ctx
         self._user_context_proxy[uid] = proxy_url
         return ctx
@@ -404,7 +491,66 @@ class _ChromePool:
         proxy = _proxy_to_playwright(rec.proxy_url)
         if proxy:
             opts["proxy"] = proxy
-        return await self._browser.new_context(**opts)  # type: ignore[union-attr]
+        ctx = await self._browser.new_context(**opts)  # type: ignore[union-attr]
+        await self._install_ssrf_route(ctx)
+        return ctx
+
+    async def _install_ssrf_route(self, ctx) -> None:
+        """Install a context-wide network interceptor that blocks ANY request
+        whose target host resolves to a private/internal/metadata address.
+        Runs for navigations, redirects, subresources, fetch/XHR, websockets —
+        Playwright's ``route('**/*')`` matches the whole network surface.
+        DNS lookups happen on the loop's default executor so the route
+        callback never blocks the asyncio event loop."""
+        loop = asyncio.get_running_loop()
+
+        async def _on_route(route, request):
+            try:
+                url = request.url
+                # Cheap synchronous reject for non-network/blocked schemes.
+                parsed = urlparse(url)
+                scheme = (parsed.scheme or "").lower()
+                if scheme in _SSRF_NON_NETWORK_SCHEMES:
+                    await route.continue_()
+                    return
+                if scheme not in _SSRF_ALLOWED_SCHEMES:
+                    self._note_ssrf_block(url)
+                    await route.abort("addressunreachable")
+                    return
+                host = (parsed.hostname or "").lower().strip("[]")
+                if not host:
+                    self._note_ssrf_block(url)
+                    await route.abort("addressunreachable")
+                    return
+                # Off-loop DNS so a slow resolver can't stall the screencast.
+                safe = await loop.run_in_executor(
+                    None, _ssrf_resolve_host, host,
+                )
+                if not safe:
+                    self._note_ssrf_block(url)
+                    await route.abort("addressunreachable")
+                    return
+                await route.continue_()
+            except Exception:
+                # Fail-closed on any unexpected error inside the handler.
+                try:
+                    await route.abort("failed")
+                except Exception:
+                    pass
+
+        await ctx.route("**/*", _on_route)
+
+    def _note_ssrf_block(self, url: str) -> None:
+        """Lightweight hook so blocked-request counts can be inspected
+        from tests / pool/state without touching Chromium internals."""
+        try:
+            self._ssrf_blocks += 1
+            # Keep a small ring buffer of the most recent blocked URLs.
+            self._ssrf_blocked_urls.append(url[:200])
+            if len(self._ssrf_blocked_urls) > 32:
+                self._ssrf_blocked_urls.pop(0)
+        except Exception:
+            pass
 
     # ── Public API: navigation ───────────────────────────────────────────────
     def navigate(self, uid: str, tab_key: str, url: str) -> None:
