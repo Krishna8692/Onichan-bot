@@ -1943,13 +1943,31 @@ window.addEventListener('pagehide',function(){
 document.addEventListener('keydown',function(e){
   var isCtrl=e.ctrlKey||e.metaKey;
   if(!isCtrl)return;
+  // Spec guard: don't hijack Ctrl+T/W/etc. while the user is typing in
+  // an editable field — they likely meant the native browser/editor
+  // behavior. The only exception is Ctrl+L (focus address bar), which
+  // should always work even from inside the address bar itself.
   var k=e.key;
-  // Ctrl+L → focus address bar
+  var tgt=e.target;
+  var inEditable=tgt&&(
+    tgt.tagName==='INPUT'||tgt.tagName==='TEXTAREA'||tgt.tagName==='SELECT'||
+    tgt.isContentEditable
+  );
+  // Ctrl+L → focus address bar (always allowed, even from editable)
   if(k==='l'||k==='L'){
     e.preventDefault();
     var addr=document.getElementById('br-addr');
     if(addr){addr.focus();addr.select();}
     return;
+  }
+  // From here on, only fire when not inside an editable element AND
+  // not inside the iframe (which gets its own keyboard events).
+  if(inEditable&&tgt.id!=='br-addr')return;
+  if(inEditable&&tgt.id==='br-addr'&&(k==='w'||k==='W'||k==='Tab'||/^[1-9]$/.test(k))){
+    // Allow tab-management shortcuts even from the address bar; block
+    // Ctrl+T/N which would conflict with native browser behavior on
+    // an empty/focused input.
+    /* fall through */
   }
   // Ctrl+T → new tab; Ctrl+Shift+T → reopen
   if(k==='t'||k==='T'){
