@@ -471,18 +471,54 @@ def _mark_bid_hold_inactive(bid_id: int):
 
 
 def _release_all_bid_holds(listing_id: int, winner_bid_id: int | None):
-    def _op(conn):
+    """Refund all active bid holds for a listing (except the winner's).
+
+    Each refund atomically credits the bidder AND deactivates the hold in
+    the same DB transaction. If either step fails the transaction rolls back,
+    leaving the hold active for retry (no credit-without-deactivation or
+    deactivation-without-credit window).
+    """
+    def _find(conn):
         with conn.cursor() as cur:
-            q = "SELECT id, bidder_id, amount FROM market_bids WHERE listing_id=%s AND hold_active=TRUE"
-            cur.execute(q, (listing_id,))
+            cur.execute(
+                "SELECT id, bidder_id, amount FROM market_bids WHERE listing_id=%s AND hold_active=TRUE",
+                (listing_id,)
+            )
             return cur.fetchall()
-    bids = _execute_with_retry(_op) or []
+    bids = _execute_with_retry(_find) or []
+
     for bid_id, bidder_id, amount in bids:
         if bid_id == winner_bid_id:
-            continue   # winner's hold becomes payment
-        add_credits(bidder_id, int(amount), tx_type="bid_hold_refund",
-                    description=f"Bid refund on listing #{listing_id}")
-        _mark_bid_hold_inactive(bid_id)
+            continue   # winner's hold converts to payment
+
+        amt_int = int(amount)
+        try:
+            def _txn(conn, cur, _bid_id=bid_id, _bidder=bidder_id,
+                     _amt=amt_int, _lid=listing_id):
+                # Deactivate hold first — if already gone, skip
+                cur.execute(
+                    "UPDATE market_bids SET hold_active=FALSE WHERE id=%s AND hold_active=TRUE",
+                    (_bid_id,)
+                )
+                if cur.rowcount == 0:
+                    return  # Already refunded/deactivated
+                # Credit the bidder in the same transaction
+                cur.execute(
+                    """UPDATE user_credits
+                       SET credits = credits + %s,
+                           total_earned = total_earned + %s,
+                           updated_at = NOW()
+                       WHERE user_id = %s""",
+                    (_amt, _amt, _bidder)
+                )
+                cur.execute(
+                    "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
+                    (_bidder, _amt, "bid_hold_refund",
+                     f"Bid refund on listing #{_lid}")
+                )
+            _run_transaction(_txn)
+        except Exception as e:
+            print(f"[Marketplace] bid hold refund error bid#{bid_id}: {e}")
 
 
 # ─── fixed-price purchase ─────────────────────────────────────────────────────
@@ -730,37 +766,73 @@ def _autoconfirm_loop():
 
 
 def _run_autoconfirm():
-    """Atomically claim pending purchases and pay out sellers.
+    """Confirm pending purchases and pay sellers atomically.
 
-    Uses UPDATE … RETURNING to atomically transition purchases from
-    'pending' → 'confirmed' in a single statement, ensuring each purchase
-    is credited to the seller exactly once even if the background thread
-    runs concurrently (e.g. across a restart or on multiple worker processes).
+    For each eligible purchase, a single transaction:
+      1. Transitions status pending → confirmed (guarded UPDATE; skips if
+         another process already confirmed it, making this fully idempotent).
+      2. Credits the seller in the same transaction.
+
+    If the transaction fails, the purchase stays 'pending' and will be
+    retried on the next loop — no payout is silently dropped.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=AUTOCONFIRM_HOURS)
 
-    def _claim(conn):
+    def _find(conn):
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE market_purchases
-                SET status='confirmed', confirmed_at=NOW()
+                SELECT id, seller_id, amount, commission, listing_id, listing_title
+                FROM market_purchases
                 WHERE status='pending' AND created_at < %s
-                RETURNING id, seller_id, amount, commission, listing_id, listing_title
+                LIMIT 50
             """, (cutoff,))
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
-    # This single UPDATE is atomic on Postgres; concurrent callers will each
-    # claim a disjoint set of rows (no double-confirm possible).
-    claimed = _execute_with_retry(_claim) or []
+    pending = _execute_with_retry(_find) or []
 
-    for p in claimed:
+    for p in pending:
         seller_payout = int(p["amount"]) - int(p["commission"])
-        add_credits(p["seller_id"], seller_payout, tx_type="market_sale",
-                    description=f"Sale: {p['listing_title']} (listing #{p['listing_id']})")
-        _notify(p["seller_id"], "auto_confirmed", {
-            "listing_title": p["listing_title"],
-            "payout": seller_payout,
-        })
+        pid = p["id"]
+        sid = p["seller_id"]
+        listing_title = p["listing_title"]
+        listing_id = p["listing_id"]
+
+        try:
+            def _txn(conn, cur, _pid=pid, _sid=sid, _payout=seller_payout,
+                     _title=listing_title, _lid=listing_id):
+                # Atomically claim this row; skip if already confirmed
+                cur.execute(
+                    """UPDATE market_purchases
+                       SET status='confirmed', confirmed_at=NOW()
+                       WHERE id=%s AND status='pending'""",
+                    (_pid,)
+                )
+                if cur.rowcount == 0:
+                    return None  # Already processed by another runner
+                # Credit seller in the same transaction
+                cur.execute(
+                    """UPDATE user_credits
+                       SET credits = credits + %s,
+                           total_earned = total_earned + %s,
+                           updated_at = NOW()
+                       WHERE user_id = %s""",
+                    (_payout, _payout, _sid)
+                )
+                cur.execute(
+                    "INSERT INTO credit_transactions (user_id, amount, type, description) VALUES (%s,%s,%s,%s)",
+                    (_sid, _payout, "market_sale",
+                     f"Sale: {_title} (listing #{_lid})")
+                )
+                return _payout
+
+            result = _run_transaction(_txn)
+            if result is not None:
+                _notify(sid, "auto_confirmed", {
+                    "listing_title": listing_title,
+                    "payout": seller_payout,
+                })
+        except Exception as e:
+            print(f"[Marketplace] autoconfirm error purchase#{pid}: {e}")
 
 
 def _run_auction_finalizer():
