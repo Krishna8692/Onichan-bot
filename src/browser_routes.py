@@ -1073,27 +1073,53 @@ function _post(url,data,cb){
             elif request.data:
                 post_data = request.data
 
+        # ── fetch with manual redirect following (SSRF check per hop) ─────────
+        current_url = raw_url
+        resp = None
+        err_msg = None
+        _MAX_HOPS = 10
         try:
-            if method == "POST":
-                resp = http_session.post(
-                    raw_url,
-                    timeout=_FETCH_TIMEOUT,
-                    proxies=proxies_dict,
-                    data=post_data,
-                    files=post_files,
-                    stream=True,
-                    allow_redirects=True,
-                )
-            else:
-                resp = http_session.get(
-                    raw_url,
+            for _hop in range(_MAX_HOPS + 1):
+                if _hop == _MAX_HOPS:
+                    err_msg = "Too many redirects (max 10)"
+                    break
+                fetch_kwargs = dict(
                     timeout=_FETCH_TIMEOUT,
                     proxies=proxies_dict,
                     stream=True,
-                    allow_redirects=True,
-                    headers={"Accept-Encoding": "identity"},
+                    allow_redirects=False,
                 )
-            err_msg = None
+                if _hop == 0 and method == "POST":
+                    resp = http_session.post(
+                        current_url,
+                        data=post_data,
+                        files=post_files,
+                        **fetch_kwargs,
+                    )
+                else:
+                    resp = http_session.get(
+                        current_url,
+                        headers={"Accept-Encoding": "identity"},
+                        **fetch_kwargs,
+                    )
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    location = resp.headers.get("Location", "").strip()
+                    if not location:
+                        break  # no Location header — treat as final response
+                    next_url = urljoin(current_url, location)
+                    ok_url, url_err = _validate_url(next_url)
+                    if not ok_url:
+                        err_msg = "Redirect target invalid: " + url_err
+                        break
+                    ssrf_ok, ssrf_err = _is_ssrf_safe(next_url)
+                    if not ssrf_ok:
+                        err_msg = "Redirect blocked (SSRF): " + ssrf_err
+                        break
+                    current_url = next_url
+                    resp.close()
+                    continue
+                # Non-redirect — we have our final response
+                break
         except _req.exceptions.ProxyError:
             err_msg = "Proxy error — check your proxy settings."
         except _req.exceptions.ConnectionError:
@@ -1107,14 +1133,32 @@ function _post(url,data,cb){
             return _error_page("Page load failed", err_msg, raw_url)
 
         # Track in server-side history
-        _add_history(uid, raw_url)
+        _add_history(uid, current_url)
 
         ct = resp.headers.get("Content-Type", "text/html")
-        final_url = resp.url or raw_url
+        final_url = current_url
+
+        # ── Streaming body read with hard size cap ──────────────────────────
+        def _read_stream(max_bytes: int) -> tuple[bytes, bool]:
+            """Read up to max_bytes from resp, return (data, truncated)."""
+            chunks = []
+            total = 0
+            for chunk in resp.iter_content(chunk_size=65536):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    return b"".join(chunks), True
+                chunks.append(chunk)
+            return b"".join(chunks), False
 
         # Binary / passthrough — stream through unchanged
         if _is_binary(ct) or _is_passthrough(ct):
-            content = resp.raw.read(amt=_MAX_RESPONSE_BYTES)
+            content, over = _read_stream(_MAX_RESPONSE_BYTES)
+            if over:
+                return _error_page("Response Too Large",
+                                   "The server response exceeds the 10 MB limit.",
+                                   final_url, 413)
             r = Response(content, status=resp.status_code, content_type=ct)
             for hdr in ("Cache-Control", "ETag", "Last-Modified"):
                 if hdr in resp.headers:
@@ -1123,7 +1167,11 @@ function _post(url,data,cb){
 
         # CSS — rewrite url() references
         if ct.lower().split(";")[0].strip() == "text/css":
-            raw_bytes = resp.raw.read(amt=_MAX_RESPONSE_BYTES)
+            raw_bytes, over = _read_stream(_MAX_RESPONSE_BYTES)
+            if over:
+                return _error_page("Response Too Large",
+                                   "The CSS file exceeds the 10 MB limit.",
+                                   final_url, 413)
             encoding = resp.encoding or "utf-8"
             css_text = raw_bytes.decode(encoding, errors="replace")
             rewritten_css = _rewrite_css_text(css_text, final_url)
@@ -1135,7 +1183,11 @@ function _post(url,data,cb){
             return r
 
         # HTML — rewrite links
-        raw_bytes = resp.raw.read(amt=_MAX_RESPONSE_BYTES)
+        raw_bytes, over = _read_stream(_MAX_RESPONSE_BYTES)
+        if over:
+            return _error_page("Response Too Large",
+                               "The page exceeds the 10 MB limit.",
+                               final_url, 413)
         encoding = resp.encoding or "utf-8"
         rewritten = _rewrite_html(raw_bytes, final_url, encoding)
         flask_resp = Response(rewritten, status=resp.status_code,
