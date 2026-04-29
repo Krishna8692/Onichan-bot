@@ -529,6 +529,7 @@ def admin_dashboard():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -708,6 +709,7 @@ def admin_users():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -840,6 +842,7 @@ def admin_premium():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -970,6 +973,7 @@ def admin_owners():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1161,6 +1165,7 @@ def admin_permissions():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1254,6 +1259,7 @@ def admin_payments():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -1370,6 +1376,7 @@ def admin_banned():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -3161,6 +3168,7 @@ def admin_gates():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -3338,6 +3346,7 @@ def admin_user_profile():
             <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
             <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
             <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>"""
@@ -3823,6 +3832,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
     _tools_keys = {'checker', 'masscheck', 'generator', 'autohitter', 'bulkhitter', 'razorpay',
                    'payu', 'shopify', 'cleaner', 'binlookup', 'proxychecker', 'proxygen'}
     _casino_keys = {'casino'}
+    _market_keys = {'market', 'market_sell', 'market_shop', 'market_orders'}
 
     def _tab_cls(group):
         return 'class="active"' if active_page in group else ''
@@ -3839,8 +3849,8 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
         <a href="/user/checker" {_tab_cls(_tools_keys)} aria-label="Tools">
             <span class="ico">🛠️</span><span>Tools</span>
         </a>
-        <a href="/user/casino" {_tab_cls(_casino_keys)} aria-label="Casino">
-            <span class="ico">🎰</span><span>Casino</span>
+        <a href="/user/market" {_tab_cls(_market_keys)} aria-label="Market">
+            <span class="ico">🛍</span><span>Market</span>
         </a>
         <a href="/user/wallet" {_tab_cls(_wallet_keys)} aria-label="Wallet">
             <span class="ico">💰</span><span>Wallet</span>
@@ -3937,6 +3947,15 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
             <div class="nav-section-title" data-key="casino" onclick="toggleNavSection(this)" role="button" tabindex="0">Casino<span class="caret">▾</span></div>
             <div class="nav-section-body">
             {link('casino', '🎰 Casino', '/user/casino')}
+            </div>
+        </div>
+        <div class="nav-section">
+            <div class="nav-section-title" data-key="market" onclick="toggleNavSection(this)" role="button" tabindex="0">Marketplace<span class="caret">▾</span></div>
+            <div class="nav-section-body">
+            {link('market', '🛍 Browse', '/user/market')}
+            {link('market_sell', '➕ Sell', '/user/market/sell')}
+            {link('market_shop', '🏪 My Shop', '/user/market/myshop')}
+            {link('market_orders', '🛒 My Orders', '/user/market/myorders')}
             </div>
         </div>
         <div class="nav-section">
@@ -15272,6 +15291,9 @@ def tonconnect_manifest():
 
 from modules.casino_routes import register_casino_routes
 register_casino_routes(app, user_required, owner_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
+
+from market_routes import register_market_routes
+register_market_routes(app, user_required, admin_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
 
 
 # ===== Onichan Bypasser V1 — Direct Download =====

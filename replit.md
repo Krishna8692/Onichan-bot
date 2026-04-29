@@ -60,3 +60,18 @@ The Telegram bot in `src/` runs alongside the workspace. Its custodial wallet:
 - **Explorer links** — every deposit/withdrawal DM and history row renders a 🔍
   link built from `chain_config.explorer_tx_url` / `explorer_addr_url`.
 
+## Onichan Marketplace (src/modules/marketplace.py + src/market_routes.py)
+
+Peer-to-peer digital product marketplace integrated into the web panel.
+
+- **DB tables**: `market_listings`, `market_bids`, `market_purchases`, `market_reviews`, `market_settings`
+- **Listing types**: Fixed-price (instant buy) and Auction (with bid holding/refund)
+- **Credits escrow**: Bid amounts held via `deduct_credits`, refunded when outbid; seller payout via `add_credits` after confirm
+- **Auto-confirm**: Background thread (`start_background_thread`) releases seller payouts after 24h and finalizes expired auctions
+- **Commission**: Configurable % taken from seller payout, stored in `market_settings`
+- **Notifications**: Telegram DM to buyer/seller on new bid, outbid, sale, auction won, payout
+- **Routes registered**: `/user/market`, `/user/market/listing/<id>`, `/user/market/sell`, `/user/market/myshop`, `/user/market/myorders`, `/user/market/download/<token>`, plus API endpoints at `/user/market/api/*` and `/admin/market`
+- **Product types**: Text content (shown in-browser) or file upload (served via `send_from_directory`)
+- **Seller ratings**: 1–5 star reviews per confirmed purchase
+- **Admin panel**: `/admin/market` — stats, commission rate control, listing removal
+
