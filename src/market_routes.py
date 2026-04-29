@@ -164,17 +164,24 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
             item_cat = _he(item["category"])
             item_title = _he(item["title"])
             item_seller = _he(item["seller_name"])
+            seller_sid = item["seller_id"]
+            listing_href = f"/user/market/listing/{item['id']}"
+            seller_href = f"/user/market/seller/{seller_sid}"
             return (
-                f'<a href="/user/market/listing/{item["id"]}" style="text-decoration:none">'
-                f'<div class="mkt-card">'
+                f'<div class="mkt-card" role="link" tabindex="0" style="cursor:pointer"'
+                f' onclick="window.location=\'{listing_href}\'"'
+                f' onkeypress="if(event.key===\'Enter\')window.location=\'{listing_href}\'">'
                 f'<span class="badge {badge_cls}">{badge_lbl}</span> '
                 f'<span class="badge badge-cat">{item_cat}</span>'
                 f'<h3>{item_title}</h3>'
                 f'<div class="price">{display_price:,} credits</div>'
                 f'<div class="meta" style="font-size:.75rem;color:#bbb">{price_label}</div>'
                 f'{tl_html}{bid_cnt}'
-                f'<div class="meta">{item_seller} &nbsp;&#183;&nbsp; {item["views"]} views</div>'
-                f'</div></a>'
+                f'<div class="meta">'
+                f'<a href="{seller_href}" onclick="event.stopPropagation()"'
+                f' style="color:#ccc;text-decoration:underline dotted">{item_seller}</a>'
+                f' &nbsp;&#183;&nbsp; {item["views"]} views</div>'
+                f'</div>'
             )
 
         cards_html = "".join(card_html(i) for i in items)
@@ -401,7 +408,7 @@ def register_market_routes(app, user_required, admin_required, get_user_sidebar,
     <span style="font-size:.78rem;color:#aaa">{_views_line}</span>
   </div>
   <h2 style="font-size:1.2rem;font-weight:800;margin:10px 0 6px;color:#fff">{_title_he}</h2>
-  <div class="seller-chip">&#128100; {_seller_he} &nbsp;<span class="stars" style="font-size:.8rem">{stars_html}</span><span style="color:#aaa">({review_count})</span></div>
+  <div class="seller-chip">&#128100; <a href="/user/market/seller/{listing['seller_id']}" style="color:#ccc;text-decoration:none">{_seller_he}</a> &nbsp;<span class="stars" style="font-size:.8rem">{stars_html}</span><span style="color:#aaa">({review_count})</span></div>
   <div style="margin-top:12px;font-size:.88rem;color:#ccc;line-height:1.6">{_desc}</div>
 </div>
 
@@ -1281,6 +1288,138 @@ function submitDispute() {{
   <tbody>{rows or '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:20px">No listings</td></tr>'}</tbody>
 </table></div>
 {pag_html}
+</div></body></html>""")
+
+    # ── public seller profile ─────────────────────────────────────────────────
+    @app.route("/user/market/seller/<int:seller_id>")
+    @user_required
+    def market_seller_profile(seller_id):
+        page = max(1, _safe_int(request.args.get("page", 1), 1))
+        per_page = 16
+
+        # Resolve seller name from listings (any status)
+        def _get_seller_name(conn):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT seller_name FROM market_listings WHERE seller_id=%s LIMIT 1",
+                    (seller_id,)
+                )
+                row = cur.fetchone()
+                return row[0] if row else None
+
+        from modules.database import _execute_with_retry as _db
+        seller_name = _db(_get_seller_name)
+        if not seller_name:
+            return redirect("/user/market")
+
+        rating, review_count = mkt.get_seller_rating(seller_id)
+        reviews = mkt.get_seller_reviews(seller_id, limit=10)
+        data = mkt.list_listings(seller_id=seller_id, status="active", page=page, per_page=per_page)
+        items = data["items"]
+        total_active = data["total"]
+        pages = max(1, (total_active + per_page - 1) // per_page)
+
+        stars_html = _stars(rating) if rating else "No ratings yet"
+        rating_text = f"{rating:.1f}" if rating else "—"
+
+        # Build listing grid (same card style as browse page)
+        def card_html(item):
+            is_auc = item["listing_type"] == "auction"
+            tl = mkt.time_left_str(item.get("auction_end_at")) if is_auc else ""
+            bid_val = item.get("current_bid") or item.get("starting_bid") or item.get("price") or 0
+            price_val = item.get("price") or 0
+            display_price = int(bid_val) if is_auc else int(price_val)
+            price_label = "Current Bid" if is_auc else "Price"
+            tl_html = f'<div class="timeleft">{_he(tl)}</div>' if tl else ""
+            bid_cnt_n = item["bid_count"]
+            bid_cnt = (f'<div class="bid-count">{bid_cnt_n} bid{"s" if bid_cnt_n!=1 else ""}</div>'
+                       if is_auc else "")
+            badge_cls = "badge-auction" if is_auc else "badge-fixed"
+            badge_lbl = "Auction" if is_auc else "Fixed"
+            item_cat = _he(item["category"])
+            item_title = _he(item["title"])
+            listing_href = f"/user/market/listing/{item['id']}"
+            return (
+                f'<div class="mkt-card" role="link" tabindex="0" style="cursor:pointer"'
+                f' onclick="window.location=\'{listing_href}\'"'
+                f' onkeypress="if(event.key===\'Enter\')window.location=\'{listing_href}\'">'
+                f'<span class="badge {badge_cls}">{badge_lbl}</span> '
+                f'<span class="badge badge-cat">{item_cat}</span>'
+                f'<h3>{item_title}</h3>'
+                f'<div class="price">{display_price:,} credits</div>'
+                f'<div class="meta" style="font-size:.75rem;color:#bbb">{price_label}</div>'
+                f'{tl_html}{bid_cnt}'
+                f'<div class="meta">{item["views"]} views</div>'
+                f'</div>'
+            )
+
+        if items:
+            cards_html = "".join(card_html(i) for i in items)
+        else:
+            cards_html = '<div style="text-align:center;color:#aaa;padding:30px">No active listings.</div>'
+
+        # Pagination for listings
+        pag_html = ""
+        if pages > 1:
+            pag_parts = ""
+            if page > 1:
+                pag_parts += f'<a href="?page={page-1}" class="mkt-btn mkt-btn-outline" style="padding:5px 12px">Prev</a>'
+            for p in range(max(1, page-2), min(pages+1, page+3)):
+                cls = "mkt-btn-primary" if p == page else "mkt-btn-outline"
+                pag_parts += f'<a href="?page={p}" class="mkt-btn {cls}" style="padding:5px 12px">{p}</a>'
+            if page < pages:
+                pag_parts += f'<a href="?page={page+1}" class="mkt-btn mkt-btn-outline" style="padding:5px 12px">Next</a>'
+            pag_html = f'<div style="display:flex;gap:6px;justify-content:center;margin-top:20px;flex-wrap:wrap">{pag_parts}</div>'
+
+        # Build reviews section
+        rev_html = ""
+        for rv in reviews:
+            rv_comment = _he(rv["comment"]) if rv["comment"] else "<em>No comment</em>"
+            rev_html += (
+                f'<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">'
+                f'<span class="stars">{_stars(rv["rating"])}</span>'
+                f'<span style="color:#aaa;font-size:.78rem;margin-left:8px">{_fmt_dt(rv["created_at"])}</span>'
+                f'<div style="font-size:.83rem;color:#ddd;margin-top:3px">{rv_comment}</div>'
+                f'</div>'
+            )
+        rev_body = rev_html or '<div style="color:#aaa;font-size:.83rem">No reviews yet.</div>'
+
+        _seller_name_he = _he(seller_name)
+        sidebar = get_user_sidebar("market", f"{_seller_name_he}'s Shop")
+        return render_template_string(f"""<!DOCTYPE html><html><head>
+<title>{_seller_name_he}'s Shop &mdash; Marketplace</title>{USER_CSS}{MARKET_CSS}</head>
+<body><div class="sparkles"></div>{sidebar}
+<div class="main-content">
+<div style="margin-bottom:10px"><a href="/user/market" style="color:#ff69b4;font-size:.85rem">&#8592; Back to Marketplace</a></div>
+
+<div class="detail-box">
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#e94560,#9b2e9b);
+      display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0">&#128100;</div>
+    <div>
+      <div style="font-size:1.2rem;font-weight:800;color:#fff">{_seller_name_he}</div>
+      <div style="margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="stars">{stars_html}</span>
+        <span style="color:#ffd700;font-weight:700">{rating_text}</span>
+        <span style="color:#aaa;font-size:.82rem">({review_count} review{"s" if review_count!=1 else ""})</span>
+      </div>
+    </div>
+  </div>
+  <div class="mkt-stat-row" style="margin-top:14px">
+    <div class="mkt-stat"><div class="sv">{total_active}</div><div class="sk">Active Listings</div></div>
+    <div class="mkt-stat"><div class="sv">{review_count}</div><div class="sk">Reviews</div></div>
+    <div class="mkt-stat"><div class="sv">{rating_text}</div><div class="sk">Avg Rating</div></div>
+  </div>
+</div>
+
+<div style="font-size:1rem;font-weight:700;color:#ff99cc;margin:14px 0 8px">Active Listings ({total_active})</div>
+<div class="mkt-grid">{cards_html}</div>
+{pag_html}
+
+<div class="detail-box" style="margin-top:20px">
+  <h2>&#11088; Reviews ({review_count})</h2>
+  {rev_body}
+</div>
 </div></body></html>""")
 
     print("[Marketplace] Routes registered ✓")
