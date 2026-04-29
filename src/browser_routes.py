@@ -1088,17 +1088,20 @@ function addBookmark(){
   _post('/user/browser/api/bookmark/add',{title:title,url:url},function(d){
     if(!d.ok){alert(d.error||'Error');return;}
     var list=document.getElementById('bm-list');
-    var uSafe=url.replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    var tSafe=title.replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    var uJs=url.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
-    list.insertAdjacentHTML('afterbegin',
-      '<div class="br-bm-item" onclick="navigateTo(\''+uJs+'\')">'+
-      '<span style="flex-shrink:0">🔖</span>'+
-      '<div style="flex:1;min-width:0"><div class="br-bm-title">'+tSafe+'</div>'+
-      '<div class="br-bm-url">'+uSafe+'</div></div>'+
-      '<button class="br-pill-btn br-pill-del" '+
-      'onclick="event.stopPropagation();delBookmark('+d.id+')">✕</button></div>'
-    );
+    var div=document.createElement('div');
+    div.className='br-bm-item';
+    div.dataset.url=url;
+    div.addEventListener('click',function(){navigateTo(this.dataset.url);});
+    div.innerHTML='<span style="flex-shrink:0">🔖</span>'+
+      '<div style="flex:1;min-width:0"><div class="br-bm-title"></div>'+
+      '<div class="br-bm-url"></div></div>'+
+      '<button class="br-pill-btn br-pill-del" data-id="'+d.id+'">✕</button>';
+    div.querySelector('.br-bm-title').textContent=title;
+    div.querySelector('.br-bm-url').textContent=url;
+    div.querySelector('.br-pill-del').addEventListener('click',function(e){
+      e.stopPropagation();delBookmark(parseInt(this.dataset.id,10));
+    });
+    list.insertBefore(div,list.firstChild);
   });
 }
 function delBookmark(id){
@@ -1119,11 +1122,15 @@ function _loadServerHistory(){
       list.innerHTML='<div style="color:#555;font-size:.8rem;text-align:center;padding:20px">No history yet.</div>';
       return;
     }
-    list.innerHTML=d.history.map(function(u){
-      var uSafe=u.replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      var uJs=u.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
-      return '<div class="br-hist-item" onclick="navigateTo(\''+uJs+'\')">'+uSafe+'</div>';
-    }).join('');
+    list.innerHTML='';
+    d.history.forEach(function(u){
+      var item=document.createElement('div');
+      item.className='br-hist-item';
+      item.dataset.url=u;
+      item.textContent=u;
+      item.addEventListener('click',function(){navigateTo(this.dataset.url);});
+      list.appendChild(item);
+    });
   }).catch(()=>{});
 }
 
