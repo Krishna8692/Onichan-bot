@@ -38,7 +38,11 @@ from urllib.parse import urlparse
 _log = logging.getLogger(__name__)
 
 MAX_PRO_TABS_PER_USER = 2
-IDLE_SUSPEND_SECONDS = 5 * 60  # 5 minutes
+IDLE_SUSPEND_SECONDS = 5 * 60  # 5 minutes — applied to *hidden* tabs only
+# After this many seconds with no user input we drop the active-tab frame
+# rate from ~25fps to ~1fps to keep bandwidth bounded per the task spec.
+IDLE_FPS_AFTER_SECONDS = 10
+IDLE_FPS_MIN_INTERVAL = 1.0  # seconds between frames in idle-fps mode
 DEFAULT_VIEWPORT = (1280, 800)
 SCREENCAST_QUALITY = 60
 SCREENCAST_MAX_WIDTH = 1280
@@ -98,6 +102,13 @@ class _TabRecord:
     last_url: str = "about:blank"
     last_title: str = ""
     last_active: float = field(default_factory=time.time)
+    # Last time the user actually sent input. Drives the active/idle frame
+    # rate switch in the WS handler.
+    last_input_at: float = field(default_factory=time.time)
+    # Wall-clock time the client last reported the tab as hidden. ``None``
+    # when the tab is visible. The idle reaper suspends tabs that have
+    # been hidden longer than IDLE_SUSPEND_SECONDS.
+    hidden_since: float | None = None
     viewport_w: int = DEFAULT_VIEWPORT[0]
     viewport_h: int = DEFAULT_VIEWPORT[1]
     # Runtime objects, populated when the tab is "live"
@@ -438,6 +449,18 @@ class _ChromePool:
                 pass
         self._run_async(_do())
 
+    def mark_visibility(self, uid: str, tab_key: str, hidden: bool) -> None:
+        """Record whether the client currently has the tab hidden.
+
+        Called by the WS handler on inbound ``pause``/``resume`` messages
+        and once on disconnect (treated as "hidden") so the idle reaper
+        can suspend tabs whose owner has gone away without a tab-close.
+        """
+        rec = self._tabs.get(uid, {}).get(tab_key)
+        if rec is None:
+            return
+        rec.hidden_since = time.time() if hidden else None
+
     def set_viewport(self, uid: str, tab_key: str, w: int, h: int) -> None:
         w = max(320, min(2400, int(w)))
         h = max(240, min(1800, int(h)))
@@ -461,7 +484,9 @@ class _ChromePool:
         ``key`` (with ``action`` down|up|press, ``key`` and optional ``text``).
         """
         rec = self._require_rec(uid, tab_key)
-        rec.last_active = time.time()
+        now = time.time()
+        rec.last_active = now
+        rec.last_input_at = now
         t = evt.get("type")
 
         async def _do():
@@ -687,11 +712,13 @@ class _ChromePool:
                                 continue
                             if rec.page is None:
                                 continue
-                            # ``last_active`` is only bumped by user input
-                            # (see dispatch_input), not by frame events,
-                            # so a screencasting tab that the user is no
-                            # longer interacting with is still suspended.
-                            if (now - rec.last_active) > IDLE_SUSPEND_SECONDS:
+                            # Per spec: only *hidden* tabs that have been
+                            # hidden for longer than IDLE_SUSPEND_SECONDS
+                            # are suspended. A visible tab is never
+                            # suspended regardless of input idleness.
+                            if rec.hidden_since is None:
+                                continue
+                            if (now - rec.hidden_since) > IDLE_SUSPEND_SECONDS:
                                 victims.append((uid, k))
                 for uid, k in victims:
                     await self._suspend(uid, k)

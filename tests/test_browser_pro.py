@@ -246,6 +246,27 @@ class ProModeScreencastTests(unittest.TestCase):
             except Exception:
                 pass
 
+    def test_initial_url_ssrf_rejected(self):
+        """A bad scheme on the initial URL must surface a JSON error
+        envelope and must NOT trigger a navigation. The WS still opens
+        (so the client can recover) and a 'ready' meta is still sent."""
+        tab_key = f"pytest-bad-{int(time.time() * 1000)}"
+        self.__class__._tab_keys.append(tab_key)
+        # file:// scheme is rejected by _validate_url; if the gate is
+        # bypassed Chromium would happily try to open it.
+        ws = self._open_ws(tab_key, "file:///etc/passwd", incognito=True)
+        try:
+            _frames, metas, _errors = self._drain(ws, max_frames=1, timeout=10)
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
+        errs = [m for m in metas if m.get("type") == "error"]
+        self.assertTrue(errs, f"expected an error meta, got: {metas[:5]}")
+        readies = [m for m in metas if m.get("type") == "ready"]
+        self.assertTrue(readies, "ready meta should still be sent")
+
     def test_close_endpoint_releases_pool_slot(self):
         tab_key = f"pytest-close-{int(time.time() * 1000)}"
         ws = self._open_ws(tab_key, "https://example.com/", incognito=True)

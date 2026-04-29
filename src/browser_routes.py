@@ -3024,9 +3024,24 @@ function _post(url,data,cb){
                 return
 
             incognito = request.args.get("incognito") in ("1", "true", "yes")
-            initial_url = (request.args.get("url") or "about:blank").strip()
-            if not initial_url.startswith(("http://", "https://", "about:")):
-                initial_url = "about:blank"
+            initial_url_raw = (request.args.get("url") or "about:blank").strip()
+            # Validate the initial URL through the same scheme + SSRF gate
+            # used for inbound nav messages. On failure, surface a JSON error
+            # to the client and fall back to about:blank so we don't store
+            # a bad target on the tab record.
+            initial_url = "about:blank"
+            initial_url_error: str | None = None
+            if initial_url_raw and initial_url_raw.lower() != "about:blank":
+                _candidate = _ensure_scheme(initial_url_raw)
+                _ok_url, _url_err = _validate_url(_candidate)
+                if not _ok_url:
+                    initial_url_error = _url_err
+                else:
+                    _ssrf_ok, _ssrf_err = _is_ssrf_safe(_candidate)
+                    if not _ssrf_ok:
+                        initial_url_error = "Blocked: " + _ssrf_err
+                    else:
+                        initial_url = _candidate
 
             try:
                 from browser_chrome_pool import get_pool, ProUnavailable
@@ -3092,6 +3107,14 @@ function _post(url,data,cb){
             t = threading.Thread(target=_writer, name=f"pro-ws-tx-{tab_key}", daemon=True)
             t.start()
 
+            # Server-side fps throttling — see IDLE_FPS_AFTER_SECONDS in
+            # browser_chrome_pool. Drops frames in the active loop to give
+            # the spec's ~25fps active / ~1fps idle behaviour.
+            from browser_chrome_pool import (
+                IDLE_FPS_AFTER_SECONDS, IDLE_FPS_MIN_INTERVAL,
+            )
+            _last_emit = [0.0]
+
             def _on_frame(jpeg: bytes, md: dict):
                 # Drop oldest frame if backed up — keeps latency bounded.
                 try:
@@ -3099,6 +3122,13 @@ function _post(url,data,cb){
                     h = int(md.get("deviceHeight") or rec.viewport_h)
                 except Exception:
                     w, h = rec.viewport_w, rec.viewport_h
+                # Throttle when no recent user input — emit at most one
+                # frame per IDLE_FPS_MIN_INTERVAL seconds.
+                now_ts = time.time()
+                idle = (now_ts - rec.last_input_at) > IDLE_FPS_AFTER_SECONDS
+                if idle and (now_ts - _last_emit[0]) < IDLE_FPS_MIN_INTERVAL:
+                    return
+                _last_emit[0] = now_ts
                 # 8-byte header: little-endian width, then height, then JPEG.
                 hdr = w.to_bytes(4, "little") + h.to_bytes(4, "little")
                 try:
@@ -3128,11 +3158,46 @@ function _post(url,data,cb){
                         "url": rec.last_url,
                     },
                 })))
+                # Helper: gate every Pro-mode navigation through the same
+                # scheme + SSRF checks the proxy fetcher uses, so users
+                # cannot point real Chrome at private/internal addresses
+                # or non-http schemes (file://, gopher://, etc.).
+                def _safe_nav(target: str) -> None:
+                    target = (target or "").strip()
+                    if not target or target.lower() == "about:blank":
+                        return
+                    target = _ensure_scheme(target)
+                    ok_url, url_err = _validate_url(target)
+                    if not ok_url:
+                        outbox.put_nowait(("txt", json.dumps({
+                            "type": "error", "value": url_err,
+                        })))
+                        return
+                    ssrf_ok, ssrf_err = _is_ssrf_safe(target)
+                    if not ssrf_ok:
+                        outbox.put_nowait(("txt", json.dumps({
+                            "type": "error",
+                            "value": "Blocked: " + ssrf_err,
+                        })))
+                        return
+                    pool.navigate(uid, tab_key, target)
+
+                # If the query-string initial URL failed validation above,
+                # report it now over the open WS so the client sees the same
+                # JSON error envelope used for inbound 'nav' rejections.
+                if initial_url_error:
+                    try:
+                        outbox.put_nowait(("txt", json.dumps({
+                            "type": "error", "value": initial_url_error,
+                        })))
+                    except Exception:
+                        pass
+
                 # If a navigation URL was provided and the page is still on
                 # about:blank, kick it off now.
                 if initial_url and initial_url != "about:blank" and not rec.navigated:
                     try:
-                        pool.navigate(uid, tab_key, initial_url)
+                        _safe_nav(initial_url)
                     except Exception as e:
                         outbox.put_nowait(("txt", json.dumps({
                             "type": "error", "value": str(e)[:160]
@@ -3150,9 +3215,7 @@ function _post(url,data,cb){
                     mtype = data.get("type")
                     try:
                         if mtype == "nav":
-                            url = str(data.get("url") or "").strip()
-                            if url:
-                                pool.navigate(uid, tab_key, url)
+                            _safe_nav(str(data.get("url") or ""))
                         elif mtype == "back":
                             pool.go_back(uid, tab_key)
                         elif mtype == "forward":
@@ -3168,10 +3231,12 @@ function _post(url,data,cb){
                         elif mtype == "pause":
                             # Client hid the tab — stop the screencast so the
                             # backend can idle-suspend. Page state is preserved.
+                            pool.mark_visibility(uid, tab_key, hidden=True)
                             pool.stop_screencast(uid, tab_key)
                         elif mtype == "resume":
                             # Client showed the tab again — restart the
                             # screencast with the same callbacks.
+                            pool.mark_visibility(uid, tab_key, hidden=False)
                             pool.start_screencast(
                                 uid, tab_key,
                                 on_frame=_on_frame, on_meta=_on_meta,
@@ -3190,6 +3255,13 @@ function _post(url,data,cb){
                 # /api/tab/close endpoint will release it via _close_tab().
                 try:
                     pool.stop_screencast(uid, tab_key)
+                except Exception:
+                    pass
+                # Treat a dropped WS as "tab hidden" so the idle reaper
+                # can eventually suspend the page if the user never
+                # reconnects or closes the tab cleanly.
+                try:
+                    pool.mark_visibility(uid, tab_key, hidden=True)
                 except Exception:
                     pass
                 # Guarantee writer-thread exit. Drain pending items so the
