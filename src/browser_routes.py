@@ -604,8 +604,9 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
 .br-addr{flex:1;background:transparent;border:none;color:#fff;
   font-size:.85rem;outline:none;padding:7px 0;min-width:0;}
 .br-go-btn{background:linear-gradient(135deg,#e94560,#9b2e9b);border:none;
-  color:#fff;border-radius:18px;padding:5px 14px;cursor:pointer;font-weight:700;
-  font-size:.82rem;flex-shrink:0;}
+  color:#fff;border-radius:18px;padding:8px 18px;cursor:pointer;font-weight:700;
+  font-size:.85rem;flex-shrink:0;min-height:32px;-webkit-tap-highlight-color:rgba(255,105,180,.3);}
+.br-go-btn:active{transform:scale(.96);}
 
 /* ── Status bar ── */
 .br-status{display:flex;align-items:center;gap:8px;padding:3px 10px;
@@ -628,9 +629,14 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
 @keyframes br-spin{to{transform:rotate(360deg);}}
 .br-load-txt{color:#888;font-size:.8rem;}
 .br-welcome{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:10px;pointer-events:none;}
-.br-welcome-icon{font-size:3.5rem;opacity:.25;}
-.br-welcome-txt{color:rgba(255,255,255,.18);font-size:.9rem;}
+  justify-content:center;gap:14px;padding:20px;}
+.br-welcome-icon{font-size:3.5rem;opacity:.3;}
+.br-welcome-txt{color:rgba(255,255,255,.35);font-size:.9rem;text-align:center;}
+.br-welcome-quick{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:360px;margin-top:8px;}
+.br-welcome-quick button{background:rgba(255,105,180,.12);border:1px solid rgba(255,105,180,.3);
+  color:#ffb3d1;border-radius:18px;padding:8px 14px;font-size:.82rem;cursor:pointer;
+  -webkit-tap-highlight-color:rgba(255,105,180,.3);transition:background .15s;}
+.br-welcome-quick button:hover,.br-welcome-quick button:active{background:rgba(255,105,180,.25);}
 
 /* ── Settings modal (bottom sheet) ── */
 .br-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;
@@ -774,9 +780,11 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
             bid = b["id"]
             btitle = _he(b["title"])
             burl = _he(b["url"])
-            burl_raw = b["url"].replace("'", "\\'")
+            # Safe JS string literal (escapes backslash, quote, newlines, </script>, etc.)
+            # then HTML-escape for use inside an HTML attribute.
+            burl_js_attr = _he(json.dumps(b["url"]))
             return (
-                f'<div class="br-bm-item" onclick="navigateTo(\'{burl_raw}\')">'
+                f'<div class="br-bm-item" onclick="navigateTo({burl_js_attr})">'
                 f'<span style="flex:0 0 14px;font-size:.75rem">🔖</span>'
                 f'<div style="flex:1;min-width:0">'
                 f'<div class="br-bm-title">{btitle}</div>'
@@ -818,12 +826,13 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
   <button class="br-tb-btn" id="btn-fwd" onclick="goForward()" title="Forward" disabled>&#8594;</button>
   <button class="br-tb-btn" id="btn-reload" onclick="doReload()" title="Reload">&#10227;</button>
   <button class="br-tb-btn" id="btn-stop" onclick="doStop()" title="Stop" style="display:none">&#10005;</button>
-  <div class="br-addr-wrap">
+  <form class="br-addr-wrap" id="br-addr-form" onsubmit="navigateTo(document.getElementById('br-addr').value);return false;" action="javascript:void(0)">
     <span id="br-scheme" class="br-scheme none"></span>
-    <input id="br-addr" class="br-addr" type="text" placeholder="Enter a URL or search..."
-      onkeydown="if(event.key==='Enter'){navigateTo(this.value)}" onfocus="this.select()">
-    <button class="br-go-btn" onclick="navigateTo(document.getElementById('br-addr').value)">Go</button>
-  </div>
+    <input id="br-addr" class="br-addr" type="url" inputmode="url"
+      enterkeyhint="go" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"
+      placeholder="Enter a URL or search..." onfocus="this.select()">
+    <button type="submit" class="br-go-btn">Go</button>
+  </form>
   <button class="br-tb-btn" onclick="addBookmark()" title="Bookmark">🔖</button>
   <button class="br-tb-btn" onclick="openSettings('proxy')" title="Settings">⚙️</button>
 </div>
@@ -846,6 +855,12 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
   <div class="br-welcome" id="br-welcome">
     <div class="br-welcome-icon">🌐</div>
     <div class="br-welcome-txt">Enter a URL above to start browsing</div>
+    <div class="br-welcome-quick">
+      <button onclick="navigateTo('https://duckduckgo.com')">🦆 DuckDuckGo</button>
+      <button onclick="navigateTo('https://en.wikipedia.org')">📖 Wikipedia</button>
+      <button onclick="navigateTo('https://news.ycombinator.com')">🟠 HN</button>
+      <button onclick="navigateTo('https://example.com')">🧪 Test</button>
+    </div>
   </div>
   <iframe id="br-frame"
     sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
