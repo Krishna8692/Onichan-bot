@@ -430,7 +430,13 @@ def _get_session_for_tab(uid: str, tab_key: str, meta: dict) -> _req.Session:
 
 
 def _close_tab(uid: str, tab_key: str) -> None:
-    """Evict a tab's session and metadata (called on browser tab close)."""
+    """Evict a tab's session and metadata (called on browser tab close).
+
+    Also asks the Chrome pool to tear down any Pro Mode page bound to this
+    tab. Failures from the pool are swallowed — the tab is going away
+    regardless and we don't want a stale Playwright connection to block
+    cleanup of the proxy-mode session.
+    """
     if not tab_key:
         return
     with _tab_lock:
@@ -442,6 +448,12 @@ def _close_tab(uid: str, tab_key: str) -> None:
                 sess.close()
             except Exception:
                 pass
+    try:
+        from browser_chrome_pool import get_pool, PRO_AVAILABLE
+        if PRO_AVAILABLE:
+            get_pool().release(uid, tab_key)
+    except Exception:
+        pass
 
 
 def _bump_blocked(uid: str, tab_key: str) -> int:
@@ -471,6 +483,13 @@ def _wipe_user_browser(uid: str) -> None:
     _reset_http_session(uid)
     with _history_lock:
         _user_history.pop(uid, None)
+    # Tear down all Pro Mode pages + the user's persistent BrowserContext.
+    try:
+        from browser_chrome_pool import get_pool, PRO_AVAILABLE
+        if PRO_AVAILABLE:
+            get_pool().release_user(uid)
+    except Exception:
+        pass
     try:
         from modules.database import _execute_with_retry as _db
         def _q(conn):
@@ -938,7 +957,7 @@ def _delete_bookmark(uid: str, bm_id: int) -> None:
 
 
 # ── registration ──────────────────────────────────────────────────────────────
-def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
+def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS, sock=None):
     _init_browser_tables()
 
     BROWSER_CSS = """
@@ -1168,6 +1187,18 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
   border-radius:10px;padding:1px 7px;color:#4ade80;font-size:.68rem;
   font-weight:700;cursor:help;white-space:nowrap;}
 
+/* Pro Mode toggle button + status pill + canvas */
+.br-pro-btn{position:relative;}
+.br-pro-btn.active{background:rgba(168,85,247,.28);border-color:rgba(168,85,247,.7);
+  color:#fff;box-shadow:0 0 0 1px rgba(168,85,247,.4) inset;}
+.br-pro-btn.disabled{opacity:.45;cursor:not-allowed;}
+.br-pro-pill{display:none;align-items:center;gap:3px;
+  background:rgba(168,85,247,.18);border:1px solid rgba(168,85,247,.5);
+  border-radius:10px;padding:1px 8px;color:#c4b5fd;font-size:.68rem;
+  font-weight:700;white-space:nowrap;}
+.br-pro-canvas{cursor:default;image-rendering:auto;}
+.br-pro-canvas:focus{outline:none;}
+
 /* Wipe button + Privacy section */
 .br-wipe-btn{width:100%;margin-top:10px;background:rgba(239,68,68,.14);
   color:#f87171;border:1px solid rgba(239,68,68,.38);border-radius:10px;
@@ -1353,6 +1384,8 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
     <button type="submit" class="br-go-btn">Go</button>
   </form>
   <button class="br-tb-btn" id="btn-bookmark" onclick="addBookmark()" title="Bookmark">🔖</button>
+  <button class="br-tb-btn br-pro-btn" id="btn-pro" type="button" onclick="TM.togglePro()"
+          aria-pressed="false" title="Pro Mode (real Chrome rendering)">🧩</button>
   <button class="br-tb-btn" onclick="openSettings('proxy')" title="Settings">⚙️</button>
 </div>
 
@@ -1363,6 +1396,7 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
   </span>
   <span id="br-ip" class="br-ip"></span>
   <span id="br-blocked" class="br-blocked-badge" title="Trackers blocked on this tab">🛡 0</span>
+  <span id="br-pro-pill" class="br-pro-pill" style="display:none" title="This tab is using real Chrome rendering">🧩 Pro</span>
   <span id="br-stat-txt" style="margin-left:auto;color:#444">Ready</span>
 </div>
 
@@ -1508,6 +1542,270 @@ function _hideLoading(){
   document.getElementById('br-stat-txt').textContent='Done';
 }
 
+// ── Pro Mode capability cache ────────────────────────────────────────────────
+var PRO_STATUS={available:false,reason:'checking...',loaded:false};
+function _refreshProStatus(){
+  return fetch('/user/browser/api/pro/status',{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      PRO_STATUS.available=!!d.available;
+      PRO_STATUS.reason=d.reason||'';
+      PRO_STATUS.loaded=true;
+      _syncProToggleUI();
+    })
+    .catch(function(e){
+      PRO_STATUS.available=false;
+      PRO_STATUS.reason='status check failed';
+      PRO_STATUS.loaded=true;
+      _syncProToggleUI();
+    });
+}
+function _syncProToggleUI(){
+  var btn=document.getElementById('btn-pro');
+  var pill=document.getElementById('br-pro-pill');
+  if(!btn)return;
+  var t=(typeof TM!=='undefined')?TM.active():null;
+  var on=(t&&t.mode2==='pro');
+  if(on){
+    btn.classList.add('active');
+    btn.setAttribute('aria-pressed','true');
+  }else{
+    btn.classList.remove('active');
+    btn.setAttribute('aria-pressed','false');
+  }
+  if(PRO_STATUS.loaded&&!PRO_STATUS.available){
+    btn.classList.add('disabled');
+    btn.title='Pro Mode unavailable: '+(PRO_STATUS.reason||'unknown')+'. Click to retry.';
+  }else{
+    btn.classList.remove('disabled');
+    btn.title=on?'Pro Mode is ON — real Chrome rendering. Click to switch back to Proxy mode.':
+                  'Pro Mode (real Chrome rendering — full JavaScript & cookies)';
+  }
+  if(pill){
+    if(on){pill.style.display='inline-flex';}
+    else{pill.style.display='none';}
+  }
+}
+
+// ── ProRenderer ──────────────────────────────────────────────────────────────
+// Mounts a <canvas> for a single Pro Mode tab, opens the per-tab WebSocket,
+// decodes incoming JPEG frames, and forwards mouse/keyboard/wheel events to
+// the upstream Chrome with correct coordinate scaling.
+function ProRenderer(tab){
+  this.tab=tab;
+  this.canvas=null;
+  this.ctx=null;
+  this.ws=null;
+  this.imgURL=null;
+  this.lastSize=[0,0];
+  this.resizeT=0;
+  this.disposed=false;
+  this.connected=false;
+  this.errCount=0;
+}
+ProRenderer.prototype.mount=function(parent){
+  var c=document.createElement('canvas');
+  c.className='br-frame br-pro-canvas';
+  c.dataset.tabId=this.tab.id;
+  c.tabIndex=0;
+  c.style.display='none';
+  c.style.background='#000';
+  c.style.outline='none';
+  c.width=this.tab.viewW||1280;
+  c.height=this.tab.viewH||800;
+  parent.appendChild(c);
+  this.canvas=c;
+  this.ctx=c.getContext('2d');
+  this._wireInput();
+  this._connect();
+};
+ProRenderer.prototype._connect=function(){
+  if(this.disposed)return;
+  var proto=(location.protocol==='https:')?'wss:':'ws:';
+  var qs='?tabKey='+encodeURIComponent(this.tab.tabKey)+
+         '&incognito='+(this.tab.mode==='incognito'?'1':'0')+
+         '&url='+encodeURIComponent(this.tab.url||'about:blank');
+  var url=proto+'//'+location.host+'/user/browser/pro/ws'+qs;
+  var self=this;
+  try{
+    var ws=new WebSocket(url);
+    ws.binaryType='arraybuffer';
+    this.ws=ws;
+    ws.onopen=function(){self.connected=true;};
+    ws.onmessage=function(ev){self._onMessage(ev);};
+    ws.onerror=function(){self.errCount++;};
+    ws.onclose=function(){
+      self.connected=false;
+      // No automatic reconnect — TabManager handles teardown explicitly.
+    };
+  }catch(e){
+    self.errCount++;
+  }
+};
+ProRenderer.prototype._onMessage=function(ev){
+  var d=ev.data;
+  if(typeof d==='string'){
+    try{
+      var m=JSON.parse(d);
+      this._onMeta(m);
+    }catch(e){}
+    return;
+  }
+  // Binary frame: 4-byte LE width, 4-byte LE height, JPEG bytes.
+  var buf=new Uint8Array(d);
+  if(buf.length<8)return;
+  var w=buf[0]|(buf[1]<<8)|(buf[2]<<16)|(buf[3]<<24);
+  var h=buf[4]|(buf[5]<<8)|(buf[6]<<16)|(buf[7]<<24);
+  if(w<=0||h<=0||w>4096||h>4096)return;
+  var jpeg=new Blob([buf.subarray(8)],{type:'image/jpeg'});
+  if(this.canvas.width!==w||this.canvas.height!==h){
+    this.canvas.width=w;this.canvas.height=h;
+  }
+  var url=URL.createObjectURL(jpeg);
+  var img=new Image();
+  var self=this;
+  img.onload=function(){
+    if(self.disposed){URL.revokeObjectURL(url);return;}
+    try{self.ctx.drawImage(img,0,0,w,h);}catch(e){}
+    URL.revokeObjectURL(url);
+    self._gotFrame=true;
+  };
+  img.onerror=function(){URL.revokeObjectURL(url);};
+  img.src=url;
+};
+ProRenderer.prototype._onMeta=function(m){
+  if(!m||!m.type)return;
+  var tab=this.tab;
+  if(m.type==='url'&&typeof m.value==='string'){
+    tab.url=m.value;
+    if(tab.id===TM.activeId){
+      var addr=document.getElementById('br-addr');
+      if(addr)addr.value=m.value;
+      _setScheme(m.value);
+    }
+    if(tab.mode!=='incognito')_pushServerHistory(m.value);
+    TM._render();
+  }else if(m.type==='title'&&typeof m.value==='string'){
+    tab.title=m.value.slice(0,120);
+    TM._render();
+  }else if(m.type==='loading'){
+    if(tab.id===TM.activeId){
+      if(m.value)_showLoading(tab.url||'');
+      else _hideLoading();
+    }
+  }else if(m.type==='error'){
+    if(tab.id===TM.activeId){
+      var s=document.getElementById('br-stat-txt');
+      if(s)s.textContent='Pro: '+(m.value||'error');
+    }
+  }else if(m.type==='ready'){
+    // First confirmation from the server — nothing else to do, frames will
+    // start arriving any moment.
+  }
+};
+ProRenderer.prototype._send=function(obj){
+  if(!this.ws||this.ws.readyState!==1)return;
+  try{this.ws.send(JSON.stringify(obj));}catch(e){}
+};
+ProRenderer.prototype._buttonName=function(n){
+  if(n===2)return 'right';
+  if(n===1)return 'middle';
+  return 'left';
+};
+ProRenderer.prototype._coords=function(ev){
+  var r=this.canvas.getBoundingClientRect();
+  if(!r.width||!r.height)return [0,0];
+  var x=(ev.clientX-r.left)/r.width;
+  var y=(ev.clientY-r.top)/r.height;
+  if(x<0)x=0;else if(x>1)x=1;
+  if(y<0)y=0;else if(y>1)y=1;
+  return [x,y];
+};
+ProRenderer.prototype._wireInput=function(){
+  var c=this.canvas,self=this;
+  c.addEventListener('contextmenu',function(e){e.preventDefault();});
+  c.addEventListener('mousemove',function(e){
+    var p=self._coords(e);
+    self._send({type:'mouse',action:'move',x:p[0],y:p[1]});
+  });
+  c.addEventListener('mousedown',function(e){
+    e.preventDefault();
+    c.focus();
+    var p=self._coords(e);
+    self._send({type:'mouse',action:'down',x:p[0],y:p[1],
+      button:self._buttonName(e.button),clickCount:1});
+  });
+  c.addEventListener('mouseup',function(e){
+    e.preventDefault();
+    var p=self._coords(e);
+    self._send({type:'mouse',action:'up',x:p[0],y:p[1],
+      button:self._buttonName(e.button),clickCount:1});
+  });
+  c.addEventListener('dblclick',function(e){
+    e.preventDefault();
+    var p=self._coords(e);
+    self._send({type:'mouse',action:'click',x:p[0],y:p[1],
+      button:self._buttonName(e.button),clickCount:2});
+  });
+  c.addEventListener('wheel',function(e){
+    e.preventDefault();
+    var p=self._coords(e);
+    self._send({type:'wheel',x:p[0],y:p[1],dx:e.deltaX,dy:e.deltaY});
+  },{passive:false});
+  c.addEventListener('keydown',function(e){
+    if(e.target!==c)return;
+    e.preventDefault();
+    self._send({type:'key',action:'down',key:e.key});
+    if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+      self._send({type:'key',action:'press',key:e.key,text:e.key});
+    }
+  });
+  c.addEventListener('keyup',function(e){
+    if(e.target!==c)return;
+    e.preventDefault();
+    self._send({type:'key',action:'up',key:e.key});
+  });
+};
+ProRenderer.prototype.show=function(){
+  if(this.canvas)this.canvas.style.display='block';
+  // Tell the server to (re)start the screencast so a tab the user just
+  // switched back to refreshes immediately. No-op if already streaming.
+  this._send({type:'resume'});
+};
+ProRenderer.prototype.hide=function(){
+  if(this.canvas)this.canvas.style.display='none';
+  // Stop the screencast so hidden tabs don't keep consuming bandwidth +
+  // CPU. The page state is preserved by the backend; show() will resume.
+  this._send({type:'pause'});
+};
+ProRenderer.prototype.notifyResize=function(){
+  if(!this.canvas)return;
+  var r=this.canvas.getBoundingClientRect();
+  if(r.width<=0||r.height<=0)return;
+  var w=Math.round(r.width),h=Math.round(r.height);
+  if(w===this.lastSize[0]&&h===this.lastSize[1])return;
+  this.lastSize=[w,h];
+  if(this.resizeT)clearTimeout(this.resizeT);
+  var self=this;
+  this.resizeT=setTimeout(function(){
+    self.tab.viewW=w;self.tab.viewH=h;
+    self._send({type:'resize',w:w,h:h});
+  },200);
+};
+ProRenderer.prototype.nav=function(url){this._send({type:'nav',url:url});};
+ProRenderer.prototype.back=function(){this._send({type:'back'});};
+ProRenderer.prototype.forward=function(){this._send({type:'forward'});};
+ProRenderer.prototype.reload=function(){this._send({type:'reload'});};
+ProRenderer.prototype.stop=function(){this._send({type:'stop'});};
+ProRenderer.prototype.dispose=function(){
+  this.disposed=true;
+  try{this.ws&&this.ws.close();}catch(e){}
+  if(this.canvas&&this.canvas.parentNode){
+    this.canvas.parentNode.removeChild(this.canvas);
+  }
+  this.canvas=null;this.ctx=null;this.ws=null;
+};
+
 // ── TabManager ────────────────────────────────────────────────────────────────
 function TabManager(){
   this.tabs=[];
@@ -1532,13 +1830,59 @@ TabManager.prototype.newTab=function(mode,url,opts){
   }catch(e){rand=Math.random().toString(36).slice(2,12);}
   var tabKey=(mode==='incognito')?('inc-'+id+'-'+rand):('n-'+id);
   var tab={id:id,tabKey:tabKey,mode:mode,url:'',hist:[],histIdx:-1,
-    blocked:0,iframe:null,loaded:false,suppressNextLoad:false};
+    blocked:0,iframe:null,loaded:false,suppressNextLoad:false,
+    // Pro Mode state — mode2 is 'proxy' (default) or 'pro'.
+    mode2:'proxy', pro:null, viewW:1280, viewH:800, title:''};
   this.tabs.push(tab);
   this._createIframe(tab);
   this._render();
   if(!opts.background)this.activate(id);
   if(url)this.navigate(id,url);
   return tab;
+};
+TabManager.prototype.togglePro=function(){
+  var tab=this.active();if(!tab)return;
+  if(!PRO_STATUS.loaded){return;}
+  if(!PRO_STATUS.available){
+    // Re-probe — gives the user a "Try again" experience.
+    _refreshProStatus();
+    return;
+  }
+  if(tab.mode2==='pro'){this._switchToProxy(tab);}
+  else{this._switchToPro(tab);}
+};
+TabManager.prototype._switchToPro=function(tab){
+  if(tab.mode2==='pro')return;
+  // Tear down the iframe (keep URL).
+  if(tab.iframe){
+    try{tab.iframe.src='about:blank';}catch(e){}
+    tab.iframe.style.display='none';
+  }
+  tab.mode2='pro';
+  var wrap=document.getElementById('br-frames');
+  tab.pro=new ProRenderer(tab);
+  tab.pro.mount(wrap);
+  if(tab.id===this.activeId){
+    tab.pro.show();
+    tab.pro.notifyResize();
+    _syncProToggleUI();
+  }
+};
+TabManager.prototype._switchToProxy=function(tab){
+  if(tab.mode2!=='pro')return;
+  // Server-side: tell the pool to release this tab so resources free up.
+  try{
+    fetch('/user/browser/api/tab/close',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tab_key:tab.tabKey}),keepalive:true}).catch(function(){});
+  }catch(e){}
+  if(tab.pro){tab.pro.dispose();tab.pro=null;}
+  tab.mode2='proxy';
+  if(tab.id===this.activeId){
+    if(tab.iframe)tab.iframe.style.display='block';
+    _syncProToggleUI();
+    if(tab.url)this._loadIframe(tab,tab.url);
+  }
 };
 TabManager.prototype._createIframe=function(tab){
   var wrap=document.getElementById('br-frames');
@@ -1561,7 +1905,10 @@ TabManager.prototype.activate=function(id){
   this.activeId=id;
   for(var i=0;i<this.tabs.length;i++){
     var t=this.tabs[i];
-    if(t.iframe)t.iframe.style.display=(t.id===id)?'block':'none';
+    var isActive=(t.id===id);
+    var isPro=(t.mode2==='pro');
+    if(t.iframe)t.iframe.style.display=(isActive&&!isPro)?'block':'none';
+    if(t.pro){if(isActive)t.pro.show();else t.pro.hide();}
   }
   document.getElementById('br-addr').value=tab.url||'';
   _setScheme(tab.url||'');
@@ -1569,6 +1916,8 @@ TabManager.prototype.activate=function(id){
   this._updateBlockedBadge();
   this._updateShellMode();
   this._updateWelcome();
+  _syncProToggleUI();
+  if(tab.pro)tab.pro.notifyResize();
   if(tab.loaded||!tab.url)_hideLoading();
   this._render();
 };
@@ -1586,7 +1935,12 @@ TabManager.prototype.navigate=function(id,url){
     this._updateNavBtns();
   }
   if(tab.mode!=='incognito')_pushServerHistory(url);
-  this._loadIframe(tab,url);
+  if(tab.mode2==='pro'&&tab.pro){
+    if(tab.id===this.activeId)_showLoading(url);
+    tab.pro.nav(url);
+  }else{
+    this._loadIframe(tab,url);
+  }
   this._render();
   this._updateWelcome();
 };
@@ -1599,7 +1953,9 @@ TabManager.prototype._loadIframe=function(tab,url){
   tab.iframe.src='/user/browser/fetch'+qs;
 };
 TabManager.prototype.goBack=function(){
-  var tab=this.active();if(!tab||tab.histIdx<=0)return;
+  var tab=this.active();if(!tab)return;
+  if(tab.mode2==='pro'&&tab.pro){tab.pro.back();return;}
+  if(tab.histIdx<=0)return;
   tab.histIdx--;
   var url=tab.hist[tab.histIdx];tab.url=url;
   document.getElementById('br-addr').value=url;_setScheme(url);
@@ -1608,7 +1964,9 @@ TabManager.prototype.goBack=function(){
   this._render();
 };
 TabManager.prototype.goForward=function(){
-  var tab=this.active();if(!tab||tab.histIdx>=tab.hist.length-1)return;
+  var tab=this.active();if(!tab)return;
+  if(tab.mode2==='pro'&&tab.pro){tab.pro.forward();return;}
+  if(tab.histIdx>=tab.hist.length-1)return;
   tab.histIdx++;
   var url=tab.hist[tab.histIdx];tab.url=url;
   document.getElementById('br-addr').value=url;_setScheme(url);
@@ -1617,11 +1975,14 @@ TabManager.prototype.goForward=function(){
   this._render();
 };
 TabManager.prototype.reload=function(){
-  var tab=this.active();if(!tab||!tab.url)return;
+  var tab=this.active();if(!tab)return;
+  if(tab.mode2==='pro'&&tab.pro){tab.pro.reload();return;}
+  if(!tab.url)return;
   this._loadIframe(tab,tab.url);
 };
 TabManager.prototype.stop=function(){
   var tab=this.active();if(!tab)return;
+  if(tab.mode2==='pro'&&tab.pro){tab.pro.stop();_hideLoading();return;}
   try{tab.iframe.contentWindow.stop();}catch(e){}
   try{tab.iframe.src='about:blank';}catch(e){}
   tab.url='';tab.hist=[];tab.histIdx=-1;
@@ -1655,8 +2016,9 @@ TabManager.prototype.closeTab=function(id){
         headers:{'Content-Type':'application/json'},body:payload,keepalive:true}).catch(function(){});
     }catch(e){}
   }
-  // Detach iframe
+  // Detach iframe + Pro renderer
   if(tab.iframe&&tab.iframe.parentNode)tab.iframe.parentNode.removeChild(tab.iframe);
+  if(tab.pro){try{tab.pro.dispose();}catch(e){}tab.pro=null;}
   this.tabs.splice(idx,1);
   if(this.tabs.length===0){
     this.newTab('normal');
@@ -2184,10 +2546,23 @@ function _post(url,data,cb){
 
 // ── Init: open first tab on load ─────────────────────────────────────────────
 (function(){
-  function _init(){if(TM.tabs.length===0)TM.newTab('normal');}
+  function _init(){
+    if(TM.tabs.length===0)TM.newTab('normal');
+    _refreshProStatus();
+  }
   if(document.readyState==='loading'){
     document.addEventListener('DOMContentLoaded',_init);
   }else{_init();}
+  // Notify any active Pro renderer when the window is resized so the
+  // upstream Chromium viewport matches the on-screen canvas size.
+  var _rwT=0;
+  window.addEventListener('resize',function(){
+    if(_rwT)clearTimeout(_rwT);
+    _rwT=setTimeout(function(){
+      var t=TM.active();
+      if(t&&t.pro)t.pro.notifyResize();
+    },220);
+  });
 })();
 </script>
 </body></html>"""
@@ -2586,6 +2961,256 @@ function _post(url,data,cb){
         uid = _uid()
         _wipe_user_browser(uid)
         return jsonify({"ok": True})
+
+    # ── Pro Mode (real headless Chromium) ────────────────────────────────────
+    @app.route("/user/browser/api/pro/status", methods=["GET"])
+    @user_required
+    def browser_api_pro_status():
+        """Capability probe — drives the Pro toggle's enabled/disabled state."""
+        try:
+            from browser_chrome_pool import get_pool, PRO_AVAILABLE, UNAVAILABLE_REASON
+        except Exception as e:
+            return jsonify({"available": False, "reason": f"import: {e}"[:200]})
+        if not PRO_AVAILABLE:
+            return jsonify({"available": False, "reason": UNAVAILABLE_REASON or "missing"})
+        if sock is None:
+            return jsonify({
+                "available": False,
+                "reason": "WebSocket support (flask-sock) is not installed.",
+            })
+        return jsonify(get_pool().status())
+
+    @app.route("/user/browser/api/pro/state", methods=["GET"])
+    @user_required
+    def browser_api_pro_state():
+        """Debug snapshot of the user's slice of the pool."""
+        uid = _uid()
+        try:
+            from browser_chrome_pool import get_pool, PRO_AVAILABLE
+        except Exception:
+            return jsonify({"available": False, "users": []})
+        if not PRO_AVAILABLE:
+            return jsonify({"available": False, "users": []})
+        full = get_pool().pool_state()
+        # Filter to just the caller's tabs to avoid leaking other users.
+        full["users"] = [u for u in full.get("users", []) if u.get("user_id") == uid]
+        return full
+
+    if sock is not None:
+        @sock.route("/user/browser/pro/ws")
+        def browser_pro_ws(ws):
+            """WebSocket carrying a CDP screencast + input events for one Pro tab.
+
+            Auth: must already be a logged-in panel user (session cookie). We
+            do NOT use ``@user_required`` here because flask-sock routes don't
+            participate in the same redirect path; instead we inspect the
+            session directly and close the socket on auth failure.
+            """
+            # Auth check — closes the socket if the user isn't logged in.
+            uid = str(session.get("user_id") or "")
+            if not uid:
+                try:
+                    ws.send(json.dumps({"type": "error", "value": "not authenticated"}))
+                except Exception:
+                    pass
+                return
+
+            tab_key = (request.args.get("tabKey") or "").strip()[:64]
+            if not _valid_tab_key(tab_key):
+                try:
+                    ws.send(json.dumps({"type": "error", "value": "invalid tabKey"}))
+                except Exception:
+                    pass
+                return
+
+            incognito = request.args.get("incognito") in ("1", "true", "yes")
+            initial_url = (request.args.get("url") or "about:blank").strip()
+            if not initial_url.startswith(("http://", "https://", "about:")):
+                initial_url = "about:blank"
+
+            try:
+                from browser_chrome_pool import get_pool, ProUnavailable
+            except Exception as e:
+                try:
+                    ws.send(json.dumps({"type": "error", "value": f"pool import: {e}"[:160]}))
+                except Exception:
+                    pass
+                return
+
+            # Resolve the active proxy ONCE at connect; the pool will recreate
+            # the per-user context if the proxy URL has changed since last time.
+            try:
+                proxy_row = _get_active_proxy_row(uid)
+                proxy_url = (
+                    _parse_proxy_url(proxy_row["proxy_url"]) if proxy_row else None
+                )
+            except Exception:
+                proxy_url = None
+
+            pool = get_pool()
+            try:
+                rec = pool.acquire(
+                    uid, tab_key,
+                    incognito=incognito, url=initial_url, proxy_url=proxy_url,
+                )
+            except ProUnavailable as e:
+                try:
+                    ws.send(json.dumps({"type": "error", "value": str(e)[:160]}))
+                except Exception:
+                    pass
+                return
+
+            # Outbound queue + writer thread keeps the CDP callback non-blocking.
+            import queue as _queue
+            outbox: "_queue.Queue[tuple[str, object]]" = _queue.Queue(maxsize=128)
+            STOP = object()
+
+            def _writer():
+                while True:
+                    try:
+                        item = outbox.get()
+                    except Exception:
+                        return
+                    # Bare sentinel — sent by the finally block below to
+                    # guarantee the writer exits cleanly even if the WS
+                    # itself never raises on send.
+                    if item is STOP:
+                        return
+                    try:
+                        kind, payload = item
+                    except Exception:
+                        # Defensive: malformed item, just drop and continue.
+                        continue
+                    try:
+                        if kind == "bin":
+                            ws.send(payload)  # bytes
+                        else:
+                            ws.send(payload)  # text
+                    except Exception:
+                        return
+
+            t = threading.Thread(target=_writer, name=f"pro-ws-tx-{tab_key}", daemon=True)
+            t.start()
+
+            def _on_frame(jpeg: bytes, md: dict):
+                # Drop oldest frame if backed up — keeps latency bounded.
+                try:
+                    w = int(md.get("deviceWidth") or rec.viewport_w)
+                    h = int(md.get("deviceHeight") or rec.viewport_h)
+                except Exception:
+                    w, h = rec.viewport_w, rec.viewport_h
+                # 8-byte header: little-endian width, then height, then JPEG.
+                hdr = w.to_bytes(4, "little") + h.to_bytes(4, "little")
+                try:
+                    if outbox.full():
+                        try:
+                            outbox.get_nowait()
+                        except Exception:
+                            pass
+                    outbox.put_nowait(("bin", hdr + jpeg))
+                except Exception:
+                    pass
+
+            def _on_meta(kind: str, value):
+                try:
+                    outbox.put_nowait(("txt", json.dumps({"type": kind, "value": value})))
+                except Exception:
+                    pass
+
+            try:
+                pool.start_screencast(uid, tab_key, on_frame=_on_frame, on_meta=_on_meta)
+                # Send initial state to the client.
+                outbox.put_nowait(("txt", json.dumps({
+                    "type": "ready",
+                    "value": {
+                        "incognito": incognito,
+                        "viewport": [rec.viewport_w, rec.viewport_h],
+                        "url": rec.last_url,
+                    },
+                })))
+                # If a navigation URL was provided and the page is still on
+                # about:blank, kick it off now.
+                if initial_url and initial_url != "about:blank" and not rec.navigated:
+                    try:
+                        pool.navigate(uid, tab_key, initial_url)
+                    except Exception as e:
+                        outbox.put_nowait(("txt", json.dumps({
+                            "type": "error", "value": str(e)[:160]
+                        })))
+
+                # Inbound message loop — blocks until the socket closes.
+                while True:
+                    msg = ws.receive()
+                    if msg is None:
+                        break
+                    try:
+                        data = json.loads(msg)
+                    except Exception:
+                        continue
+                    mtype = data.get("type")
+                    try:
+                        if mtype == "nav":
+                            url = str(data.get("url") or "").strip()
+                            if url:
+                                pool.navigate(uid, tab_key, url)
+                        elif mtype == "back":
+                            pool.go_back(uid, tab_key)
+                        elif mtype == "forward":
+                            pool.go_forward(uid, tab_key)
+                        elif mtype == "reload":
+                            pool.reload(uid, tab_key)
+                        elif mtype == "stop":
+                            pool.stop(uid, tab_key)
+                        elif mtype == "resize":
+                            w = int(data.get("w") or rec.viewport_w)
+                            h = int(data.get("h") or rec.viewport_h)
+                            pool.set_viewport(uid, tab_key, w, h)
+                        elif mtype == "pause":
+                            # Client hid the tab — stop the screencast so the
+                            # backend can idle-suspend. Page state is preserved.
+                            pool.stop_screencast(uid, tab_key)
+                        elif mtype == "resume":
+                            # Client showed the tab again — restart the
+                            # screencast with the same callbacks.
+                            pool.start_screencast(
+                                uid, tab_key,
+                                on_frame=_on_frame, on_meta=_on_meta,
+                            )
+                        elif mtype in ("mouse", "wheel", "key"):
+                            data["type"] = mtype
+                            pool.dispatch_input(uid, tab_key, data)
+                    except Exception as e:
+                        outbox.put_nowait((
+                            "txt",
+                            json.dumps({"type": "error", "value": str(e)[:160]}),
+                        ))
+            finally:
+                # Stop the screencast but keep the rec around so the client can
+                # reconnect; if the tab is being closed the dedicated
+                # /api/tab/close endpoint will release it via _close_tab().
+                try:
+                    pool.stop_screencast(uid, tab_key)
+                except Exception:
+                    pass
+                # Guarantee writer-thread exit. Drain pending items so the
+                # bare ``STOP`` sentinel can fit even if the queue was full,
+                # then block briefly for the writer to drain and return.
+                try:
+                    while True:
+                        try:
+                            outbox.get_nowait()
+                        except Exception:
+                            break
+                except Exception:
+                    pass
+                try:
+                    outbox.put(STOP, timeout=2)
+                except Exception:
+                    pass
+                try:
+                    t.join(timeout=2)
+                except Exception:
+                    pass
 
     # ── proxy: add ─────────────────────────────────────────────────────────────
     @app.route("/user/browser/api/proxy/add", methods=["POST"])

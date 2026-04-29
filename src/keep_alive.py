@@ -34,6 +34,15 @@ try:
 except ImportError:
     pass
 
+# WebSocket support for Pro Mode (real Chrome rendering). flask-sock is
+# optional — if it's missing the Pro Mode toggle will be reported unavailable
+# via /api/pro/status and the rest of the panel keeps working.
+try:
+    from flask_sock import Sock
+    sock = Sock(app)
+except ImportError:
+    sock = None
+
 @app.after_request
 def _add_perf_headers(resp):
     p = request.path or ''
@@ -15297,7 +15306,7 @@ from market_routes import register_market_routes
 register_market_routes(app, user_required, admin_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
 
 from browser_routes import register_browser_routes
-register_browser_routes(app, user_required, get_user_sidebar, USER_CSS)
+register_browser_routes(app, user_required, get_user_sidebar, USER_CSS, sock=sock)
 
 
 # ===== Onichan Bypasser V1 — Direct Download =====
@@ -15680,11 +15689,26 @@ def voice_recording():
 
 
 def run():
+    port = int(os.environ.get('PORT', 8080))
+    # Pro Mode (real Chromium tabs in /user/browser) needs WebSocket upgrade
+    # support. Waitress does NOT implement the WS handshake, so when
+    # flask-sock is loaded we fall back to Werkzeug's threaded dev server,
+    # which simple-websocket can hijack. The panel's request volume is well
+    # within Werkzeug's capability, and any other path keeps working
+    # exactly the same.
+    if 'sock' in globals() and globals().get('sock') is not None:
+        try:
+            from werkzeug.serving import run_simple
+            print(f"[keep_alive] Werkzeug threaded server on :{port} (WS-capable for Pro Mode)")
+            run_simple('0.0.0.0', port, app, threaded=True, use_reloader=False, use_debugger=False)
+            return
+        except Exception as e:
+            print(f"[keep_alive] Werkzeug start failed ({e!r}); falling back to waitress (Pro Mode WS will be unavailable)")
     try:
         from waitress import serve
-        serve(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), threads=16, channel_timeout=60, connection_limit=500)
+        serve(app, host='0.0.0.0', port=port, threads=16, channel_timeout=60, connection_limit=500)
     except ImportError:
-        app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), threaded=True)
+        app.run(host='0.0.0.0', port=port, threaded=True)
 
 def keep_alive():
     t = Thread(target=run)
