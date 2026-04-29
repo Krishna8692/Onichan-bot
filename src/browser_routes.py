@@ -564,8 +564,25 @@ def register_browser_routes(app, user_required, get_user_sidebar, USER_CSS):
     BROWSER_CSS = """
 <style>
 *{box-sizing:border-box;}
-body{overflow:hidden!important;height:100vh;display:flex;flex-direction:column;margin:0;}
-.main-content{padding:0!important;flex:1;display:flex;flex-direction:column;overflow:hidden;}
+/* Position the browser content area precisely to avoid fixed header/nav overlap */
+.main-content{
+  position:fixed!important;
+  top:0!important; left:0!important; right:0!important; bottom:0!important;
+  padding:0!important; margin:0!important;
+  display:flex!important; flex-direction:column!important;
+  overflow:hidden!important;
+}
+/* Desktop: sidebar is 260px wide */
+@media(min-width:769px){
+  .main-content{left:260px!important;}
+}
+/* Mobile: account for fixed header (55px) and fixed bottom nav (62px) */
+@media(max-width:768px){
+  .main-content{
+    top:calc(55px + env(safe-area-inset-top))!important;
+    bottom:calc(62px + env(safe-area-inset-bottom))!important;
+  }
+}
 
 /* ── Toolbar ── */
 .br-toolbar{display:flex;align-items:center;gap:5px;padding:5px 8px;
