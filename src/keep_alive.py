@@ -12556,7 +12556,8 @@ def admin_ccshop_purchases():
 from modules.bin_shop import (
     create_bin_listing, get_bin_listings, get_purchased_bin_ids, buy_bin,
     get_purchased_bins, remove_bin_listing, get_all_bin_listings_admin,
-    parse_sites_textarea
+    parse_sites_textarea, get_bin_listing_for_edit, update_bin_listing,
+    sites_to_textarea
 )
 
 @app.route('/admin/ccshop/bins/lookup')
@@ -12624,7 +12625,8 @@ def admin_bin_shop():
             <td>{l.get('sold_count',0)}</td>
             <td>{'📝' if l.get('has_method') else '—'}</td>
             <td>{status_badge} {_h(str(l.get('status','')))} </td>
-            <td>
+            <td style="white-space:nowrap;">
+                <a href="/admin/ccshop/bins/edit/{l['id']}" style="padding:3px 10px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:6px;color:#c084fc;cursor:pointer;font-size:0.8em;text-decoration:none;margin-right:4px;">&#9998; Edit</a>
                 <form method="POST" action="/admin/ccshop/bins/remove" style="display:inline;">
                     <input type="hidden" name="listing_id" value="{l['id']}">
                     <button type="submit" style="padding:3px 10px;background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.4);border-radius:6px;color:#ef4444;cursor:pointer;font-size:0.8em;" onclick="return confirm('Remove this listing?')">&times; Remove</button>
@@ -12815,6 +12817,154 @@ def admin_bin_shop_remove():
     if listing_id:
         remove_bin_listing(listing_id)
     return redirect('/admin/ccshop/bins')
+
+
+@app.route('/admin/ccshop/bins/edit/<int:listing_id>', methods=['GET'])
+@admin_required
+def admin_bin_shop_edit_get(listing_id):
+    listing = get_bin_listing_for_edit(listing_id)
+    if not listing:
+        return redirect('/admin/ccshop/bins?error=Listing+not+found')
+
+    error = request.args.get('error', '')
+    error_html = ''
+    if error:
+        error_html = f'<div style="background:#4a0000;color:#fca5a5;border:1px solid #7f1d1d;border-radius:8px;padding:10px 16px;margin-bottom:16px;">{_h(error)}</div>'
+
+    sites_text = sites_to_textarea(listing.get('sites', []))
+    type_options = ''
+    for t in ['Credit', 'Debit', 'Prepaid']:
+        sel = ' selected' if listing.get('card_type', '') == t else ''
+        type_options += f'<option value="{t}"{sel}>{t}</option>'
+
+    sidebar_html = """
+        <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+        <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+        <a href="/admin/users" onclick="closeSidebar()">Users</a>
+        <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
+        <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
+        <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
+        <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
+        <a href="/admin/payments" onclick="closeSidebar()">Payments</a>
+        <a href="/admin/banned" onclick="closeSidebar()">Banned</a>
+        <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
+        <hr style="border-color:rgba(255,255,255,0.1);margin:10px 0;">
+        <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
+        <a href="/admin/ccshop/bins" class="active" onclick="closeSidebar()">BIN Shop</a>
+        <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
+        <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
+    """
+
+    return render_template_string(f"""
+    <html>
+    <head><title>Edit BIN #{listing_id} - Admin</title>{ADMIN_CSS}</head>
+    <body>
+        <button class="menu-toggle" onclick="toggleSidebar()"><span></span><span></span><span></span></button>
+        <div class="sidebar-overlay" onclick="closeSidebar()"></div>
+        <div class="sidebar">
+            <h2>Onichan Admin</h2>
+            {sidebar_html}
+        </div>
+        <div class="main">
+            <div class="header">
+                <h1>&#9998; Edit BIN Listing #{listing_id}</h1>
+                <a href="/admin/ccshop/bins" class="btn btn-primary" style="text-decoration:none;">&#8592; Back to BIN Shop</a>
+            </div>
+            {error_html}
+            <div class="card">
+                <form method="POST" action="/admin/ccshop/bins/edit/{listing_id}">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px;">
+                        <div>
+                            <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">BIN Number *</label>
+                            <input type="text" name="bin_number" value="{_h(str(listing.get('bin_number','') or ''))}" required autocomplete="off" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Brand</label>
+                            <input type="text" name="brand" value="{_h(str(listing.get('brand','') or ''))}" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Country</label>
+                            <input type="text" name="country" value="{_h(str(listing.get('country','') or ''))}" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Country Code</label>
+                            <input type="text" name="country_code" value="{_h(str(listing.get('country_code','') or ''))}" maxlength="3" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Card Type</label>
+                            <select name="card_type" style="width:100%;padding:8px;background:#1e2130;border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                                {type_options}
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Card Level</label>
+                            <input type="text" name="card_level" value="{_h(str(listing.get('card_level','') or ''))}" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Bank</label>
+                            <input type="text" name="bank" value="{_h(str(listing.get('bank','') or ''))}" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Price ($)</label>
+                            <input type="number" name="price" value="{float(listing.get('price',5.00)):.2f}" min="0.01" step="0.01" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:12px;">
+                        <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Public Description (shown before purchase)</label>
+                        <input type="text" name="public_description" value="{_h(str(listing.get('public_description','') or ''))}" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                    </div>
+                    <div style="margin-bottom:12px;">
+                        <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Compatible Sites (one per line: <code style="color:#a855f7;">Name | https://url | notes | 94%</code>)</label>
+                        <textarea name="sites" rows="4" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;resize:vertical;font-family:monospace;font-size:0.85em;">{_h(sites_text)}</textarea>
+                    </div>
+                    <div style="margin-bottom:16px;">
+                        <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">&#128221; Seller Method / Tutorial (hidden until purchase)</label>
+                        <textarea name="method_note" rows="8" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(168,85,247,0.3);border-radius:6px;color:#fff;resize:vertical;font-size:0.9em;">{_h(str(listing.get('method_note','') or ''))}</textarea>
+                    </div>
+                    <div style="display:flex;gap:12px;align-items:center;">
+                        <button type="submit" class="btn btn-success">&#10003; Save Changes</button>
+                        <a href="/admin/ccshop/bins" style="padding:8px 18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <script>
+        function toggleSidebar(){{document.querySelector('.sidebar').classList.toggle('open');document.querySelector('.sidebar-overlay').classList.toggle('open');}}
+        function closeSidebar(){{document.querySelector('.sidebar').classList.remove('open');document.querySelector('.sidebar-overlay').classList.remove('open');}}
+        </script>
+    </body>
+    </html>
+    """)
+
+
+@app.route('/admin/ccshop/bins/edit/<int:listing_id>', methods=['POST'])
+@admin_required
+def admin_bin_shop_edit_post(listing_id):
+    try:
+        listing = get_bin_listing_for_edit(listing_id)
+        if not listing:
+            return redirect('/admin/ccshop/bins?error=Listing+not+found')
+        bin_number = request.form.get('bin_number', '').strip()
+        if not bin_number:
+            return redirect(f'/admin/ccshop/bins/edit/{listing_id}?error=BIN+number+is+required')
+        brand = request.form.get('brand', '').strip()
+        country = request.form.get('country', '').strip()
+        country_code = request.form.get('country_code', '').strip().upper()
+        card_type = request.form.get('card_type', '').strip()
+        card_level = request.form.get('card_level', '').strip()
+        bank = request.form.get('bank', '').strip()
+        price = float(request.form.get('price', 5.00) or 5.00)
+        public_description = request.form.get('public_description', '').strip()
+        sites_text = request.form.get('sites', '').strip()
+        method_note = request.form.get('method_note', '').strip()
+        sites = parse_sites_textarea(sites_text)
+        update_bin_listing(
+            listing_id, bin_number, brand, country, country_code,
+            card_type, card_level, bank, price, sites, method_note, public_description
+        )
+        return redirect('/admin/ccshop/bins?msg=BIN+listing+' + str(listing_id) + '+updated')
+    except Exception as e:
+        return redirect(f'/admin/ccshop/bins/edit/{listing_id}?error=' + _h(str(e))[:80])
 
 
 # ─── CC SHOP USER ROUTES ────────────────────────────────────────────────────

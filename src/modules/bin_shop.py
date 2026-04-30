@@ -309,3 +309,75 @@ def parse_sites_textarea(text):
                 'success_rate': parts[3] if len(parts) > 3 else '',
             })
     return sites
+
+
+def sites_to_textarea(sites):
+    """Convert a sites list back to the textarea format: Name | url | notes | rate"""
+    lines = []
+    for s in (sites or []):
+        parts = [
+            str(s.get('name', '') or ''),
+            str(s.get('url', '') or ''),
+            str(s.get('description', '') or ''),
+            str(s.get('success_rate', '') or ''),
+        ]
+        lines.append(' | '.join(parts))
+    return '\n'.join(lines)
+
+
+def get_bin_listing_for_edit(listing_id):
+    """Return a single listing with all fields decrypted for the admin edit form."""
+    row = _execute_with_retry(
+        "SELECT * FROM bin_shop_listings WHERE id = %s",
+        (listing_id,), fetch_one=True
+    )
+    if not row:
+        return None
+    r = dict(row)
+    r['bin_number'] = _dec(r.get('bin_encrypted', ''))
+    r['brand'] = _dec(r.get('brand_encrypted', ''))
+    r['card_level'] = _dec(r.get('level_encrypted', ''))
+    r['bank'] = _dec(r.get('bank_encrypted', ''))
+    try:
+        r['sites'] = json.loads(_dec(r.get('sites_encrypted', '')))
+    except Exception:
+        r['sites'] = []
+    r['method_note'] = _dec(r.get('method_note_encrypted', ''))
+    return r
+
+
+def update_bin_listing(listing_id, bin_number, brand, country, country_code,
+                       card_type, card_level, bank, price, sites, method_note,
+                       public_description):
+    """Update an existing BIN listing, re-encrypting all sensitive fields."""
+    bin_enc = _enc(str(bin_number).strip())
+    brand_enc = _enc(str(brand).strip())
+    level_enc = _enc(str(card_level).strip())
+    bank_enc = _enc(str(bank).strip())
+    sites_enc = _enc(json.dumps(sites))
+    note = str(method_note).strip()
+    note_enc = _enc(note)
+    has_method = bool(note)
+
+    _execute_with_retry("""
+        UPDATE bin_shop_listings
+        SET bin_encrypted = %s,
+            brand_encrypted = %s,
+            level_encrypted = %s,
+            bank_encrypted = %s,
+            country = %s,
+            country_code = %s,
+            card_type = %s,
+            price = %s,
+            sites_encrypted = %s,
+            method_note_encrypted = %s,
+            has_method = %s,
+            public_description = %s
+        WHERE id = %s
+    """, (
+        bin_enc, brand_enc, level_enc, bank_enc,
+        str(country).strip(), str(country_code).strip().upper(), str(card_type).strip(),
+        float(price),
+        sites_enc, note_enc, has_method, str(public_description).strip(),
+        listing_id
+    ))
