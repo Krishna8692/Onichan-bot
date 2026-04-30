@@ -13320,12 +13320,12 @@ def _bin_reveal_html(listing, show_back_btn=True, uid=None):
             f'<div class="detail-cell"><div class="lbl">COUNTRY</div><div class="val">{flag} {_h(str(listing.get("country","")))}</div></div>'
             f'<div class="detail-cell"><div class="lbl">PAID</div><div class="val" style="color:#4ade80;">${float(price_paid):.2f}</div></div>'
             f'</div>'
-            f'</div>'
             + method_html
             + (f'<div class="card" style="margin-bottom:20px;"><h3 style="color:#c084fc;margin-bottom:14px;">Compatible Sites ({len(listing.get("sites") or [])})</h3>'
                + (sites_html if sites_html else '<p style="opacity:0.5;">No sites listed for this BIN.</p>')
                + '</div>')
-            + (f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;"><a href="/user/ccshop/bins" style="padding:10px 22px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#c084fc;text-decoration:none;">🏪 BIN Shop</a>' + back_btn + '</div>'))
+            + (f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;"><a href="/user/ccshop/bins" style="padding:10px 22px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#c084fc;text-decoration:none;">🏪 BIN Shop</a>' + back_btn + '</div>')
+            + '</div>')
 
 
 @app.route('/user/ccshop/bins')
