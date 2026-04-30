@@ -4450,7 +4450,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
             <div class="nav-section-body">
             {link('ccshop', '🛒 CC Shop', '/user/ccshop')}
             {link('purchased', '📦 My Purchases', '/user/purchased')}
-            {link('bins', '🔓 BIN Shop', '/user/bins')}
+            {link('bins', '🔓 BIN Shop', '/user/ccshop/bins')}
             {link('proxyshop', '🌐 Proxy Shop', '/user/proxyshop')}
             {link('myproxies', '🔑 My Proxies', '/user/myproxies')}
             </div>
@@ -4493,6 +4493,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
             <div class="nav-section-body">
             {link('history', 'Check History', '/user/history')}
             {link('payments', 'My Payments', '/user/payments')}
+            {link('mybins', '🔓 My BINs', '/user/ccshop/bins/purchased')}
             {link('api-key', '🔑 API Key', '/user/api-key')}
             {link('settings', 'Settings', '/user/settings')}
             {link('help', '❓ Help & Support', '/user/help')}
@@ -12556,38 +12557,42 @@ from modules.bin_shop import (
     parse_sites_textarea
 )
 
-@app.route('/admin/ccshop/bins', methods=['GET', 'POST'])
+@app.route('/admin/ccshop/bins/add', methods=['POST'])
+@admin_required
+def admin_bin_shop_add():
+    from flask import flash
+    try:
+        bin_number = request.form.get('bin_number', '').strip()
+        brand = request.form.get('brand', '').strip()
+        country = request.form.get('country', '').strip()
+        country_code = request.form.get('country_code', '').strip().upper()
+        card_type = request.form.get('card_type', '').strip()
+        card_level = request.form.get('card_level', '').strip()
+        bank = request.form.get('bank', '').strip()
+        price = float(request.form.get('price', 5.00) or 5.00)
+        public_description = request.form.get('public_description', '').strip()
+        sites_text = request.form.get('sites', '').strip()
+        method_note = request.form.get('method_note', '').strip()
+        if not bin_number:
+            return redirect('/admin/ccshop/bins?error=BIN+number+is+required')
+        sites = parse_sites_textarea(sites_text)
+        listing_id = create_bin_listing(
+            bin_number, brand, country, country_code, card_type,
+            card_level, bank, price, sites, method_note, public_description
+        )
+        if listing_id:
+            return redirect('/admin/ccshop/bins?msg=BIN+listing+' + str(listing_id) + '+created')
+        else:
+            return redirect('/admin/ccshop/bins?error=Failed+to+create+listing')
+    except Exception as e:
+        return redirect('/admin/ccshop/bins?error=' + _h(str(e))[:80])
+
+
+@app.route('/admin/ccshop/bins')
 @admin_required
 def admin_bin_shop():
-    message = ''
-    error = ''
-    if request.method == 'POST':
-        try:
-            bin_number = request.form.get('bin_number', '').strip()
-            brand = request.form.get('brand', '').strip()
-            country = request.form.get('country', '').strip()
-            country_code = request.form.get('country_code', '').strip().upper()
-            card_type = request.form.get('card_type', '').strip()
-            card_level = request.form.get('card_level', '').strip()
-            bank = request.form.get('bank', '').strip()
-            price = float(request.form.get('price', 5.00) or 5.00)
-            public_description = request.form.get('public_description', '').strip()
-            sites_text = request.form.get('sites', '').strip()
-            method_note = request.form.get('method_note', '').strip()
-            if not bin_number:
-                error = 'BIN number is required'
-            else:
-                sites = parse_sites_textarea(sites_text)
-                listing_id = create_bin_listing(
-                    bin_number, brand, country, country_code, card_type,
-                    card_level, bank, price, sites, method_note, public_description
-                )
-                if listing_id:
-                    message = f'BIN listing #{listing_id} created successfully.'
-                else:
-                    error = 'Failed to create listing (DB error).'
-        except Exception as e:
-            error = f'Error: {str(e)}'
+    message = request.args.get('msg', '')
+    error = request.args.get('error', '')
 
     listings = get_all_bin_listings_admin()
     rows_html = ''
@@ -12650,7 +12655,7 @@ def admin_bin_shop():
             <!-- Add New BIN -->
             <div class="card" style="margin-bottom:24px;">
                 <h2 style="margin-bottom:16px;">Add New BIN Listing</h2>
-                <form method="POST" action="/admin/ccshop/bins">
+                <form method="POST" action="/admin/ccshop/bins/add">
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px;">
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">BIN Number *</label>
@@ -12894,6 +12899,11 @@ def user_ccshop():
                 <span>Your Balance</span>
                 <span class="balance-amount">${balance:.2f}</span>
                 <a href="/user/ccshop/deposit" style="margin-left:15px;padding:6px 16px;background:linear-gradient(135deg,#ff69b4,#ff1493);border-radius:8px;color:#fff;text-decoration:none;font-size:0.85em;font-weight:600;">+ Add Funds</a>
+            </div>
+
+            <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <a href="/user/ccshop" style="padding:7px 18px;background:rgba(255,20,147,0.2);border:1px solid rgba(255,105,180,0.5);border-radius:8px;color:#ff69b4;text-decoration:none;font-size:0.9em;font-weight:600;">💳 CC Shop</a>
+                <a href="/user/ccshop/bins" style="padding:7px 18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">🔓 BINs</a>
             </div>
 
             <form method="GET" action="/user/ccshop" class="shop-filters">
@@ -13241,9 +13251,83 @@ def user_purchased():
 
 # ─── BIN SHOP USER ROUTES ────────────────────────────────────────────────────
 
-@app.route('/user/bins')
+_BIN_REVEAL_CSS = """
+    .reveal-card{background:linear-gradient(135deg,rgba(74,222,128,0.08),rgba(34,197,94,0.05));border:1px solid rgba(74,222,128,0.35);border-radius:14px;padding:20px;margin-bottom:20px;}
+    .bin-box{background:rgba(0,0,0,0.3);border:1px solid rgba(168,85,247,0.5);border-radius:10px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
+    .bin-digits{font-family:monospace;font-size:2em;font-weight:700;color:#c084fc;letter-spacing:4px;}
+    .copy-btn{padding:8px 16px;background:rgba(168,85,247,0.25);border:1px solid rgba(168,85,247,0.5);border-radius:8px;color:#c084fc;cursor:pointer;font-size:0.9em;font-weight:600;}
+    .copy-btn:hover{background:rgba(168,85,247,0.4);}
+    .detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:12px;}
+    .detail-cell{background:rgba(255,255,255,0.05);border-radius:8px;padding:11px 14px;}
+    .detail-cell .lbl{font-size:0.72em;opacity:0.6;margin-bottom:3px;}
+    .detail-cell .val{font-weight:600;font-size:0.95em;}
+    .method-box{background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:18px;margin-bottom:20px;}
+"""
+
+def _bin_reveal_html(listing, show_back_btn=True):
+    flag_map = {'US': '🇺🇸', 'GB': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪',
+                'FR': '🇫🇷', 'NL': '🇳🇱', 'SE': '🇸🇪', 'SG': '🇸🇬', 'JP': '🇯🇵'}
+    cc = listing.get('country_code', '')
+    flag = flag_map.get(cc.upper(), '🌍')
+    bin_val = _h(str(listing.get('bin_number', '')))
+
+    sites_html = ''
+    for s in (listing.get('sites') or []):
+        rate_html = ''
+        if s.get('success_rate'):
+            try:
+                rate_val = float(str(s['success_rate']).replace('%', ''))
+                col = '#4ade80' if rate_val >= 80 else ('#facc15' if rate_val >= 50 else '#ef4444')
+                rate_html = '<span style="color:' + col + ';font-weight:700;">' + _h(str(s['success_rate'])) + '</span>'
+            except Exception:
+                rate_html = '<span style="opacity:0.6;">' + _h(str(s.get('success_rate', ''))) + '</span>'
+        _sn = _h(str(s.get('name', '')))
+        _su = _h(str(s.get('url', '')))
+        _sd = _h(str(s.get('description', '')))
+        _visit = ('<a href="' + _su + '" target="_blank" style="font-size:0.8em;color:#6366f1;text-decoration:none;padding:2px 8px;border:1px solid rgba(99,102,241,0.4);border-radius:5px;">↗ Visit</a>') if s.get('url') else ''
+        _desc_row = ('<div style="font-size:0.82em;opacity:0.7;margin-top:5px;">' + _sd + '</div>') if s.get('description') else ''
+        sites_html += ('<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(168,85,247,0.2);border-radius:9px;padding:12px;margin-bottom:8px;">'
+                       '<div style="display:flex;justify-content:space-between;align-items:center;">'
+                       '<strong style="color:#c084fc;">' + _sn + '</strong>'
+                       '<div style="display:flex;gap:8px;align-items:center;">' + _visit + ' ' + rate_html + '</div>'
+                       '</div>' + _desc_row + '</div>')
+
+    method_html = ''
+    if listing.get('method_note'):
+        method_lines = _h(str(listing['method_note'])).replace('\n', '<br>')
+        method_html = ('<div class="method-box"><h3 style="color:#c084fc;margin:0 0 12px 0;">📝 Seller Method</h3>'
+                       '<div style="font-size:0.9em;line-height:1.7;white-space:pre-wrap;">' + method_lines + '</div></div>')
+
+    back_btn = ('<a href="/user/ccshop/bins/purchased" style="padding:10px 22px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;">📦 My BINs</a>' if show_back_btn else '')
+
+    price_paid = listing.get('price_paid', listing.get('price', 0))
+    bought_at = str(listing.get('bought_at', listing.get('purchased_at', '')))[:16]
+
+    return (f'<div class="reveal-card">'
+            f'<div style="font-size:0.8em;color:#4ade80;margin-bottom:10px;font-weight:600;">✅ PURCHASED — Full BIN Revealed</div>'
+            f'<div class="bin-box">'
+            f'<span class="bin-digits" id="binval">{bin_val}</span>'
+            f'<button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById(\'binval\').textContent);this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 Copy BIN\',1500);">📋 Copy BIN</button>'
+            f'</div>'
+            f'<div class="detail-grid">'
+            f'<div class="detail-cell"><div class="lbl">BRAND</div><div class="val">{_h(str(listing.get("brand","")))}</div></div>'
+            f'<div class="detail-cell"><div class="lbl">LEVEL</div><div class="val">{_h(str(listing.get("card_level","")))}</div></div>'
+            f'<div class="detail-cell"><div class="lbl">TYPE</div><div class="val">{_h(str(listing.get("card_type","")))}</div></div>'
+            f'<div class="detail-cell"><div class="lbl">BANK</div><div class="val">{_h(str(listing.get("bank","")))}</div></div>'
+            f'<div class="detail-cell"><div class="lbl">COUNTRY</div><div class="val">{flag} {_h(str(listing.get("country","")))}</div></div>'
+            f'<div class="detail-cell"><div class="lbl">PAID</div><div class="val" style="color:#4ade80;">${float(price_paid):.2f}</div></div>'
+            f'</div>'
+            f'</div>'
+            + method_html
+            + (f'<div class="card" style="margin-bottom:20px;"><h3 style="color:#c084fc;margin-bottom:14px;">Compatible Sites ({len(listing.get("sites") or [])})</h3>'
+               + (sites_html if sites_html else '<p style="opacity:0.5;">No sites listed for this BIN.</p>')
+               + '</div>')
+            + (f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;"><a href="/user/ccshop/bins" style="padding:10px 22px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#c084fc;text-decoration:none;">🏪 BIN Shop</a>' + back_btn + '</div>'))
+
+
+@app.route('/user/ccshop/bins')
 @user_required
-def user_bin_shop():
+def user_ccshop_bins():
     user_id = session.get('user_id')
     balance = get_user_balance(user_id)
     page = request.args.get('page', 1, type=int)
@@ -13267,46 +13351,37 @@ def user_bin_shop():
         owned = lid in owned_ids
         cc = l.get('country_code', '')
         flag = flag_map.get(cc.upper(), '🌍')
-        has_method_badge = '<span style="background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:4px;padding:2px 7px;font-size:0.75em;color:#c084fc;">📝 Method Included</span>' if l.get('has_method') else ''
-        buy_or_view = ''
-        if owned:
-            buy_or_view = f'<a href="/user/bins/view/{lid}" style="display:block;width:100%;padding:10px;text-align:center;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:8px;color:#fff;font-weight:600;text-decoration:none;font-size:0.95em;">🔓 View Full BIN</a>'
-        else:
-            buy_or_view = f'''<form method="POST" action="/user/bins/buy">
-                <input type="hidden" name="listing_id" value="{lid}">
-                <button type="submit" class="shop-buy-btn">Buy for ${float(l.get('price',0)):.2f}</button>
-            </form>'''
-        owned_badge = '<span style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.3);border-radius:4px;padding:2px 7px;font-size:0.75em;color:#4ade80;">✓ Owned</span>' if owned else ''
+        method_badge = ('<span style="background:rgba(168,85,247,0.2);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:6px;padding:3px 10px;font-size:0.8em;">📝 Seller has provided a method</span>' if l.get('has_method') else '')
+        site_count = l.get('site_count', 0)
+        blurred_sites = ('<div style="margin-top:4px;"><span style="font-size:0.75em;opacity:0.6;">' + str(site_count) + ' site(s) available —</span> <span style="filter:blur(4px);user-select:none;pointer-events:none;font-size:0.8em;opacity:0.7;">████████ █████</span></div>')
         pub_desc = _h(str(l.get('public_description', '') or ''))
-        cards_html += f"""
-        <div class="shop-card">
-            <div class="shop-card-header">
-                <span class="shop-bin">{flag} xxxxxxx</span>
-                <span class="shop-price">${float(l.get('price',0)):.2f}</span>
-            </div>
-            <div class="shop-card-body">
-                <div class="shop-info"><span class="label">Country</span><span>{flag} {_h(str(l.get('country','')))} ({_h(cc)})</span></div>
-                <div class="shop-info"><span class="label">Type</span><span>{_h(str(l.get('card_type','')))}</span></div>
-                <div class="shop-info"><span class="label">Brand</span><span style="opacity:0.5;font-style:italic;">Hidden until purchase</span></div>
-                <div class="shop-info"><span class="label">Bank</span><span style="opacity:0.5;font-style:italic;">Hidden until purchase</span></div>
-                <div class="shop-info"><span class="label">Sites</span><span>{l.get('site_count',0)} site(s)</span></div>
-                {f'<p style="font-size:0.8em;opacity:0.75;margin:8px 0 4px 0;font-style:italic;">{pub_desc}</p>' if pub_desc else ''}
-                <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">{has_method_badge}{owned_badge}</div>
-            </div>
-            {buy_or_view}
-        </div>"""
+        if owned:
+            buy_or_view = ('<a href="/user/ccshop/bins/purchased" style="display:block;width:100%;padding:10px;text-align:center;background:linear-gradient(135deg,#059669,#047857);border-radius:8px;color:#fff;font-weight:600;text-decoration:none;font-size:0.95em;box-sizing:border-box;">✅ Owned — View Details</a>')
+        else:
+            buy_or_view = ('<form method="POST" action="/user/ccshop/bins/buy"><input type="hidden" name="listing_id" value="' + str(lid) + '"><button type="submit" class="shop-buy-btn">Buy — $' + f'{float(l.get("price",0)):.2f}' + '</button></form>')
+        cards_html += (f'<div class="shop-card"><div class="shop-card-header"><span class="shop-bin">{flag} xxxxxxx</span><span class="shop-price">${float(l.get("price",0)):.2f}</span></div>'
+                       f'<div class="shop-card-body">'
+                       f'<div class="shop-info"><span class="label">Country</span><span>{flag} {_h(str(l.get("country","")))} ({_h(cc)})</span></div>'
+                       f'<div class="shop-info"><span class="label">Type</span><span>{_h(str(l.get("card_type","")))}</span></div>'
+                       f'<div class="shop-info"><span class="label">Brand</span><span style="opacity:0.4;">—</span></div>'
+                       f'<div class="shop-info"><span class="label">Bank</span><span style="opacity:0.4;">—</span></div>'
+                       f'<div class="shop-info"><span class="label">Sites</span><span>{blurred_sites}</span></div>'
+                       + (f'<p style="font-size:0.8em;opacity:0.7;margin:8px 0 4px 0;font-style:italic;">{pub_desc}</p>' if pub_desc else '')
+                       + (f'<div style="margin-top:6px;">{method_badge}</div>' if method_badge else '')
+                       + f'</div>{buy_or_view}</div>')
 
     pagination = ''
     if data['pages'] > 1:
         for p in range(1, data['pages'] + 1):
-            active = 'style="background:#ff1493;color:#fff;"' if p == page else ''
-            pagination += f'<a href="/user/bins?page={p}&country={_h(country_filter)}&type={_h(type_filter)}" class="btn btn-sm" {active}>{p}</a> '
+            active = 'style="background:#a855f7;color:#fff;"' if p == page else ''
+            pagination += f'<a href="/user/ccshop/bins?page={p}&country={_h(country_filter)}&type={_h(type_filter)}" class="btn btn-sm" {active}>{p}</a> '
 
     return render_template_string(f"""
     <html>
     <head><title>BIN Shop - Onichan</title>{USER_CSS}
     <style>
-        .balance-bar{{background:linear-gradient(135deg,rgba(168,85,247,0.2),rgba(99,102,241,0.2));border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:15px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}}
+        {_BIN_REVEAL_CSS}
+        .balance-bar{{background:linear-gradient(135deg,rgba(168,85,247,0.2),rgba(99,102,241,0.2));border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:15px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;}}
         .balance-amount{{font-size:1.5em;font-weight:700;color:#c084fc;}}
         .shop-filters{{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;}}
         .shop-filters select,.shop-filters input{{padding:8px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(168,85,247,0.3);border-radius:8px;color:#fff;font-size:0.9em;}}
@@ -13317,8 +13392,8 @@ def user_bin_shop():
         .shop-bin{{font-family:monospace;font-size:1.1em;font-weight:700;color:#a855f7;}}
         .shop-price{{font-size:1.2em;font-weight:700;color:#4ade80;}}
         .shop-card-body{{margin-bottom:12px;}}
-        .shop-info{{display:flex;justify-content:space-between;padding:3px 0;font-size:0.85em;}}
-        .shop-info .label{{opacity:0.6;}}
+        .shop-info{{display:flex;justify-content:space-between;padding:3px 0;font-size:0.85em;align-items:center;}}
+        .shop-info .label{{opacity:0.6;min-width:50px;}}
         .shop-buy-btn{{width:100%;padding:10px;background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:0.95em;transition:all 0.3s ease;}}
         .shop-buy-btn:hover{{transform:scale(1.02);box-shadow:0 4px 15px rgba(168,85,247,0.4);}}
     </style>
@@ -13332,20 +13407,19 @@ def user_bin_shop():
                     <div style="opacity:0.7;font-size:0.85em;margin-bottom:2px;">Your Balance</div>
                     <span class="balance-amount">${balance:.2f}</span>
                 </div>
-                <div style="opacity:0.7;font-size:0.85em;text-align:right;">
-                    BIN details are <strong style="color:#fff;">fully hidden</strong> until purchase.<br>
-                    After buying, you unlock: BIN, brand, bank, sites &amp; method.
+                <div style="opacity:0.7;font-size:0.85em;text-align:center;">
+                    All BIN details are <strong style="color:#fff;">fully hidden</strong> until purchase.
                 </div>
                 <a href="/user/ccshop/deposit" style="padding:6px 16px;background:linear-gradient(135deg,#a855f7,#7c3aed);border-radius:8px;color:#fff;text-decoration:none;font-size:0.85em;font-weight:600;">+ Add Funds</a>
             </div>
 
-            <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;">
+            <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <a href="/user/ccshop" style="padding:8px 18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">💳 CC Shop</a>
-                <a href="/user/bins" style="padding:8px 18px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.5);border-radius:8px;color:#c084fc;text-decoration:none;font-size:0.9em;font-weight:600;">🔓 BIN Shop</a>
-                <a href="/user/bins/my" style="padding:8px 18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">📦 My BINs</a>
+                <a href="/user/ccshop/bins" style="padding:8px 18px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.5);border-radius:8px;color:#c084fc;text-decoration:none;font-size:0.9em;font-weight:600;">🔓 BIN Shop</a>
+                <a href="/user/ccshop/bins/purchased" style="padding:8px 18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">📦 My BINs</a>
             </div>
 
-            <form method="GET" action="/user/bins" class="shop-filters">
+            <form method="GET" action="/user/ccshop/bins" class="shop-filters">
                 <input type="text" name="country" value="{_h(country_filter)}" placeholder="Filter by country...">
                 <select name="type">
                     <option value="">All Types</option>
@@ -13367,16 +13441,35 @@ def user_bin_shop():
     """)
 
 
-@app.route('/user/bins/buy', methods=['POST'])
+@app.route('/user/ccshop/bins/buy', methods=['POST'])
 @user_required
-def user_bin_buy():
+def user_ccshop_bins_buy():
     user_id = session.get('user_id')
     listing_id = request.form.get('listing_id', 0, type=int)
     if not listing_id:
-        return redirect('/user/bins')
+        return redirect('/user/ccshop/bins')
     try:
         result = buy_bin(user_id, listing_id)
-        return redirect(f'/user/bins/view/{listing_id}')
+        result['price_paid'] = result.get('price_paid', result.get('price', 0))
+        reveal = _bin_reveal_html(result, show_back_btn=True)
+        new_bal = result.get('new_balance', 0)
+        return render_template_string(f"""
+        <html>
+        <head><title>BIN Purchased! - Onichan</title>{USER_CSS}
+        <style>{_BIN_REVEAL_CSS}</style>
+        </head>
+        <body>
+            {get_user_sidebar('bins', 'BIN Shop')}
+            <div class="main">
+                <div class="header"><h1>✅ BIN Purchased!</h1></div>
+                <div style="background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);border-radius:10px;padding:12px 18px;margin-bottom:20px;">
+                    Purchase successful — your new balance is <strong style="color:#4ade80;">${new_bal:.2f}</strong>
+                </div>
+                {reveal}
+            </div>
+        </body>
+        </html>
+        """)
     except ValueError as e:
         balance = get_user_balance(user_id)
         return render_template_string(f"""
@@ -13390,7 +13483,7 @@ def user_bin_buy():
                     <h2 style="color:#ef4444;margin-bottom:10px;">Purchase Failed</h2>
                     <p style="opacity:0.75;margin-bottom:20px;">{_h(str(e))}</p>
                     <p style="margin-bottom:20px;">Your balance: <strong style="color:#c084fc;">${balance:.2f}</strong></p>
-                    <a href="/user/bins" style="padding:10px 24px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#c084fc;text-decoration:none;">← Back to BIN Shop</a>
+                    <a href="/user/ccshop/bins" style="padding:10px 24px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#c084fc;text-decoration:none;">Back to BIN Shop</a>
                 </div>
             </div>
         </body>
@@ -13398,127 +13491,9 @@ def user_bin_buy():
         """)
 
 
-@app.route('/user/bins/view/<int:listing_id>')
+@app.route('/user/ccshop/bins/purchased')
 @user_required
-def user_bin_view(listing_id):
-    user_id = session.get('user_id')
-    owned_ids = get_purchased_bin_ids(user_id)
-    if listing_id not in owned_ids:
-        return redirect('/user/bins')
-
-    purchased = get_purchased_bins(user_id)
-    listing = next((l for l in purchased if l.get('id') == listing_id), None)
-    if not listing:
-        return redirect('/user/bins/my')
-
-    flag_map = {'US': '🇺🇸', 'GB': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪',
-                'FR': '🇫🇷', 'NL': '🇳🇱', 'SE': '🇸🇪', 'SG': '🇸🇬', 'JP': '🇯🇵'}
-    cc = listing.get('country_code', '')
-    flag = flag_map.get(cc.upper(), '🌍')
-
-    sites_html = ''
-    for s in (listing.get('sites') or []):
-        rate_html = ''
-        if s.get('success_rate'):
-            try:
-                rate_val = float(str(s['success_rate']).replace('%',''))
-                color = '#4ade80' if rate_val >= 80 else ('#facc15' if rate_val >= 50 else '#ef4444')
-                rate_html = f'<span style="color:{color};font-weight:700;margin-left:8px;">{_h(str(s["success_rate"]))}</span>'
-            except Exception:
-                rate_html = f'<span style="opacity:0.6;margin-left:8px;">{_h(str(s.get("success_rate","")))} </span>'
-        _s_name = _h(str(s.get('name', '')))
-        _s_url = _h(str(s.get('url', '')))
-        _s_desc = _h(str(s.get('description', '')))
-        _visit_link = ('<a href="' + _s_url + '" target="_blank" style="font-size:0.8em;color:#6366f1;text-decoration:none;padding:3px 8px;border:1px solid rgba(99,102,241,0.4);border-radius:5px;">↗ Visit</a>') if s.get('url') else ''
-        _desc_p = ('<p style="font-size:0.85em;opacity:0.75;margin:0;">' + _s_desc + '</p>') if s.get('description') else ''
-        sites_html += f"""
-        <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(168,85,247,0.2);border-radius:10px;padding:14px;margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <strong style="color:#c084fc;">{_s_name}</strong>
-                <div>{_visit_link} {rate_html}</div>
-            </div>
-            {_desc_p}
-        </div>"""
-
-    method_html = ''
-    if listing.get('method_note'):
-        method_lines = _h(str(listing['method_note'])).replace('\n', '<br>')
-        method_html = f"""
-        <div class="card" style="border-color:rgba(168,85,247,0.4);margin-bottom:20px;">
-            <h3 style="color:#c084fc;margin-bottom:14px;">📝 Seller Method</h3>
-            <div style="font-size:0.9em;line-height:1.7;white-space:pre-wrap;opacity:0.9;">{method_lines}</div>
-        </div>"""
-
-    return render_template_string(f"""
-    <html>
-    <head><title>BIN Details - Onichan</title>{USER_CSS}</head>
-    <body>
-        {get_user_sidebar('bins', 'BIN Shop')}
-        <div class="main">
-            <div class="header">
-                <h1>🔓 BIN Details</h1>
-                <a href="/user/bins/my" style="padding:7px 16px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">← My BINs</a>
-            </div>
-
-            <div class="card" style="margin-bottom:20px;border-color:rgba(168,85,247,0.4);">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:16px;">
-                    <div>
-                        <div style="font-size:0.8em;opacity:0.6;margin-bottom:4px;">BIN NUMBER</div>
-                        <div style="font-family:monospace;font-size:2em;font-weight:700;color:#c084fc;letter-spacing:3px;">{_h(str(listing.get('bin_number','')))}</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-size:0.8em;opacity:0.6;margin-bottom:4px;">PAID</div>
-                        <div style="font-size:1.5em;font-weight:700;color:#4ade80;">${float(listing.get('price_paid',0)):.2f}</div>
-                    </div>
-                </div>
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
-                    <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:12px;">
-                        <div style="font-size:0.75em;opacity:0.6;margin-bottom:4px;">BRAND</div>
-                        <div style="font-weight:600;">{_h(str(listing.get('brand','')))}</div>
-                    </div>
-                    <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:12px;">
-                        <div style="font-size:0.75em;opacity:0.6;margin-bottom:4px;">LEVEL</div>
-                        <div style="font-weight:600;">{_h(str(listing.get('card_level','')))}</div>
-                    </div>
-                    <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:12px;">
-                        <div style="font-size:0.75em;opacity:0.6;margin-bottom:4px;">TYPE</div>
-                        <div style="font-weight:600;">{_h(str(listing.get('card_type','')))}</div>
-                    </div>
-                    <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:12px;">
-                        <div style="font-size:0.75em;opacity:0.6;margin-bottom:4px;">BANK</div>
-                        <div style="font-weight:600;">{_h(str(listing.get('bank','')))}</div>
-                    </div>
-                    <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:12px;">
-                        <div style="font-size:0.75em;opacity:0.6;margin-bottom:4px;">COUNTRY</div>
-                        <div style="font-weight:600;">{flag} {_h(str(listing.get('country','')))}</div>
-                    </div>
-                    <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:12px;">
-                        <div style="font-size:0.75em;opacity:0.6;margin-bottom:4px;">PURCHASED</div>
-                        <div style="font-weight:600;font-size:0.85em;">{str(listing.get('bought_at',''))[:16]}</div>
-                    </div>
-                </div>
-            </div>
-
-            {method_html}
-
-            <div class="card" style="margin-bottom:20px;">
-                <h3 style="color:#c084fc;margin-bottom:14px;">Compatible Sites ({len(listing.get('sites') or [])})</h3>
-                {sites_html if sites_html else '<p style="opacity:0.5;">No sites listed for this BIN.</p>'}
-            </div>
-
-            <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                <a href="/user/bins" style="padding:10px 22px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#c084fc;text-decoration:none;">🏪 BIN Shop</a>
-                <a href="/user/bins/my" style="padding:10px 22px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;">📦 My BINs</a>
-            </div>
-        </div>
-    </body>
-    </html>
-    """)
-
-
-@app.route('/user/bins/my')
-@user_required
-def user_my_bins():
+def user_ccshop_bins_purchased():
     user_id = session.get('user_id')
     purchased = get_purchased_bins(user_id)
     flag_map = {'US': '🇺🇸', 'GB': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪',
@@ -13528,24 +13503,21 @@ def user_my_bins():
     for l in purchased:
         cc = l.get('country_code', '')
         flag = flag_map.get(cc.upper(), '🌍')
-        has_method_badge = '<span style="background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:4px;padding:2px 7px;font-size:0.75em;color:#c084fc;">📝 Method</span>' if l.get('has_method') else ''
-        cards_html += f"""
-        <div class="shop-card" style="border-color:rgba(74,222,128,0.25);">
-            <div class="shop-card-header">
-                <span style="font-family:monospace;font-size:1.1em;font-weight:700;color:#c084fc;">{flag} {_h(str(l.get('bin_number','')))}</span>
-                <span style="font-size:1.1em;font-weight:700;color:#4ade80;">${float(l.get('price_paid',0)):.2f}</span>
-            </div>
-            <div class="shop-card-body">
-                <div class="shop-info"><span class="label">Brand</span><span>{_h(str(l.get('brand','')))}</span></div>
-                <div class="shop-info"><span class="label">Bank</span><span>{_h(str(l.get('bank','')))}</span></div>
-                <div class="shop-info"><span class="label">Type</span><span>{_h(str(l.get('card_type','')))}</span></div>
-                <div class="shop-info"><span class="label">Level</span><span>{_h(str(l.get('card_level','')))}</span></div>
-                <div class="shop-info"><span class="label">Country</span><span>{flag} {_h(str(l.get('country','')))}</span></div>
-                <div class="shop-info"><span class="label">Sites</span><span>{len(l.get('sites') or [])} listed</span></div>
-                <div style="margin-top:6px;">{has_method_badge}</div>
-            </div>
-            <a href="/user/bins/view/{l['id']}" style="display:block;width:100%;padding:10px;text-align:center;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:8px;color:#fff;font-weight:600;text-decoration:none;font-size:0.9em;box-sizing:border-box;">🔓 View Full Details</a>
-        </div>"""
+        method_badge = ('<span style="background:rgba(168,85,247,0.2);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:6px;padding:2px 8px;font-size:0.75em;">📝 Method</span>' if l.get('has_method') else '')
+        reveal_url = '/user/ccshop/bins/view/' + str(l['id'])
+        cards_html += (f'<div class="shop-card" style="border-color:rgba(74,222,128,0.25);">'
+                       f'<div class="shop-card-header"><span style="font-family:monospace;font-size:1.1em;font-weight:700;color:#c084fc;">{flag} {_h(str(l.get("bin_number","")))}</span><span style="font-size:1.1em;font-weight:700;color:#4ade80;">${float(l.get("price_paid",0)):.2f}</span></div>'
+                       f'<div class="shop-card-body">'
+                       f'<div class="shop-info"><span class="label">Brand</span><span>{_h(str(l.get("brand","")))}</span></div>'
+                       f'<div class="shop-info"><span class="label">Bank</span><span>{_h(str(l.get("bank","")))}</span></div>'
+                       f'<div class="shop-info"><span class="label">Type</span><span>{_h(str(l.get("card_type","")))}</span></div>'
+                       f'<div class="shop-info"><span class="label">Level</span><span>{_h(str(l.get("card_level","")))}</span></div>'
+                       f'<div class="shop-info"><span class="label">Country</span><span>{flag} {_h(str(l.get("country","")))}</span></div>'
+                       f'<div class="shop-info"><span class="label">Sites</span><span>{len(l.get("sites") or [])} listed</span></div>'
+                       + (f'<div style="margin-top:6px;">{method_badge}</div>' if method_badge else '')
+                       + f'</div><a href="{reveal_url}" style="display:block;width:100%;padding:10px;text-align:center;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:8px;color:#fff;font-weight:600;text-decoration:none;font-size:0.9em;box-sizing:border-box;">🔓 View Full Details</a></div>')
+
+    no_bins_html = ('<p style="opacity:0.5;grid-column:1/-1;padding:40px 0;text-align:center;">You have not purchased any BINs yet. <a href="/user/ccshop/bins" style="color:#c084fc;">Browse the BIN Shop</a></p>' if not cards_html else '')
 
     return render_template_string(f"""
     <html>
@@ -13564,16 +13536,46 @@ def user_my_bins():
         <div class="main">
             <div class="header"><h1>📦 My BINs</h1></div>
 
-            <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;">
+            <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <a href="/user/ccshop" style="padding:8px 18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">💳 CC Shop</a>
-                <a href="/user/bins" style="padding:8px 18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">🔓 BIN Shop</a>
-                <a href="/user/bins/my" style="padding:8px 18px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.5);border-radius:8px;color:#c084fc;text-decoration:none;font-size:0.9em;font-weight:600;">📦 My BINs</a>
+                <a href="/user/ccshop/bins" style="padding:8px 18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">🔓 BIN Shop</a>
+                <a href="/user/ccshop/bins/purchased" style="padding:8px 18px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.5);border-radius:8px;color:#c084fc;text-decoration:none;font-size:0.9em;font-weight:600;">📦 My BINs</a>
             </div>
 
             <p style="opacity:0.7;margin-bottom:16px;">You own {len(purchased)} BIN(s).</p>
-            <div class="shop-grid">
-                {cards_html if cards_html else '<p style="opacity:0.5;grid-column:1/-1;padding:40px 0;text-align:center;">You have not purchased any BINs yet. <a href="/user/bins" style="color:#c084fc;">Browse the BIN Shop</a></p>'}
+            <div class="shop-grid">{cards_html}{no_bins_html}</div>
+        </div>
+    </body>
+    </html>
+    """)
+
+
+@app.route('/user/ccshop/bins/view/<int:listing_id>')
+@user_required
+def user_ccshop_bins_view(listing_id):
+    user_id = session.get('user_id')
+    owned_ids = get_purchased_bin_ids(user_id)
+    if listing_id not in owned_ids:
+        return redirect('/user/ccshop/bins')
+    purchased = get_purchased_bins(user_id)
+    listing = next((l for l in purchased if l.get('id') == listing_id), None)
+    if not listing:
+        return redirect('/user/ccshop/bins/purchased')
+    listing['price_paid'] = listing.get('price_paid', listing.get('price', 0))
+    reveal = _bin_reveal_html(listing, show_back_btn=True)
+    return render_template_string(f"""
+    <html>
+    <head><title>BIN Details - Onichan</title>{USER_CSS}
+    <style>{_BIN_REVEAL_CSS}</style>
+    </head>
+    <body>
+        {get_user_sidebar('bins', 'BIN Shop')}
+        <div class="main">
+            <div class="header">
+                <h1>🔓 BIN Details</h1>
+                <a href="/user/ccshop/bins/purchased" style="padding:7px 16px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#ccc;text-decoration:none;font-size:0.9em;">← My BINs</a>
             </div>
+            {reveal}
         </div>
     </body>
     </html>
