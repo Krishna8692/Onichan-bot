@@ -13368,6 +13368,7 @@ def user_ccshop_bins():
                        f'<div class="shop-info"><span class="label">Country</span><span>{flag} {_h(str(l.get("country","")))} ({_h(cc)})</span></div>'
                        f'<div class="shop-info"><span class="label">Type</span><span>{_h(str(l.get("card_type","")))}</span></div>'
                        f'<div class="shop-info"><span class="label">Brand</span><span style="opacity:0.4;">—</span></div>'
+                       f'<div class="shop-info"><span class="label">Level</span><span style="opacity:0.4;">—</span></div>'
                        f'<div class="shop-info"><span class="label">Bank</span><span style="opacity:0.4;">—</span></div>'
                        f'<div class="shop-info"><span class="label">Sites</span><span>{blurred_sites}</span></div>'
                        + (f'<p style="font-size:0.8em;opacity:0.7;margin:8px 0 4px 0;font-style:italic;">{pub_desc}</p>' if pub_desc else '')
