@@ -6270,13 +6270,11 @@ def user_api_key_page():
         return '<div class="key-box"><span class="key-val" style="color:#6b7280;font-style:italic;">Not issued yet</span></div>'
 
     return render_template_string(f"""
-    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
     <title>API Key — Onichan</title>
+    {USER_CSS}
     <style>
-    *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh;display:flex}}
-    .page-wrap{{display:flex;flex:1;overflow:hidden}}
-    .main-content{{flex:1;padding:2rem;overflow-y:auto;max-width:820px;margin:0 auto}}
+    .main-content{{flex:1;padding:2rem;overflow-y:auto;max-width:820px}}
     h1{{font-size:1.6rem;font-weight:700;margin-bottom:.5rem;color:#fff}}
     p.sub{{color:#94a3b8;margin-bottom:1.5rem;font-size:.95rem}}
     .card{{background:#1e2130;border:1px solid #2d3748;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}}
@@ -6288,14 +6286,8 @@ def user_api_key_page():
     .card-desc{{font-size:.82rem;color:#6b7280;margin-bottom:.9rem}}
     .key-box{{display:flex;align-items:center;gap:.75rem;background:#0f1117;border:1px solid #374151;border-radius:8px;padding:.75rem 1rem;margin-bottom:.75rem}}
     .key-val{{flex:1;font-family:monospace;font-size:.9rem;color:#e2e8f0;word-break:break-all}}
-    .btn{{padding:.6rem 1.25rem;border-radius:8px;border:none;cursor:pointer;font-size:.9rem;font-weight:600;transition:opacity .2s}}
-    .btn-primary{{background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff}}
-    .btn-danger{{background:linear-gradient(135deg,#e94560,#f87171);color:#fff}}
-    .btn-copy{{background:#2d3748;color:#e2e8f0;font-size:.8rem;padding:.5rem .9rem}}
-    .btn:hover{{opacity:.85}}
-    .alert{{padding:.75rem 1rem;border-radius:8px;margin-bottom:1rem;font-size:.9rem}}
-    .alert-success{{background:#064e3b;color:#6ee7b7;border:1px solid #065f46}}
-    .alert-danger{{background:#4a0000;color:#fca5a5;border:1px solid #7f1d1d}}
+    .btn-copy{{background:#2d3748;color:#e2e8f0;font-size:.8rem;padding:.5rem .9rem;border-radius:8px;border:none;cursor:pointer}}
+    .btn-copy:hover{{opacity:.85}}
     .info-box{{background:#1e3a5f;border:1px solid #1d4ed8;border-radius:8px;padding:1rem;display:flex;gap:.75rem;align-items:flex-start;margin-bottom:1.5rem}}
     .info-box .icon{{font-size:1.2rem;flex-shrink:0}}
     .info-box p{{font-size:.88rem;color:#bfdbfe;line-height:1.5}}
@@ -6304,7 +6296,6 @@ def user_api_key_page():
     .usage-table{{width:100%;border-collapse:collapse;font-size:.88rem}}
     .usage-table th{{background:#111827;color:#94a3b8;text-align:left;padding:.6rem .75rem;border-bottom:1px solid #2d3748;font-weight:600}}
     .usage-table td{{padding:.6rem .75rem;border-bottom:1px solid #1f2937;color:#d1d5db;font-family:monospace}}
-    .badge{{display:inline-block;padding:.2em .55em;border-radius:4px;font-size:.75rem;font-weight:700}}
     .badge-get{{background:#064e3b;color:#34d399}}
     .badge-post{{background:#1e3a5f;color:#93c5fd}}
     a.docs-link{{color:#818cf8;text-decoration:none;font-weight:600}}
