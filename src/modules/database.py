@@ -29,7 +29,7 @@ _last_connect_attempt = 0
 
 # Pool sizing: enough headroom for concurrent Telegram handlers + Flask threads
 _POOL_MIN = 2
-_POOL_MAX = 20
+_POOL_MAX = 35
 
 
 def _ensure_pool() -> bool:

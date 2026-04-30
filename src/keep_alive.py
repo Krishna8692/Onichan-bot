@@ -12559,6 +12559,21 @@ from modules.bin_shop import (
     parse_sites_textarea
 )
 
+@app.route('/admin/ccshop/bins/lookup')
+@admin_required
+def admin_bin_shop_lookup():
+    from flask import jsonify
+    from modules.bin_lookup import lookup_bin
+    bin_val = request.args.get('bin', '').strip()
+    if len(bin_val) < 6:
+        return jsonify({'success': False, 'error': 'BIN too short'})
+    try:
+        result = lookup_bin(bin_val[:6])
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/admin/ccshop/bins/add', methods=['POST'])
 @admin_required
 def admin_bin_shop_add():
@@ -12658,26 +12673,27 @@ def admin_bin_shop():
             <div class="card" style="margin-bottom:24px;">
                 <h2 style="margin-bottom:16px;">Add New BIN Listing</h2>
                 <form method="POST" action="/admin/ccshop/bins/add">
+                    <div id="bin-lookup-status" style="display:none;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:0.85em;"></div>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px;">
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">BIN Number *</label>
-                            <input type="text" name="bin_number" placeholder="e.g. 4111111111" required style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                            <input type="text" id="bin_inp" name="bin_number" placeholder="e.g. 4111111111" required autocomplete="off" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                         </div>
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Brand</label>
-                            <input type="text" name="brand" placeholder="Visa / Mastercard" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                            <input type="text" id="bin_brand" name="brand" placeholder="Auto-filled from BIN" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                         </div>
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Country</label>
-                            <input type="text" name="country" placeholder="United States" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                            <input type="text" id="bin_country" name="country" placeholder="Auto-filled from BIN" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                         </div>
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Country Code</label>
-                            <input type="text" name="country_code" placeholder="US" maxlength="3" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                            <input type="text" id="bin_cc" name="country_code" placeholder="US" maxlength="3" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                         </div>
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Card Type</label>
-                            <select name="card_type" style="width:100%;padding:8px;background:#1e2130;border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                            <select id="bin_type" name="card_type" style="width:100%;padding:8px;background:#1e2130;border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                                 <option value="Credit">Credit</option>
                                 <option value="Debit">Debit</option>
                                 <option value="Prepaid">Prepaid</option>
@@ -12685,17 +12701,77 @@ def admin_bin_shop():
                         </div>
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Card Level</label>
-                            <input type="text" name="card_level" placeholder="Platinum / Gold" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                            <input type="text" id="bin_level" name="card_level" placeholder="Auto-filled from BIN" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                         </div>
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Bank</label>
-                            <input type="text" name="bank" placeholder="Chase / Bank of America" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
+                            <input type="text" id="bin_bank" name="bank" placeholder="Auto-filled from BIN" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                         </div>
                         <div>
                             <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Price ($)</label>
                             <input type="number" name="price" value="5.00" min="0.01" step="0.01" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                         </div>
                     </div>
+                    <script>
+                    (function(){{
+                        var inp = document.getElementById('bin_inp');
+                        var status = document.getElementById('bin-lookup-status');
+                        var timer = null;
+                        var lastLookedUp = '';
+                        function setStatus(msg, color) {{
+                            status.textContent = msg;
+                            status.style.display = msg ? 'block' : 'none';
+                            status.style.background = color === 'ok' ? 'rgba(74,222,128,0.15)' : color === 'err' ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.07)';
+                            status.style.border = '1px solid ' + (color === 'ok' ? 'rgba(74,222,128,0.4)' : color === 'err' ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.15)');
+                            status.style.color = color === 'ok' ? '#4ade80' : color === 'err' ? '#fca5a5' : '#ccc';
+                        }}
+                        function fillFields(d) {{
+                            var b = document.getElementById('bin_brand');
+                            var c = document.getElementById('bin_country');
+                            var cc = document.getElementById('bin_cc');
+                            var tp = document.getElementById('bin_type');
+                            var lv = document.getElementById('bin_level');
+                            var bk = document.getElementById('bin_bank');
+                            if (b && !b.value) b.value = d.brand || '';
+                            if (c && !c.value) c.value = d.country || '';
+                            if (cc && !cc.value) cc.value = d.country_code || '';
+                            if (lv && !lv.value) lv.value = d.level || '';
+                            if (bk && !bk.value) bk.value = d.bank || '';
+                            if (tp && d.type) {{
+                                var t = d.type.toLowerCase();
+                                for (var i = 0; i < tp.options.length; i++) {{
+                                    if (tp.options[i].value.toLowerCase() === t) {{ tp.selectedIndex = i; break; }}
+                                }}
+                            }}
+                        }}
+                        function doLookup(bin6) {{
+                            if (bin6 === lastLookedUp) return;
+                            lastLookedUp = bin6;
+                            setStatus('Looking up BIN ' + bin6 + '...', 'info');
+                            fetch('/admin/ccshop/bins/lookup?bin=' + encodeURIComponent(bin6))
+                                .then(function(r){{ return r.json(); }})
+                                .then(function(d){{
+                                    if (d.success) {{
+                                        fillFields(d);
+                                        setStatus('Auto-filled: ' + (d.brand||'') + ' ' + (d.type||'') + ' ' + (d.level||'') + ' | ' + (d.bank||'') + ' (' + (d.country||'') + ')', 'ok');
+                                    }} else {{
+                                        setStatus('BIN not found — fill details manually', 'err');
+                                    }}
+                                }})
+                                .catch(function(){{ setStatus('Lookup failed — fill details manually', 'err'); }});
+                        }}
+                        inp.addEventListener('input', function(){{
+                            var raw = inp.value.replace(/\D/g,'');
+                            if (raw.length >= 6) {{
+                                clearTimeout(timer);
+                                timer = setTimeout(function(){{ doLookup(raw.slice(0,6)); }}, 600);
+                            }} else {{
+                                setStatus('', '');
+                                lastLookedUp = '';
+                            }}
+                        }});
+                    }})();
+                    </script>
                     <div style="margin-bottom:12px;">
                         <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Public Description (shown before purchase)</label>
                         <input type="text" name="public_description" placeholder="e.g. Works on subscription sites, 3D secure enabled" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
