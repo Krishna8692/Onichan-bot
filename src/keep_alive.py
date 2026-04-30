@@ -13433,7 +13433,12 @@ def user_ccshop_bins():
         flag = flag_map.get(cc.upper(), '🌍')
         method_badge = ('<span style="background:rgba(168,85,247,0.2);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:6px;padding:3px 10px;font-size:0.8em;">📝 Seller has provided a method</span>' if l.get('has_method') else '')
         site_count = l.get('site_count', 0)
-        blurred_sites = ('<div style="margin-top:4px;"><span style="font-size:0.75em;opacity:0.6;">' + str(site_count) + ' site(s) available —</span> <span style="filter:blur(4px);user-select:none;pointer-events:none;font-size:0.8em;opacity:0.7;">████████ █████</span></div>')
+        site_names = l.get('site_names', [])
+        if site_names:
+            name_tags = ''.join('<span style="display:inline-block;background:rgba(168,85,247,0.15);border:1px solid rgba(168,85,247,0.3);border-radius:5px;padding:1px 8px;font-size:0.75em;margin:2px 2px 2px 0;color:#c084fc;">' + _h(n) + '</span>' for n in site_names)
+            sites_display = '<div style="margin-top:4px;line-height:1.8;">' + name_tags + '</div>'
+        else:
+            sites_display = '<span style="opacity:0.4;">—</span>'
         pub_desc = _h(str(l.get('public_description', '') or ''))
         if owned:
             buy_or_view = ('<a href="/user/ccshop/bins/purchased" style="display:block;width:100%;padding:10px;text-align:center;background:linear-gradient(135deg,#059669,#047857);border-radius:8px;color:#fff;font-weight:600;text-decoration:none;font-size:0.95em;box-sizing:border-box;">✅ Owned — View Details</a>')
@@ -13446,7 +13451,7 @@ def user_ccshop_bins():
                        f'<div class="shop-info"><span class="label">Brand</span><span style="opacity:0.4;">—</span></div>'
                        f'<div class="shop-info"><span class="label">Level</span><span style="opacity:0.4;">—</span></div>'
                        f'<div class="shop-info"><span class="label">Bank</span><span style="opacity:0.4;">—</span></div>'
-                       f'<div class="shop-info"><span class="label">Sites</span><span>{blurred_sites}</span></div>'
+                       f'<div class="shop-info"><span class="label">Sites</span><span>{sites_display}</span></div>'
                        + (f'<p style="font-size:0.8em;opacity:0.7;margin:8px 0 4px 0;font-style:italic;">{pub_desc}</p>' if pub_desc else '')
                        + (f'<div style="margin-top:6px;">{method_badge}</div>' if method_badge else '')
                        + f'</div>{buy_or_view}</div>')

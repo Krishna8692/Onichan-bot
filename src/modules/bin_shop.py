@@ -140,8 +140,10 @@ def get_bin_listings(page=1, per_page=20, filters=None):
         try:
             sites = json.loads(_dec(r.get('sites_encrypted', '')))
             r['site_count'] = len(sites)
+            r['site_names'] = [s.get('name', '') for s in sites if s.get('name')]
         except Exception:
             r['site_count'] = 0
+            r['site_names'] = []
         r.pop('sites_encrypted', None)
         listings.append(r)
 
