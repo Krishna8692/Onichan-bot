@@ -3,13 +3,14 @@ import { Navbar } from "./Navbar";
 import { HeroBadge } from "./HeroBadge";
 import { BottomLeftCard } from "./BottomLeftCard";
 import { BottomRightCorner } from "./BottomRightCorner";
-import { CardBrands } from "./CardBrands";
+import { FloatingCards } from "./FloatingCards";
 
 export function Hero() {
   return (
     <div className="w-full h-screen flex items-center justify-center p-3 md:p-5 bg-[#f0f0f0]">
       <section className="relative w-full max-w-[1536px] h-full rounded-[1.5rem] md:rounded-[3rem] overflow-hidden shadow-none flex flex-col items-center bg-white/10 group">
-        <CardBrands />
+
+        <FloatingCards />
 
         <div className="relative z-10 w-full h-full flex flex-col items-center">
           <Navbar />
