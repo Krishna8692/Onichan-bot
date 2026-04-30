@@ -359,7 +359,7 @@ def update_bin_listing(listing_id, bin_number, brand, country, country_code,
     note_enc = _enc(note)
     has_method = bool(note)
 
-    _execute_with_retry("""
+    rows = _execute_with_retry("""
         UPDATE bin_shop_listings
         SET bin_encrypted = %s,
             brand_encrypted = %s,
@@ -380,4 +380,5 @@ def update_bin_listing(listing_id, bin_number, brand, country, country_code,
         float(price),
         sites_enc, note_enc, has_method, str(public_description).strip(),
         listing_id
-    ))
+    ), return_rowcount=True)
+    return (rows or 0) > 0

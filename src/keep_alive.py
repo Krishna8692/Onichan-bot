@@ -12046,6 +12046,8 @@ def admin_ccshop():
     card_type = request.args.get('type', '')
     bank_filter = request.args.get('bank', '')
     status_filter = request.args.get('status', '')
+    bal_ok = request.args.get('bal_ok', '')
+    bal_error = request.args.get('bal_error', '')
     stock = get_all_stock(country=country, brand=brand, card_type=card_type, bank=bank_filter, status=status_filter, page=page, per_page=50)
     default_price = get_default_price()
     profit_pct = get_profit_percentage()
@@ -12231,19 +12233,30 @@ def admin_ccshop():
 
             <div class="card">
                 <h2>Manage Balance</h2>
+                {f'<div style="background:#14532d;color:#86efac;border:1px solid #166534;border-radius:8px;padding:10px 16px;margin-bottom:14px;">&#10003; {_h(bal_ok)}</div>' if bal_ok else ''}
+                {f'<div style="background:#4a0000;color:#fca5a5;border:1px solid #7f1d1d;border-radius:8px;padding:10px 16px;margin-bottom:14px;">&#9888; {_h(bal_error)}</div>' if bal_error else ''}
+                <div style="margin-bottom:12px;padding:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;">
+                    <label style="display:block;margin-bottom:5px;opacity:0.7;font-size:0.85em;">Quick Lookup — enter Telegram ID to see current balance</label>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <input type="number" id="lookup_uid" placeholder="Telegram User ID" style="padding:7px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;width:160px;">
+                        <button type="button" onclick="lookupBalance()" style="padding:7px 14px;background:#6366f1;border:none;border-radius:8px;color:#fff;cursor:pointer;">Lookup</button>
+                        <span id="lookup_result" style="font-size:0.9em;opacity:0.85;"></span>
+                    </div>
+                </div>
                 <form method="POST" action="/admin/ccshop/balance" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
                     <div>
-                        <label style="display:block;margin-bottom:5px;opacity:0.7;">User ID</label>
-                        <input type="number" name="user_id" required style="padding:8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;width:150px;">
+                        <label style="display:block;margin-bottom:5px;opacity:0.7;font-size:0.85em;">Telegram User ID</label>
+                        <input type="number" name="user_id" id="bal_uid" required style="padding:8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;width:160px;" placeholder="e.g. 1234567890">
                     </div>
                     <div>
-                        <label style="display:block;margin-bottom:5px;opacity:0.7;">Amount ($)</label>
-                        <input type="number" name="amount" step="0.01" required style="padding:8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;width:120px;">
+                        <label style="display:block;margin-bottom:5px;opacity:0.7;font-size:0.85em;">Amount ($)</label>
+                        <input type="number" name="amount" step="0.01" min="0" required style="padding:8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;width:120px;" placeholder="0.00">
                     </div>
                     <button type="submit" name="action" value="add" class="btn btn-primary">Add Balance</button>
                     <button type="submit" name="action" value="deduct" class="btn" style="background:#ef4444;">Deduct</button>
                     <button type="submit" name="action" value="set" class="btn" style="background:#6366f1;">Set Balance</button>
                 </form>
+                <p style="opacity:0.5;font-size:0.78em;margin-top:8px;">Enter the user&#39;s Telegram ID (not DB row ID). Use Lookup above to verify before changing.</p>
             </div>
 
             <div class="card">
@@ -12290,6 +12303,21 @@ def admin_ccshop():
         function toggleSidebar(){{document.querySelector('.sidebar').classList.toggle('open');document.querySelector('.sidebar-overlay').classList.toggle('open');}}
         function closeSidebar(){{document.querySelector('.sidebar').classList.remove('open');document.querySelector('.sidebar-overlay').classList.remove('open');}}
         function toggleAll(){{let checks=document.querySelectorAll('.card-check');let allChecked=[...checks].every(c=>c.checked);checks.forEach(c=>c.checked=!allChecked);}}
+        function lookupBalance(){{
+            var uid = document.getElementById('lookup_uid').value.trim();
+            var result = document.getElementById('lookup_result');
+            if(!uid){{result.textContent='Enter a Telegram ID first.';result.style.color='#fca5a5';return;}}
+            result.textContent='Looking up...';result.style.color='#ccc';
+            fetch('/admin/ccshop/balance-lookup?user_id='+encodeURIComponent(uid))
+                .then(r=>r.json()).then(d=>{{
+                    if(d.error){{result.textContent='Error: '+d.error;result.style.color='#fca5a5';}}
+                    else{{
+                        result.innerHTML='<strong style="color:#4ade80;">@'+d.username+'</strong> — Current balance: <strong style="color:#a3e635;">$'+d.balance.toFixed(2)+'</strong>';
+                        document.getElementById('bal_uid').value=uid;
+                    }}
+                }}).catch(e=>{{result.textContent='Request failed';result.style.color='#fca5a5';}});
+        }}
+        document.getElementById('lookup_uid').addEventListener('keydown',function(e){{if(e.key==='Enter'){{e.preventDefault();lookupBalance();}}}});
         </script>
     </body>
     </html>
@@ -12342,20 +12370,52 @@ def admin_ccshop_set_price():
 @app.route('/admin/ccshop/balance', methods=['POST'])
 @admin_required
 def admin_ccshop_balance():
+    from modules.cc_shop import get_user_balance
+    from urllib.parse import quote
     try:
         user_id = int(request.form.get('user_id', 0))
         amount = float(request.form.get('amount', 0))
         action = request.form.get('action', 'add')
-        if user_id and amount != 0:
-            if action == 'set':
-                set_user_balance(user_id, max(0, amount))
-            elif action == 'deduct':
-                add_user_balance(user_id, -abs(amount))
-            else:
-                add_user_balance(user_id, amount)
-    except:
-        pass
-    return redirect('/admin/ccshop')
+        if not user_id:
+            return redirect('/admin/ccshop?bal_error=Invalid+Telegram+User+ID')
+        if amount == 0 and action != 'set':
+            return redirect('/admin/ccshop?bal_error=Amount+cannot+be+zero')
+        if action == 'set':
+            set_user_balance(user_id, max(0, amount))
+        elif action == 'deduct':
+            add_user_balance(user_id, -abs(amount))
+        else:
+            add_user_balance(user_id, amount)
+        new_bal = get_user_balance(user_id)
+        from modules.database import _execute_with_retry
+        row = _execute_with_retry("SELECT username FROM users WHERE user_id = %s", (user_id,), fetch_one=True)
+        uname = (row.get('username') or str(user_id)) if row else str(user_id)
+        return redirect(f'/admin/ccshop?bal_ok=' + quote(f'Balance updated — {uname} now has ${new_bal:.2f}'))
+    except Exception as e:
+        return redirect('/admin/ccshop?bal_error=' + quote(str(e))[:100])
+
+
+@app.route('/admin/ccshop/balance-lookup', methods=['GET'])
+@admin_required
+def admin_ccshop_balance_lookup():
+    from modules.cc_shop import get_user_balance
+    from modules.database import _execute_with_retry
+    try:
+        user_id = int(request.args.get('user_id', 0))
+        if not user_id:
+            return jsonify({'error': 'No user ID'})
+        row = _execute_with_retry(
+            "SELECT username, shop_balance FROM users WHERE user_id = %s",
+            (user_id,), fetch_one=True
+        )
+        if not row:
+            return jsonify({'error': f'No user found with Telegram ID {user_id}'})
+        return jsonify({
+            'username': row.get('username') or '(no username)',
+            'balance': float(row.get('shop_balance') or 0)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 @app.route('/admin/ccshop/clear-all', methods=['POST'])
 @admin_required
@@ -12958,11 +13018,13 @@ def admin_bin_shop_edit_post(listing_id):
         sites_text = request.form.get('sites', '').strip()
         method_note = request.form.get('method_note', '').strip()
         sites = parse_sites_textarea(sites_text)
-        update_bin_listing(
+        ok = update_bin_listing(
             listing_id, bin_number, brand, country, country_code,
             card_type, card_level, bank, price, sites, method_note, public_description
         )
-        return redirect('/admin/ccshop/bins?msg=BIN+listing+' + str(listing_id) + '+updated')
+        if not ok:
+            return redirect(f'/admin/ccshop/bins/edit/{listing_id}?error=Update+failed+%E2%80%94+listing+ID+not+found+or+DB+error')
+        return redirect('/admin/ccshop/bins?msg=BIN+listing+' + str(listing_id) + '+updated+successfully')
     except Exception as e:
         return redirect(f'/admin/ccshop/bins/edit/{listing_id}?error=' + _h(str(e))[:80])
 
