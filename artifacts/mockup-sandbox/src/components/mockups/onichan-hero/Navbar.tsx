@@ -2,10 +2,10 @@ import { motion } from "framer-motion";
 import { ChevronRight, ArrowUpRight } from "lucide-react";
 
 const items = [
-  { label: "Gates",   hasDropdown: false },
-  { label: "Checker", hasDropdown: true  },
-  { label: "Hitter",  hasDropdown: true  },
-  { label: "Docs",    hasDropdown: false },
+  { label: "Gates", hasDropdown: false },
+  { label: "Checker", hasDropdown: true },
+  { label: "Hitter", hasDropdown: true },
+  { label: "Docs", hasDropdown: false },
 ];
 
 export function Navbar() {

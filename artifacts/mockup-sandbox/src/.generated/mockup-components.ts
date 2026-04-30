@@ -3,8 +3,6 @@ type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/onichan-hero/BottomLeftCard.tsx": () => import("../components/mockups/onichan-hero/BottomLeftCard.tsx"),
   "./components/mockups/onichan-hero/BottomRightCorner.tsx": () => import("../components/mockups/onichan-hero/BottomRightCorner.tsx"),
-  "./components/mockups/onichan-hero/CardBrands.tsx": () => import("../components/mockups/onichan-hero/CardBrands.tsx"),
-  "./components/mockups/onichan-hero/FloatingCards.tsx": () => import("../components/mockups/onichan-hero/FloatingCards.tsx"),
   "./components/mockups/onichan-hero/Hero.tsx": () => import("../components/mockups/onichan-hero/Hero.tsx"),
   "./components/mockups/onichan-hero/HeroBadge.tsx": () => import("../components/mockups/onichan-hero/HeroBadge.tsx"),
   "./components/mockups/onichan-hero/Navbar.tsx": () => import("../components/mockups/onichan-hero/Navbar.tsx")
