@@ -17928,7 +17928,7 @@ def main():
 
     try:
         from modules.proxy_scraper_engine import start_scraper_thread
-        start_scraper_thread(interval_minutes=10)
+        start_scraper_thread(interval_minutes=20)
         print("🕷️ Proxy scraper background thread started")
     except Exception as e:
         print(f"⚠️ Proxy scraper start failed: {e}")
@@ -18591,7 +18591,9 @@ def main():
                     continue
 
                 for row in rows:
-                    tg_id, chain, address = row[0], row[1], row[2]
+                    tg_id = row.get('telegram_id') if hasattr(row, 'get') else row[0]
+                    chain = row.get('chain') if hasattr(row, 'get') else row[1]
+                    address = row.get('address') if hasattr(row, 'get') else row[2]
                     if not address or not chain:
                         continue
 

@@ -392,7 +392,7 @@ async def run_scrape_cycle():
                 alive_count = 0
                 stored_count = 0
                 if raw:
-                    valid = await _validate_batch(raw, source.get('proxy_type', 'HTTP'), concurrency=50)
+                    valid = await _validate_batch(raw, source.get('proxy_type', 'HTTP'), concurrency=20)
                     alive_count = len(valid)
                     total_alive += alive_count
                     stored_count = _store_proxies(valid, name)

@@ -29,7 +29,7 @@ _last_connect_attempt = 0
 
 # Pool sizing: enough headroom for concurrent Telegram handlers + Flask threads
 _POOL_MIN = 2
-_POOL_MAX = 35
+_POOL_MAX = 50
 
 
 def _ensure_pool() -> bool:
@@ -55,6 +55,11 @@ def _ensure_pool() -> bool:
                 _POOL_MIN, _POOL_MAX,
                 dsn=DATABASE_URL,
                 connect_timeout=10,
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=5,
+                options="-c statement_timeout=30000",
             )
             _db_connected = True
             return True
@@ -564,6 +569,16 @@ def _create_tables():
                 )
             """)
 
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_premium_expiry ON users(premium, premium_expiry)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_cc_shop_stock_status ON cc_shop_stock(status)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_cc_shop_deposits_user ON cc_shop_deposits(user_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_cc_shop_deposits_status ON cc_shop_deposits(status)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_card_logs_user ON card_logs(user_id, created_at DESC)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_proxy_pool_alive ON proxy_pool(alive, classification)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_bin_shop_listings_status ON bin_shop_listings(status)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_bin_shop_purchases_user ON bin_shop_purchases(user_id, purchased_at DESC)")
+
         # Casino tables
         from modules.casino import _init_casino_tables, start_cleanup_scheduler
         _init_casino_tables()
@@ -650,13 +665,16 @@ def _execute_with_retry(query, params=None, fetch=False, fetch_one=False, return
             _drop_thread_conn()
             time.sleep(0.3)
         except Exception as e:
-            print(f"[DB] Query error attempt {attempt + 1}/3: {type(e).__name__}: {e}")
             msg = str(e).lower()
+            if "statement timeout" in msg or "canceling statement" in msg:
+                print(f"[DB] Statement timeout on query: {query[:80] if isinstance(query, str) else '(callable)'}...")
+                return None if fetch or fetch_one else (0 if return_rowcount else False)
+            print(f"[DB] Query error attempt {attempt + 1}/3: {type(e).__name__}: {e}")
             if "closed" in msg or "ssl" in msg or "connection" in msg:
                 _drop_thread_conn()
             time.sleep(0.2)
 
-    print(f"[DB] Query failed after 3 attempts: {query[:60]}...")
+    print(f"[DB] Query failed after 3 attempts: {query[:60] if isinstance(query, str) else '(callable)'}...")
     return None if fetch or fetch_one else (0 if return_rowcount else False)
 
 def is_user_premium_sync(user_id: int) -> bool:
