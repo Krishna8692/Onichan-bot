@@ -314,58 +314,504 @@ def ping():
 
 @app.route('/')
 def home():
-    return """
-    <html>
-        <head>
-            <title>Onichan Bot</title>
-            <style>
-                body {
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    font-family: Arial, sans-serif;
-                    color: white;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    height: 100vh;
-                    margin: 0;
-                }
-                .container {
-                    text-align: center;
-                    padding: 40px;
-                    background: rgba(255, 255, 255, 0.1);
-                    border-radius: 20px;
-                    backdrop-filter: blur(10px);
-                }
-                h1 { font-size: 3em; margin: 0; }
-                p { font-size: 1.2em; margin: 20px 0; }
-                .status { 
-                    color: #4ade80; 
-                    font-weight: bold;
-                    font-size: 1.5em;
-                }
-                .admin-link {
-                    display: inline-block;
-                    margin-top: 20px;
-                    padding: 10px 25px;
-                    background: #e94560;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 8px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>Onichan Bot</h1>
-                <p class="status">Bot is Running!</p>
-                <p>Premium CC Checker Bot</p>
-                <p>Powered by Replit</p>
-                <a href="/admin" class="admin-link">Admin Panel</a>
-                <a href="/user" class="admin-link" style="margin-left: 10px; background: #a855f7;">User Panel</a>
-            </div>
-        </body>
-    </html>
-    """
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Onichan — Elite Card Operations</title>
+  <style>
+    @font-face {
+      font-family: "Helvetica Regular";
+      src: url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.woff2") format("woff2"),
+           url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.woff") format("woff"),
+           url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.ttf") format("truetype");
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background-color: #f0f0f0;
+      font-family: "Helvetica Regular", ui-sans-serif, system-ui, sans-serif;
+    }
+
+    /* ── page wrapper ── */
+    .page {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      background: #f0f0f0;
+    }
+    @media (min-width: 768px) { .page { padding: 20px; } }
+
+    /* ── hero section ── */
+    .hero {
+      position: relative;
+      width: 100%;
+      max-width: 1536px;
+      height: 100%;
+      border-radius: 1.5rem;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: rgba(255,255,255,0.10);
+    }
+    @media (min-width: 768px) { .hero { border-radius: 3rem; } }
+
+    /* ── video background ── */
+    .hero-video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: 65% center;
+      z-index: 0;
+    }
+    @media (min-width: 1024px) { .hero-video { object-position: center; } }
+
+    /* ── content layer ── */
+    .content {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── navbar ── */
+    .navbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 24px;
+      width: 100%;
+    }
+    @media (min-width: 768px) { .navbar { padding: 24px 40px; } }
+
+    .nav-spacer { flex: 1; display: none; }
+    @media (min-width: 768px) { .nav-spacer { display: block; } }
+
+    .nav-menu {
+      display: none;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      gap: 32px;
+      align-items: center;
+      color: rgb(45,45,45);
+      font-size: 14px;
+    }
+    @media (min-width: 768px) { .nav-menu { display: flex; } }
+
+    .nav-item {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: opacity .2s;
+      text-decoration: none;
+      color: rgb(45,45,45);
+    }
+    .nav-item:hover { opacity: .7; }
+
+    .nav-chevron {
+      width: 16px;
+      height: 16px;
+      transition: transform .2s;
+    }
+    .nav-item:hover .nav-chevron { transform: translateX(2px); }
+
+    .nav-logo {
+      display: block;
+      font-size: 20px;
+      letter-spacing: -.05em;
+      color: rgba(30,50,90,0.9);
+    }
+    @media (min-width: 768px) { .nav-logo { display: none; } }
+
+    .nav-right { flex: 1; display: flex; justify-content: flex-end; }
+
+    .get-access-btn {
+      display: flex;
+      align-items: center;
+      background: rgba(30,50,90,0.8);
+      color: #fff;
+      border: none;
+      border-radius: 9999px;
+      padding: 6px 16px 6px 8px;
+      gap: 8px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .2s, transform .15s;
+    }
+    @media (min-width: 768px) { .get-access-btn { padding: 8px 24px 8px 8px; font-size: 14px; } }
+    .get-access-btn:hover { background: rgba(30,50,90,1); transform: scale(1.02); }
+    .get-access-btn:active { transform: scale(.98); }
+
+    .btn-icon {
+      background: rgba(255,255,255,0.2);
+      padding: 6px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-icon svg { width: 16px; height: 16px; }
+    @media (min-width: 768px) { .btn-icon svg { width: 20px; height: 20px; } }
+
+    /* ── text block ── */
+    .text-block {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 24px 0;
+      text-align: center;
+      max-width: 896px;
+    }
+
+    /* ── badge ── */
+    .badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 9999px;
+      background: rgba(255,255,255,0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.2);
+      margin-bottom: 12px;
+      width: fit-content;
+      animation: fadeUp .6s ease-out both;
+    }
+    .badge svg { width: 16px; height: 16px; color: rgba(30,50,90,0.8); }
+    .badge span { font-size: 14px; color: rgba(30,50,90,0.9); }
+
+    /* ── hero headline ── */
+    .hero-h1 {
+      font-size: clamp(2.25rem, 7vw, 80px);
+      font-weight: 400;
+      color: #5E6470;
+      margin: 0 0 8px;
+      letter-spacing: -.02em;
+      line-height: 1.05;
+      animation: scaleIn .8s ease-out .2s both;
+    }
+
+    .hero-p {
+      font-size: clamp(.875rem, 1.5vw, 1.125rem);
+      color: #5E6470;
+      opacity: .8;
+      line-height: 1.6;
+      max-width: 560px;
+      font-weight: 400;
+      animation: fadeIn .8s ease-out .4s both;
+    }
+
+    /* ── bottom left card ── */
+    .bottom-left-card {
+      position: absolute;
+      bottom: 112px;
+      right: 16px;
+      padding: 12px;
+      border-radius: 1.2rem;
+      background: rgba(255,255,255,0.30);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 140px;
+      animation: slideInLeft .8s ease-out .2s both;
+    }
+    @media (min-width: 768px) {
+      .bottom-left-card {
+        left: 24px;
+        right: auto;
+        bottom: 24px;
+        padding: 16px;
+        border-radius: 1.5rem;
+        min-width: 150px;
+        gap: 12px;
+      }
+    }
+    @media (min-width: 1024px) {
+      .bottom-left-card {
+        left: 40px;
+        bottom: 40px;
+        padding: 20px;
+        border-radius: 2.2rem;
+        min-width: 180px;
+      }
+    }
+
+    .card-stat-num {
+      font-size: 1.875rem;
+      font-weight: 400;
+      color: rgba(30,50,90,0.9);
+      letter-spacing: -.025em;
+      line-height: 1;
+    }
+    @media (min-width: 768px) { .card-stat-num { font-size: 2rem; } }
+
+    .card-stat-label {
+      font-size: 10px;
+      font-weight: 400;
+      color: rgba(30,50,90,0.6);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    @media (min-width: 768px) { .card-stat-label { font-size: 12px; } }
+
+    .join-btn {
+      display: flex;
+      align-items: center;
+      background: #fff;
+      border: none;
+      border-radius: 9999px;
+      padding: 6px 20px 6px 6px;
+      gap: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      color: rgba(30,50,90,0.9);
+      cursor: pointer;
+      text-decoration: none;
+      align-self: flex-start;
+      transition: background .2s, transform .15s;
+    }
+    .join-btn:hover { background: rgba(255,255,255,0.9); transform: scale(1.02); }
+    .join-btn:active { transform: scale(.98); }
+
+    .join-icon {
+      background: rgba(30,50,90,0.1);
+      padding: 4px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .join-icon svg { width: 16px; height: 16px; color: rgba(30,50,90,0.9); }
+
+    /* ── bottom right corner ── */
+    .bottom-right-corner {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      padding: 20px 12px 12px 32px;
+      background: #f0f0f0;
+      border-top-left-radius: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: slideInUp .8s ease-out .4s both;
+    }
+    @media (min-width: 640px) {
+      .bottom-right-corner {
+        padding: 24px 16px 16px 40px;
+        border-top-left-radius: 2rem;
+        gap: 16px;
+      }
+    }
+    @media (min-width: 768px) {
+      .bottom-right-corner {
+        padding: 32px 24px 24px 56px;
+        border-top-left-radius: 3.5rem;
+        gap: 24px;
+      }
+    }
+
+    .corner-mask-top {
+      position: absolute;
+      top: -1.5rem;
+      right: 0;
+      width: 1.5rem;
+      height: 1.5rem;
+      pointer-events: none;
+    }
+    @media (min-width: 640px) { .corner-mask-top { top: -2rem; width: 2rem; height: 2rem; } }
+    @media (min-width: 768px) { .corner-mask-top { top: -3.5rem; width: 3.5rem; height: 3.5rem; } }
+
+    .corner-mask-left {
+      position: absolute;
+      bottom: 0;
+      left: -1.5rem;
+      width: 1.5rem;
+      height: 1.5rem;
+      pointer-events: none;
+    }
+    @media (min-width: 640px) { .corner-mask-left { left: -2rem; width: 2rem; height: 2rem; } }
+    @media (min-width: 768px) { .corner-mask-left { left: -3.5rem; width: 3.5rem; height: 3.5rem; } }
+
+    .corner-icon {
+      background: rgba(30,50,90,0.05);
+      width: 40px;
+      height: 40px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(30,50,90,0.1);
+      flex-shrink: 0;
+    }
+    @media (min-width: 768px) { .corner-icon { width: 56px; height: 56px; } }
+    .corner-icon svg { width: 20px; height: 20px; color: rgba(30,50,90,0.8); }
+    @media (min-width: 768px) { .corner-icon svg { width: 24px; height: 24px; } }
+
+    .corner-title {
+      font-size: 16px;
+      font-weight: 400;
+      color: rgba(30,50,90,0.95);
+      line-height: 1;
+    }
+    @media (min-width: 768px) { .corner-title { font-size: 20px; } }
+
+    .corner-link {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: rgba(30,50,90,0.6);
+      text-decoration: none;
+      font-size: 12px;
+      transition: color .2s;
+      cursor: pointer;
+    }
+    @media (min-width: 768px) { .corner-link { font-size: 15px; } }
+    .corner-link:hover { color: rgba(30,50,90,0.8); }
+    .corner-link svg { width: 12px; height: 12px; }
+    @media (min-width: 768px) { .corner-link svg { width: 16px; height: 16px; } }
+
+    /* ── animations ── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(.98); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    @keyframes slideInLeft {
+      from { opacity: 0; transform: translateX(-20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes slideInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+
+      <!-- Video background -->
+      <video class="hero-video" autoplay muted loop playsinline>
+        <source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260428_193507_4286c423-2fd9-4efd-92bd-91a939453fc1.mp4" type="video/mp4" />
+      </video>
+
+      <!-- Content layer -->
+      <div class="content">
+
+        <!-- Navbar -->
+        <nav class="navbar">
+          <div class="nav-spacer"></div>
+          <ul class="nav-menu">
+            <li><a href="/user/gates" class="nav-item">Gates</a></li>
+            <li>
+              <a href="/user/checker" class="nav-item">
+                Checker
+                <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </a>
+            </li>
+            <li>
+              <a href="/user/hitter" class="nav-item">
+                Hitter
+                <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </a>
+            </li>
+            <li><a href="/docs" class="nav-item">Docs</a></li>
+          </ul>
+          <span class="nav-logo">Onichan</span>
+          <div class="nav-right">
+            <a href="/user/login" class="get-access-btn">
+              <span class="btn-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
+              </span>
+              Get Access
+            </a>
+          </div>
+        </nav>
+
+        <!-- Hero text -->
+        <div class="text-block">
+          <div class="badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+            <span>Ghost Mode Active</span>
+          </div>
+          <h1 class="hero-h1">Elite Card Operations</h1>
+          <p class="hero-p">Run gates, check bins, and hit checkouts with surgical precision. Built for speed, zero friction, maximum output.</p>
+        </div>
+
+        <!-- Bottom left stat card -->
+        <div class="bottom-left-card">
+          <div>
+            <div class="card-stat-num">847K+</div>
+            <div class="card-stat-label">Cards Checked</div>
+          </div>
+          <a href="https://t.me/" class="join-btn" target="_blank" rel="noopener">
+            <span class="join-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
+            </span>
+            Join Telegram
+          </a>
+        </div>
+
+        <!-- Bottom right corner -->
+        <div class="bottom-right-corner">
+          <!-- Top cutout mask -->
+          <div class="corner-mask-top">
+            <svg width="100%" height="100%" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M56 56V0C56 30.9279 30.9279 56 0 56H56Z" fill="#f0f0f0"/>
+            </svg>
+          </div>
+          <!-- Left cutout mask -->
+          <div class="corner-mask-left">
+            <svg width="100%" height="100%" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M56 56H0C30.9279 56 56 30.9279 56 0V56Z" fill="#f0f0f0"/>
+            </svg>
+          </div>
+          <div class="corner-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
+          </div>
+          <div>
+            <div class="corner-title">API Docs</div>
+            <a href="/docs" class="corner-link">
+              Explore
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </a>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </div>
+</body>
+</html>"""
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
