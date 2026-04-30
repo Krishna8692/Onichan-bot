@@ -4339,7 +4339,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
         return f'<a href="{url}" {active} onclick="closeMobileMenu()">{name}</a>'
 
     # Bottom-nav tab grouping — which active_page lights up which tab
-    _shop_keys = {'ccshop', 'purchased', 'proxyshop', 'myproxies', 'bins'}
+    _shop_keys = {'ccshop', 'purchased', 'proxyshop', 'myproxies', 'bins', 'mybins'}
     _tools_keys = {'checker', 'masscheck', 'generator', 'autohitter', 'bulkhitter', 'razorpay',
                    'payu', 'shopify', 'cleaner', 'binlookup', 'proxychecker', 'proxygen', 'browser'}
     _casino_keys = {'casino'}
@@ -13266,12 +13266,13 @@ _BIN_REVEAL_CSS = """
     .method-box{background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);border-radius:12px;padding:18px;margin-bottom:20px;}
 """
 
-def _bin_reveal_html(listing, show_back_btn=True):
+def _bin_reveal_html(listing, show_back_btn=True, uid=None):
     flag_map = {'US': '🇺🇸', 'GB': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪',
                 'FR': '🇫🇷', 'NL': '🇳🇱', 'SE': '🇸🇪', 'SG': '🇸🇬', 'JP': '🇯🇵'}
     cc = listing.get('country_code', '')
     flag = flag_map.get(cc.upper(), '🌍')
     bin_val = _h(str(listing.get('bin_number', '')))
+    uid_str = str(uid) if uid is not None else str(listing.get('id', 'x'))
 
     sites_html = ''
     for s in (listing.get('sites') or []):
@@ -13308,8 +13309,8 @@ def _bin_reveal_html(listing, show_back_btn=True):
     return (f'<div class="reveal-card">'
             f'<div style="font-size:0.8em;color:#4ade80;margin-bottom:10px;font-weight:600;">✅ PURCHASED — Full BIN Revealed</div>'
             f'<div class="bin-box">'
-            f'<span class="bin-digits" id="binval">{bin_val}</span>'
-            f'<button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById(\'binval\').textContent);this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 Copy BIN\',1500);">📋 Copy BIN</button>'
+            f'<span class="bin-digits" id="binval-{uid_str}">{bin_val}</span>'
+            f'<button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById(\'binval-{uid_str}\').textContent);this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 Copy BIN\',1500);">📋 Copy BIN</button>'
             f'</div>'
             f'<div class="detail-grid">'
             f'<div class="detail-cell"><div class="lbl">BRAND</div><div class="val">{_h(str(listing.get("brand","")))}</div></div>'
@@ -13498,7 +13499,7 @@ def user_ccshop_bins_purchased():
     <style>{_BIN_REVEAL_CSS}</style>
     </head>
     <body>
-        {get_user_sidebar('bins', 'BIN Shop')}
+        {get_user_sidebar('mybins', 'My BINs')}
         <div class="main">
             <div class="header"><h1>📦 My BINs</h1></div>
 
