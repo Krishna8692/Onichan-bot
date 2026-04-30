@@ -12109,6 +12109,7 @@ def admin_ccshop():
             <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
             <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
             <a href="/admin/ccshop" class="active" onclick="closeSidebar()">CC Shop</a>
+            <a href="/admin/ccshop/bins" onclick="closeSidebar()">BIN Shop</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -12528,6 +12529,7 @@ def admin_ccshop_purchases():
             <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
             <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
             <a href="/admin/ccshop" class="active" onclick="closeSidebar()">CC Shop</a>
+            <a href="/admin/ccshop/bins" onclick="closeSidebar()">BIN Shop</a>
             <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
             <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
         </div>
@@ -13333,6 +13335,7 @@ def user_ccshop_bins():
     page = request.args.get('page', 1, type=int)
     country_filter = request.args.get('country', '')
     type_filter = request.args.get('type', '')
+    error_msg = request.args.get('error', '')
 
     filters = {}
     if country_filter:
@@ -13402,6 +13405,7 @@ def user_ccshop_bins():
         {get_user_sidebar('bins', 'BIN Shop')}
         <div class="main">
             <div class="header"><h1>🔓 BIN Shop</h1></div>
+            {('<div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;padding:10px 16px;margin-bottom:14px;color:#fca5a5;">❌ ' + _h(error_msg) + '</div>') if error_msg else ''}
             <div class="balance-bar">
                 <div>
                     <div style="opacity:0.7;font-size:0.85em;margin-bottom:2px;">Your Balance</div>
@@ -13471,24 +13475,8 @@ def user_ccshop_bins_buy():
         </html>
         """)
     except ValueError as e:
-        balance = get_user_balance(user_id)
-        return render_template_string(f"""
-        <html>
-        <head><title>Purchase Failed</title>{USER_CSS}</head>
-        <body>
-            {get_user_sidebar('bins', 'BIN Shop')}
-            <div class="main">
-                <div class="card" style="text-align:center;padding:40px;max-width:500px;margin:60px auto;">
-                    <div style="font-size:2.5em;margin-bottom:12px;">❌</div>
-                    <h2 style="color:#ef4444;margin-bottom:10px;">Purchase Failed</h2>
-                    <p style="opacity:0.75;margin-bottom:20px;">{_h(str(e))}</p>
-                    <p style="margin-bottom:20px;">Your balance: <strong style="color:#c084fc;">${balance:.2f}</strong></p>
-                    <a href="/user/ccshop/bins" style="padding:10px 24px;background:rgba(168,85,247,0.2);border:1px solid rgba(168,85,247,0.4);border-radius:8px;color:#c084fc;text-decoration:none;">Back to BIN Shop</a>
-                </div>
-            </div>
-        </body>
-        </html>
-        """)
+        from urllib.parse import quote
+        return redirect('/user/ccshop/bins?error=' + quote(str(e)[:120]))
 
 
 @app.route('/user/ccshop/bins/purchased')
@@ -13496,40 +13484,18 @@ def user_ccshop_bins_buy():
 def user_ccshop_bins_purchased():
     user_id = session.get('user_id')
     purchased = get_purchased_bins(user_id)
-    flag_map = {'US': '🇺🇸', 'GB': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪',
-                'FR': '🇫🇷', 'NL': '🇳🇱', 'SE': '🇸🇪', 'SG': '🇸🇬', 'JP': '🇯🇵'}
 
-    cards_html = ''
+    reveals_html = ''
     for l in purchased:
-        cc = l.get('country_code', '')
-        flag = flag_map.get(cc.upper(), '🌍')
-        method_badge = ('<span style="background:rgba(168,85,247,0.2);color:#a855f7;border:1px solid rgba(168,85,247,0.4);border-radius:6px;padding:2px 8px;font-size:0.75em;">📝 Method</span>' if l.get('has_method') else '')
-        reveal_url = '/user/ccshop/bins/view/' + str(l['id'])
-        cards_html += (f'<div class="shop-card" style="border-color:rgba(74,222,128,0.25);">'
-                       f'<div class="shop-card-header"><span style="font-family:monospace;font-size:1.1em;font-weight:700;color:#c084fc;">{flag} {_h(str(l.get("bin_number","")))}</span><span style="font-size:1.1em;font-weight:700;color:#4ade80;">${float(l.get("price_paid",0)):.2f}</span></div>'
-                       f'<div class="shop-card-body">'
-                       f'<div class="shop-info"><span class="label">Brand</span><span>{_h(str(l.get("brand","")))}</span></div>'
-                       f'<div class="shop-info"><span class="label">Bank</span><span>{_h(str(l.get("bank","")))}</span></div>'
-                       f'<div class="shop-info"><span class="label">Type</span><span>{_h(str(l.get("card_type","")))}</span></div>'
-                       f'<div class="shop-info"><span class="label">Level</span><span>{_h(str(l.get("card_level","")))}</span></div>'
-                       f'<div class="shop-info"><span class="label">Country</span><span>{flag} {_h(str(l.get("country","")))}</span></div>'
-                       f'<div class="shop-info"><span class="label">Sites</span><span>{len(l.get("sites") or [])} listed</span></div>'
-                       + (f'<div style="margin-top:6px;">{method_badge}</div>' if method_badge else '')
-                       + f'</div><a href="{reveal_url}" style="display:block;width:100%;padding:10px;text-align:center;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:8px;color:#fff;font-weight:600;text-decoration:none;font-size:0.9em;box-sizing:border-box;">🔓 View Full Details</a></div>')
+        l['price_paid'] = l.get('price_paid', l.get('price', 0))
+        reveals_html += ('<div style="margin-bottom:28px;">' + _bin_reveal_html(l, show_back_btn=False) + '</div>')
 
-    no_bins_html = ('<p style="opacity:0.5;grid-column:1/-1;padding:40px 0;text-align:center;">You have not purchased any BINs yet. <a href="/user/ccshop/bins" style="color:#c084fc;">Browse the BIN Shop</a></p>' if not cards_html else '')
+    empty_html = ('<div style="text-align:center;padding:60px 0;opacity:0.5;">You have not purchased any BINs yet. <a href="/user/ccshop/bins" style="color:#c084fc;">Browse the BIN Shop</a></div>' if not reveals_html else '')
 
     return render_template_string(f"""
     <html>
     <head><title>My BINs - Onichan</title>{USER_CSS}
-    <style>
-        .shop-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:15px;}}
-        .shop-card{{background:rgba(255,255,255,0.05);border:1px solid rgba(168,85,247,0.2);border-radius:12px;padding:15px;}}
-        .shop-card-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.1);}}
-        .shop-card-body{{margin-bottom:12px;}}
-        .shop-info{{display:flex;justify-content:space-between;padding:3px 0;font-size:0.85em;}}
-        .shop-info .label{{opacity:0.6;}}
-    </style>
+    <style>{_BIN_REVEAL_CSS}</style>
     </head>
     <body>
         {get_user_sidebar('bins', 'BIN Shop')}
@@ -13543,7 +13509,7 @@ def user_ccshop_bins_purchased():
             </div>
 
             <p style="opacity:0.7;margin-bottom:16px;">You own {len(purchased)} BIN(s).</p>
-            <div class="shop-grid">{cards_html}{no_bins_html}</div>
+            {reveals_html}{empty_html}
         </div>
     </body>
     </html>
