@@ -773,7 +773,7 @@ def home():
             <div class="card-stat-num">847K+</div>
             <div class="card-stat-label">Cards Checked</div>
           </div>
-          <a href="https://t.me/" class="join-btn" target="_blank" rel="noopener">
+          <a href="https://t.me/krishnaslounge" class="join-btn" target="_blank" rel="noopener">
             <span class="join-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
             </span>
