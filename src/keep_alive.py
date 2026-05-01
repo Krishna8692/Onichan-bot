@@ -12839,8 +12839,8 @@ def admin_bin_shop():
                         <input type="text" name="public_description" placeholder="e.g. Works on subscription sites, 3D secure enabled" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                     </div>
                     <div style="margin-bottom:12px;">
-                        <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Compatible Sites (one per line: <code style="color:#a855f7;">Name | https://url | notes | 94%</code>)</label>
-                        <textarea name="sites" rows="4" placeholder="Netflix | https://netflix.com | Works on monthly plan | 91%&#10;Spotify | https://spotify.com | Premium plan | 88%" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;resize:vertical;font-family:monospace;font-size:0.85em;"></textarea>
+                        <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Compatible Sites — one per line. Just a name is fine, or use: <code style="color:#a855f7;">Name | https://url | notes | 94%</code></label>
+                        <textarea name="sites" rows="4" placeholder="Emergent.sh&#10;Netflix | https://netflix.com | Works on monthly plan | 91%&#10;Spotify" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;resize:vertical;font-family:monospace;font-size:0.85em;"></textarea>
                     </div>
                     <div style="margin-bottom:16px;">
                         <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">📝 Seller Method / Tutorial (hidden until purchase — can be long)</label>
@@ -12974,8 +12974,8 @@ def admin_bin_shop_edit_get(listing_id):
                         <input type="text" name="public_description" value="{_h(str(listing.get('public_description','') or ''))}" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;">
                     </div>
                     <div style="margin-bottom:12px;">
-                        <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Compatible Sites (one per line: <code style="color:#a855f7;">Name | https://url | notes | 94%</code>)</label>
-                        <textarea name="sites" rows="4" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;resize:vertical;font-family:monospace;font-size:0.85em;">{_h(sites_text)}</textarea>
+                        <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">Compatible Sites — one per line. Just a name is fine, or use: <code style="color:#a855f7;">Name | https://url | notes | 94%</code></label>
+                        <textarea name="sites" rows="4" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fff;resize:vertical;font-family:monospace;font-size:0.85em;" placeholder="Emergent.sh&#10;Amazon | https://amazon.com | use VPN | 87%&#10;eBay">{_h(sites_text)}</textarea>
                     </div>
                     <div style="margin-bottom:16px;">
                         <label style="font-size:0.8em;opacity:0.7;display:block;margin-bottom:4px;">&#128221; Seller Method / Tutorial (hidden until purchase)</label>

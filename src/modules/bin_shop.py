@@ -294,20 +294,23 @@ def get_all_bin_listings_admin():
 
 
 def parse_sites_textarea(text):
-    """Parse sites from textarea: one per line: Name | https://url | notes | 94%"""
+    """Parse sites from textarea: one per line: Name | https://url | notes | 94%
+    A line with just a name (no pipe) is also accepted."""
     sites = []
     for line in text.strip().splitlines():
         line = line.strip()
         if not line:
             continue
         parts = [p.strip() for p in line.split('|')]
-        if len(parts) >= 2:
-            sites.append({
-                'name': parts[0] if len(parts) > 0 else '',
-                'url': parts[1] if len(parts) > 1 else '',
-                'description': parts[2] if len(parts) > 2 else '',
-                'success_rate': parts[3] if len(parts) > 3 else '',
-            })
+        name = parts[0] if len(parts) > 0 else ''
+        if not name:
+            continue
+        sites.append({
+            'name': name,
+            'url': parts[1] if len(parts) > 1 else '',
+            'description': parts[2] if len(parts) > 2 else '',
+            'success_rate': parts[3] if len(parts) > 3 else '',
+        })
     return sites
 
 
