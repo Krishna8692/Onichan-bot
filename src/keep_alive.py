@@ -49,6 +49,47 @@ def _add_perf_headers(resp):
     if p.startswith('/static/'):
         resp.headers['Cache-Control'] = 'public, max-age=86400, immutable'
     return resp
+
+@app.teardown_request
+def _return_db_conn(exc):
+    """Return this request thread's DB connection to the pool after every request.
+
+    Werkzeug threaded=True spawns one thread per request.  Without this hook,
+    every request thread permanently holds its thread-local connection for as
+    long as the thread lives (which is indefinitely in CPython due to the GIL
+    keeping threads alive after the handler returns).  This drains the pool
+    after N requests where N == pool max, causing 'pool exhausted' errors.
+
+    Background threads that need a persistent connection (gate monitor, HIBP
+    watcher, etc.) are unaffected — they never go through Flask request handling.
+    """
+    try:
+        from modules.database import _pool, _tls
+        conn = getattr(_tls, 'conn', None)
+        if conn is None:
+            return
+        # If the connection is in a broken/closed state, discard it properly.
+        if conn.closed:
+            try:
+                _pool.putconn(conn, close=True)
+            except Exception:
+                pass
+        else:
+            # Ensure we leave it in autocommit mode so the next borrower
+            # gets a clean connection without a stale transaction.
+            try:
+                if not conn.autocommit:
+                    conn.rollback()
+                    conn.autocommit = True
+            except Exception:
+                pass
+            try:
+                _pool.putconn(conn)
+            except Exception:
+                pass
+        _tls.conn = None
+    except Exception:
+        pass
 app.secret_key = os.environ.get("SESSION_SECRET", os.environ.get("FLASK_SECRET_KEY", "onichan-secret-key-2024"))
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 _APP_START_TIME = time.time()
@@ -12063,8 +12104,7 @@ def admin_ccshop():
         cards_html += f"""<tr>
             <td><input type="checkbox" name="card_ids" value="{c['id']}" class="card-check"></td>
             <td>{c['id']}</td>
-            <td><code>{_h(c.get('cc_number','')[:6])}******</code></td>
-            <td>{_h(c.get('bin6',''))}</td>
+            <td><code style="color:#ff69b4;">{_h(c.get('bin6','') or '——')}</code></td>
             <td>{_h(c.get('country',''))} ({_h(c.get('country_code',''))})</td>
             <td>{_h(c.get('brand',''))}</td>
             <td>{_h(c.get('card_type',''))}</td>
@@ -12291,8 +12331,8 @@ def admin_ccshop():
                     </div>
                     <div style="overflow-x:auto;">
                     <table>
-                        <tr><th></th><th>ID</th><th>Card</th><th>BIN</th><th>Country</th><th>Brand</th><th>Type</th><th>Bank</th><th>Price</th><th>Status</th><th>Date</th></tr>
-                        {cards_html if cards_html else '<tr><td colspan="11">No cards in stock</td></tr>'}
+                        <tr><th></th><th>ID</th><th>BIN</th><th>Country</th><th>Brand</th><th>Type</th><th>Bank</th><th>Price</th><th>Status</th><th>Date</th></tr>
+                        {cards_html if cards_html else '<tr><td colspan="10">No cards in stock</td></tr>'}
                     </table>
                     </div>
                 </form>

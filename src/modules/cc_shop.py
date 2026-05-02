@@ -252,7 +252,7 @@ def get_all_stock(country=None, brand=None, card_type=None, bank=None, status=No
     total = count_result.get('cnt', 0) if count_result else 0
 
     cards = _execute_with_retry(
-        f"SELECT * FROM cc_shop_stock WHERE {where} ORDER BY uploaded_at DESC LIMIT %s OFFSET %s",
+        f"SELECT id, bin6, country, country_code, brand, card_type, card_level, bank, price, status, uploaded_at, sold_to, sold_at FROM cc_shop_stock WHERE {where} ORDER BY uploaded_at DESC LIMIT %s OFFSET %s",
         params + [per_page, offset], fetch=True
     )
 
@@ -328,6 +328,9 @@ def purchase_card(user_id, card_id, holder_info):
 
         card['cc_number'] = _xor_decrypt(card['cc_number'])
         card['cvv'] = _xor_decrypt(card['cvv'])
+
+        # Invalidate cached stats so the available count reflects the new sale
+        _cache_del('shop_stats')
 
         return {
             'success': True,
