@@ -91,4 +91,5 @@ packages = ["cargo", "freetype", "gitFull", "lcms2", "libiconv", "libimagequant"
   OWNER_ID = "1857417752"
   ADMIN_PASSWORD = "onichan2024"
   TON_WALLET = "UQDkmtGV9yrcSjR4zstKvmaTfuIl0-WnqoXwMPdzeuv5obCU"
+OXAPAY_API_KEY = "J02IT8-35CHE8-0RYTWR-KZXR4D"
   
