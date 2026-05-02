@@ -3,10 +3,32 @@ import json
 import os
 import base64
 import hashlib
+import threading as _th
+import time as _time
 from datetime import datetime
 from cryptography.fernet import Fernet, InvalidToken
 from modules.database import _execute_with_retry, is_db_connected, get_connection_with_retry
 from modules.bin_lookup import lookup_bin
+
+# ── Simple thread-safe TTL cache ─────────────────────────────────────────────
+_cache_lock = _th.Lock()
+_cache: dict = {}   # key -> (value, expiry_timestamp)
+
+def _cache_get(key):
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and _time.time() < entry[1]:
+            return entry[0], True
+    return None, False
+
+def _cache_set(key, value, ttl=60):
+    with _cache_lock:
+        _cache[key] = (value, _time.time() + ttl)
+
+def _cache_del(key):
+    with _cache_lock:
+        _cache.pop(key, None)
+# ─────────────────────────────────────────────────────────────────────────────
 
 _SECRET = os.environ.get("SESSION_SECRET", "")
 if not _SECRET:
@@ -125,10 +147,16 @@ def bulk_upload_cards(lines, default_price=5.00):
         else:
             duplicates += 1
 
+    if added > 0:
+        _cache_del('filter_options')
+        _cache_del('shop_stats')
     return {'added': added, 'skipped': skipped, 'duplicates': duplicates}
 
 
 def get_shop_stats():
+    val, hit = _cache_get('shop_stats')
+    if hit:
+        return val
     result = _execute_with_retry("""
         SELECT 
             COUNT(*) FILTER (WHERE status = 'available') as available,
@@ -139,14 +167,17 @@ def get_shop_stats():
         FROM cc_shop_stock
     """, fetch_one=True)
     if result:
-        return {
+        stats = {
             'available': result.get('available', 0) or 0,
             'sold': result.get('sold', 0) or 0,
             'removed': result.get('removed', 0) or 0,
             'total': result.get('total', 0) or 0,
             'revenue': float(result.get('revenue', 0) or 0)
         }
-    return {'available': 0, 'sold': 0, 'removed': 0, 'total': 0, 'revenue': 0}
+    else:
+        stats = {'available': 0, 'sold': 0, 'removed': 0, 'total': 0, 'revenue': 0}
+    _cache_set('shop_stats', stats, ttl=30)
+    return stats
 
 
 def get_available_cards(country=None, brand=None, card_type=None, bank=None, bin_prefix=None, page=1, per_page=50):
@@ -403,6 +434,8 @@ def remove_cards(card_ids):
 
 
 def clear_all_stock(only_available=False):
+    _cache_del('filter_options')
+    _cache_del('shop_stats')
     if only_available:
         result = _execute_with_retry(
             "DELETE FROM cc_shop_stock WHERE status = 'available'",
@@ -418,16 +451,21 @@ def clear_all_stock(only_available=False):
 
 
 def get_shop_setting(key, default=None):
+    cache_key = f'setting:{key}'
+    val, hit = _cache_get(cache_key)
+    if hit:
+        return val
     result = _execute_with_retry(
         "SELECT value FROM cc_shop_settings WHERE key = %s",
         (key,), fetch_one=True
     )
-    if result:
-        return result.get('value', default)
-    return default
+    value = result.get('value', default) if result else default
+    _cache_set(cache_key, value, ttl=60)
+    return value
 
 
 def set_shop_setting(key, value):
+    _cache_del(f'setting:{key}')
     return _execute_with_retry("""
         INSERT INTO cc_shop_settings (key, value, updated_at)
         VALUES (%s, %s, NOW())
@@ -484,6 +522,7 @@ def add_price_rule(rule_type, target, price):
         target_val = target_val.strip()[:6]
     elif rule_type == 'brand':
         target_val = target_val.upper()
+    _cache_del('price_rules')
     return _execute_with_retry("""
         INSERT INTO cc_shop_price_rules (rule_type, target, price, created_at)
         VALUES (%s, %s, %s, NOW())
@@ -492,6 +531,7 @@ def add_price_rule(rule_type, target, price):
 
 
 def remove_price_rule(rule_id):
+    _cache_del('price_rules')
     return _execute_with_retry(
         "DELETE FROM cc_shop_price_rules WHERE id = %s",
         (rule_id,), return_rowcount=True
@@ -499,10 +539,15 @@ def remove_price_rule(rule_id):
 
 
 def get_price_rules():
-    return _execute_with_retry(
+    val, hit = _cache_get('price_rules')
+    if hit:
+        return val
+    result = _execute_with_retry(
         "SELECT * FROM cc_shop_price_rules ORDER BY rule_type, target",
         fetch=True
     ) or []
+    _cache_set('price_rules', result, ttl=120)
+    return result
 
 
 def get_price_for_card(bin6='', country_code='', country='', brand=''):
@@ -561,6 +606,9 @@ def get_stock_summary():
 
 
 def get_filter_options():
+    val, hit = _cache_get('filter_options')
+    if hit:
+        return val
     countries = _execute_with_retry("""
         SELECT DISTINCT country, country_code FROM cc_shop_stock WHERE status = 'available' ORDER BY country
     """, fetch=True) or []
@@ -573,13 +621,14 @@ def get_filter_options():
     banks = _execute_with_retry("""
         SELECT DISTINCT bank FROM cc_shop_stock WHERE status = 'available' ORDER BY bank LIMIT 50
     """, fetch=True) or []
-
-    return {
+    result = {
         'countries': [{'name': c['country'], 'code': c['country_code']} for c in countries],
         'brands': [b['brand'] for b in brands],
         'types': [t['card_type'] for t in types],
         'banks': [b['bank'] for b in banks]
     }
+    _cache_set('filter_options', result, ttl=120)
+    return result
 
 
 def get_purchase_history(page=1, per_page=50):

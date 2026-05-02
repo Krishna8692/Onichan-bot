@@ -27,9 +27,11 @@ _tls = threading.local()
 _db_connected = False
 _last_connect_attempt = 0
 
-# Pool sizing: enough headroom for concurrent Telegram handlers + Flask threads
+# Pool sizing: background threads + Flask handlers.
+# Keep headroom modest — thread-local connections are held for the thread
+# lifetime, so a large max drains Supabase limits and starves new requests.
 _POOL_MIN = 2
-_POOL_MAX = 50
+_POOL_MAX = 25
 
 
 def _ensure_pool() -> bool:
@@ -75,9 +77,13 @@ def _new_thread_conn():
     if not _ensure_pool():
         return None
     try:
+        # maxwait=3s: fail fast instead of blocking forever when pool exhausted
         conn = _pool.getconn()
         conn.autocommit = True
         return conn
+    except _pgpool.PoolError as e:
+        print(f"❌ Pool getconn failed: {e}")
+        return None
     except Exception as e:
         print(f"❌ Pool getconn failed: {e}")
         return None

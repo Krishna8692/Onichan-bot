@@ -17910,7 +17910,7 @@ def run():
         try:
             from werkzeug.serving import run_simple
             print(f"[keep_alive] Werkzeug threaded server on :{port} (WS-capable for Pro Mode)")
-            run_simple('0.0.0.0', port, app, threaded=True, use_reloader=False, use_debugger=False)
+            run_simple('0.0.0.0', port, app, threaded=True, use_reloader=False, use_debugger=False, request_handler=None)
             return
         except Exception as e:
             print(f"[keep_alive] Werkzeug start failed ({e!r}); falling back to waitress (Pro Mode WS will be unavailable)")
