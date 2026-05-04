@@ -13037,7 +13037,52 @@ cc2|mm|yy|cvv</code>
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="start")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await safe_edit(text, reply_markup)
-    
+
+    # HELP MENU
+    elif query.data == "help_menu":
+        is_premium_user = is_premium(user.id)
+        is_owner_user   = is_owner(user.id)
+        sep = "━━━━━━━━━━━━━━━━━━━━"
+        text = ae(f"""💜 <b>ONICHAN • HELP</b>
+{sep}
+👤 {rank} | 📊 Limit: {get_mass_check_limit(user.id)} cards
+{sep}
+🔰 <b>BASIC</b>
+/start · /help · /info · /redeem
+{sep}
+🚪 <b>FREE GATES</b>
+/st Stripe · /bu Braintree · /sq Square
+{sep}
+🔧 <b>TOOLS</b>
+/gen · /bin · /fake · /web · /proxy
+/scr · /tmail · /cmail · /sk · /config
+{sep}
+🧹 <b>CLEANER</b>
+/clean · /filter
+{sep}
+📋 <b>MASS</b> (Free:5 | Prem:20 | Owner:50)
+/mss · /mpp · /mbu · /msstxt
+{sep}""")
+        if is_premium_user:
+            text += ae(f"""
+💎 <b>PREMIUM GATES</b>
+/pp · /ppv · /str · /b3n · /rz
+/sor · /st5 · /dep · /auz · /sh6
+{sep}
+🎯 <b>AUTO HITTER</b>
+/hit [url] [cc] — Stripe Checkout
+{sep}""")
+        if is_owner_user:
+            text += ae(f"""
+👑 <b>ADMIN</b>
+/approve · /premium · /ban · /unban
+/addadmin · /genkey · /keys · /broadcast
+{sep}""")
+        text += ae(f"\n📞 @{SUPPORT_USERNAME} | 📢 @{CHANNEL_USERNAME}")
+        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="start")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await safe_edit(text, reply_markup)
+
     # INFO
     elif query.data == "info":
         sep = "━━━━━━━━━━━━━━━━━━━━"
