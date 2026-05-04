@@ -329,6 +329,8 @@ _ANIMATED_EMOJI = {
 _SORTED_ANIM_KEYS = sorted(_ANIMATED_EMOJI.keys(), key=len, reverse=True)
 
 def ae(text):
+    if '<tg-emoji' in text:
+        return text  # already processed — prevent double-wrapping
     for emoji_char in _SORTED_ANIM_KEYS:
         if emoji_char in text:
             eid = _ANIMATED_EMOJI[emoji_char]
@@ -1264,11 +1266,12 @@ def require_approval(func):
         # Check if banned
         if is_banned(user.id):
             gif_url = get_sexy_anime_gif("banned")
-            await update.message.reply_animation(
-                animation=gif_url,
-                caption=ae("🚫 <b>YOU ARE BANNED!</b>\n\nYou cannot use this bot."),
-                parse_mode=ParseMode.HTML
-            )
+            ban_caption = ae("🚫 <b>YOU ARE BANNED!</b>\n\nYou cannot use this bot.")
+            if gif_url:
+                await update.message.reply_animation(
+                    animation=gif_url, caption=ban_caption, parse_mode=ParseMode.HTML)
+            else:
+                await update.message.reply_text(ban_caption, parse_mode=ParseMode.HTML)
             return
         
         # Check if approved
@@ -1325,11 +1328,11 @@ def require_premium(func):
         if not is_premium(user.id):
             gif_url = get_sexy_anime_gif("premium")
             msg = get_premium_denied_message(user.id)
-            await update.message.reply_animation(
-                animation=gif_url,
-                caption=msg,
-                parse_mode=ParseMode.HTML
-            )
+            if gif_url:
+                await update.message.reply_animation(
+                    animation=gif_url, caption=msg, parse_mode=ParseMode.HTML)
+            else:
+                await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
             return
         
         return await func(update, context)
@@ -1348,11 +1351,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if banned
     if is_banned(user.id):
         gif_url = get_sexy_anime_gif("banned")
-        await update.message.reply_animation(
-            animation=gif_url,
-            caption=ae("🚫 <b>YOU ARE BANNED!</b>\n\nYou cannot use this bot."),
-            parse_mode=ParseMode.HTML
-        )
+        ban_caption = ae("🚫 <b>YOU ARE BANNED!</b>\n\nYou cannot use this bot.")
+        if gif_url:
+            await update.message.reply_animation(
+                animation=gif_url, caption=ban_caption, parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(ban_caption, parse_mode=ParseMode.HTML)
         return
     
     rank = get_user_rank(user.id)
@@ -1493,14 +1497,22 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     gif_url = get_sexy_anime_gif("admin")
-    
-    await query.message.reply_animation(
-        animation=gif_url,
-        caption=text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=reply_markup
-    )
-    await query.message.delete()
+    chat_id = query.message.chat_id
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    if gif_url:
+        try:
+            await context.bot.send_animation(
+                chat_id=chat_id, animation=gif_url, caption=text,
+                parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            return
+        except Exception:
+            pass
+    await context.bot.send_message(
+        chat_id=chat_id, text=text,
+        parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
 # ============================================================================
 # ADMIN COMMANDS
@@ -2315,11 +2327,12 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(
                 chat_id=user_id,
-                text=message
+                text=message,
+                parse_mode=ParseMode.HTML
             )
             success += 1
             await asyncio.sleep(0.1)
-        except:
+        except Exception:
             failed += 1
     
     await status_msg.edit_text(
@@ -12628,21 +12641,36 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Delete current message and send a fresh animation — adds GIF to every screen."""
         text = ae(text)
         gif_url = get_sexy_anime_gif(gif_type)
+        chat_id = query.message.chat_id  # capture before delete
         try:
             await query.message.delete()
         except Exception:
             pass
+        if not gif_url:
+            # GIF cache cold — send plain text message as fallback
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id, text=text,
+                    parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            except Exception:
+                pass
+            return
         try:
             await context.bot.send_animation(
-                chat_id=query.message.chat_id,
+                chat_id=chat_id,
                 animation=gif_url,
                 caption=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=reply_markup
             )
         except Exception:
-            # fallback: edit in-place if send fails
-            await safe_edit(text, reply_markup)
+            # fallback: send plain text when animation fails
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id, text=text,
+                    parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            except Exception:
+                pass
     
     # Regenerate cards
     if query.data == "regen_cards":
@@ -12671,17 +12699,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         # Delete old message and send fresh animation for the gates menu.
         gif_url = get_sexy_anime_gif("welcome")
+        gates_chat_id = query.message.chat_id
         try:
             await query.message.delete()
         except Exception:
             pass
-        await context.bot.send_animation(
-            chat_id=query.message.chat_id,
-            animation=gif_url,
-            caption=ae("<b>💜 Select a Gate</b>"),
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
-        )
+        gates_caption = ae("<b>💜 Select a Gate</b>")
+        if gif_url:
+            try:
+                await context.bot.send_animation(
+                    chat_id=gates_chat_id, animation=gif_url,
+                    caption=gates_caption, parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup)
+            except Exception:
+                await context.bot.send_message(
+                    chat_id=gates_chat_id, text=gates_caption,
+                    parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+        else:
+            await context.bot.send_message(
+                chat_id=gates_chat_id, text=gates_caption,
+                parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
     # Individual Gate Info Screens — edit the caption of the animation (GIF stays, caption changes)
     elif query.data in (
@@ -13812,94 +13849,88 @@ async def gate_st1(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML
     )
     
+    start_ts = asyncio.get_event_loop().time()
     try:
-        result = await check_rpp_gate(
+        # check_razorpay is the actual function exported from rpp_gate
+        result = await check_razorpay(
             card['number'],
             card['month'],
             card['year'],
             card['cvv'],
-            amount=1.00
+            amount=1
         )
-        
-        status = result.get('status', 'UNKNOWN')
-        card_str = result.get('card', card_text)
-        brand = result.get('brand', 'UNKNOWN')
-        message_text = result.get('message', '')
-        
-        if status == 'CHARGED':
+        elapsed = round(asyncio.get_event_loop().time() - start_ts, 2)
+
+        status     = result.get('status', 'UNKNOWN')
+        card_str   = result.get('card', card_text)
+        msg_text   = result.get('message', result.get('response', ''))
+        username   = user.username or user.first_name
+
+        def _send_result(gif_type, caption):
+            return gif_type, caption
+
+        if status == 'APPROVED':
             response = (
-                f"<b>APPROVED - CHARGED $1.00</b>\n\n"
-                f"<b>Card:</b> <code>{card_str}</code>\n"
-                f"<b>Brand:</b> {brand}\n"
-                f"<b>Last4:</b> {result.get('last4', 'N/A')}\n"
-                f"<b>Funding:</b> {result.get('funding', 'N/A').title()}\n"
-                f"<b>Charge ID:</b> <code>{result.get('charge_id', 'N/A')}</code>\n"
-                f"<b>Gate:</b> Stripe $1\n\n"
-                f"<b>Checked by:</b> @{user.username or user.first_name}"
+                f"✅ <b>APPROVED</b>\n\n"
+                f"💳 <b>Card:</b> <code>{card_str}</code>\n"
+                f"🏦 <b>Response:</b> {msg_text}\n"
+                f"⚡ <b>Gate:</b> Stripe $1 (RPP)\n"
+                f"⏱ <b>Time:</b> {elapsed}s\n\n"
+                f"👤 <b>Checked by:</b> @{username}"
             )
-            
-            gif_url = get_sexy_anime_gif("success")
+            gif_type = "success"
             try:
-                await loading_msg.delete()
-                await context.bot.send_animation(
-                    chat_id=message.chat_id,
-                    animation=gif_url,
-                    caption=response,
-                    parse_mode=ParseMode.HTML
+                log_approved_card(
+                    user.id, username,
+                    card['number'], card['month'], card['year'], card['cvv'],
+                    "st1", msg_text, {}
                 )
-            except:
-                await loading_msg.edit_text(response, parse_mode=ParseMode.HTML)
-            
-            log_approved_card(user.id, user.username or user.first_name, cc, mm, yy, cvv, "st1", "Stripe $1", bin_info)
-            
-        elif status == 'CCN':
+            except Exception:
+                pass
+        elif status == 'ERROR':
             response = (
-                f"<b>CCN - 3D Secure Required</b>\n\n"
-                f"<b>Card:</b> <code>{card_str}</code>\n"
-                f"<b>Brand:</b> {brand}\n"
-                f"<b>Gate:</b> Stripe $1\n\n"
-                f"<b>Checked by:</b> @{user.username or user.first_name}"
+                f"⚠️ <b>ERROR</b>\n\n"
+                f"💳 <b>Card:</b> <code>{card_str}</code>\n"
+                f"❌ <b>Reason:</b> {msg_text}\n"
+                f"⚡ <b>Gate:</b> Stripe $1 (RPP)\n\n"
+                f"👤 <b>Checked by:</b> @{username}"
             )
-            gif_url = get_sexy_anime_gif("success")
-            try:
-                await loading_msg.delete()
-                await context.bot.send_animation(
-                    chat_id=message.chat_id,
-                    animation=gif_url,
-                    caption=response,
-                    parse_mode=ParseMode.HTML
-                )
-            except:
-                await loading_msg.edit_text(response, parse_mode=ParseMode.HTML)
-            
+            gif_type = "failed"
         else:
-            decline_code = result.get('decline_code', 'N/A')
             response = (
-                f"<b>DECLINED</b>\n\n"
-                f"<b>Card:</b> <code>{card_str}</code>\n"
-                f"<b>Brand:</b> {brand}\n"
-                f"<b>Reason:</b> {message_text}\n"
-                f"<b>Code:</b> {decline_code}\n"
-                f"<b>Gate:</b> Stripe $1\n\n"
-                f"<b>Checked by:</b> @{user.username or user.first_name}"
+                f"❌ <b>DECLINED</b>\n\n"
+                f"💳 <b>Card:</b> <code>{card_str}</code>\n"
+                f"🔻 <b>Reason:</b> {msg_text}\n"
+                f"⚡ <b>Gate:</b> Stripe $1 (RPP)\n"
+                f"⏱ <b>Time:</b> {elapsed}s\n\n"
+                f"👤 <b>Checked by:</b> @{username}"
             )
-            gif_url = get_sexy_anime_gif("failed")
-            try:
-                await loading_msg.delete()
+            gif_type = "failed"
+
+        gif_url = get_sexy_anime_gif(gif_type)
+        try:
+            await loading_msg.delete()
+            if gif_url:
                 await context.bot.send_animation(
-                    chat_id=message.chat_id,
-                    animation=gif_url,
-                    caption=response,
-                    parse_mode=ParseMode.HTML
-                )
-            except:
+                    chat_id=message.chat_id, animation=gif_url,
+                    caption=response, parse_mode=ParseMode.HTML)
+            else:
+                await context.bot.send_message(
+                    chat_id=message.chat_id, text=response,
+                    parse_mode=ParseMode.HTML)
+        except Exception:
+            try:
                 await loading_msg.edit_text(response, parse_mode=ParseMode.HTML)
-            
+            except Exception:
+                pass
+
     except Exception as e:
-        await loading_msg.edit_text(
-            f"<b>Error:</b> {str(e)[:100]}",
-            parse_mode=ParseMode.HTML
-        )
+        try:
+            await loading_msg.edit_text(
+                f"⚠️ <b>Gate Error:</b> {str(e)[:120]}",
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
 
 # ============================================================================
 # AUTO HITTER COMMAND
@@ -18252,6 +18283,1120 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# RATE LIMITER — per-user single-check cooldown (anti-spam)
+# ════════════════════════════════════════════════════════════════════════════
+import time as _rl_time
+
+_RATE_COOLDOWNS: dict = {}  # {user_id: last_check_timestamp}
+_RATE_LIMITS = {"owner": 0, "premium": 2, "free": 5}  # seconds
+
+
+def _check_rate_limit(user_id: int) -> float:
+    """Returns 0 if OK, else remaining cooldown seconds."""
+    if is_owner(user_id):
+        return 0
+    limit = _RATE_LIMITS["premium"] if is_premium(user_id) else _RATE_LIMITS["free"]
+    last = _RATE_COOLDOWNS.get(user_id, 0)
+    elapsed = _rl_time.monotonic() - last
+    if elapsed < limit:
+        return round(limit - elapsed, 1)
+    return 0
+
+
+def _update_rate_limit(user_id: int):
+    _RATE_COOLDOWNS[user_id] = _rl_time.monotonic()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CHECK HISTORY  /history
+# ════════════════════════════════════════════════════════════════════════════
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/history [USER_ID] — show last 20 card checks."""
+    user = update.effective_user
+
+    # Admin can look up other users
+    target_id = user.id
+    if context.args and is_owner(user.id):
+        try:
+            target_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text(ae("❌ Invalid user ID."))
+            return
+
+    loop = asyncio.get_running_loop()
+
+    def _fetch():
+        from modules.database import _execute_with_retry
+        return _execute_with_retry(
+            """SELECT card_bin, result, gate, response, created_at
+               FROM card_logs
+               WHERE user_id = %s
+               ORDER BY created_at DESC LIMIT 20""",
+            (target_id,), fetch=True
+        ) or []
+
+    rows = await loop.run_in_executor(None, _fetch)
+
+    if not rows:
+        await update.message.reply_text(
+            ae("📜 <b>Check History</b>\n\nNo checks found yet. Start checking cards to build your history!"),
+            parse_mode=ParseMode.HTML)
+        return
+
+    lines = [ae(f"📜 <b>Check History</b>  (last {len(rows)} checks)\n")]
+    for r in rows:
+        res_icon = "✅" if str(r.get("result", "")).upper() in ("APPROVED", "LIVE", "CHARGED") else "❌"
+        gate_lbl  = (r.get("gate") or "?").upper()
+        bin_lbl   = r.get("card_bin") or "??????"
+        ts        = r.get("created_at")
+        date_lbl  = ts.strftime("%m/%d %H:%M") if ts else "N/A"
+        resp_snippet = (r.get("response") or "")[:40]
+        lines.append(f"{res_icon} <code>{bin_lbl}xxxxxx</code>  [{gate_lbl}]  <i>{resp_snippet}</i>  <code>{date_lbl}</code>")
+
+    text = "\n".join(lines)
+    gif_url = get_sexy_anime_gif("welcome")
+    if gif_url:
+        try:
+            await update.message.reply_animation(
+                animation=gif_url, caption=text,
+                parse_mode=ParseMode.HTML)
+            return
+        except Exception:
+            pass
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# GATE LEADERBOARD  /top
+# ════════════════════════════════════════════════════════════════════════════
+
+async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/top — weekly leaderboard of most approved cards."""
+    loop = asyncio.get_running_loop()
+
+    def _fetch():
+        from modules.database import _execute_with_retry
+        return _execute_with_retry("""
+            SELECT u.user_id, u.username,
+                   COUNT(*) FILTER (WHERE cl.result ILIKE '%approved%' OR cl.result ILIKE '%live%' OR cl.result ILIKE '%charged%') AS approved_count,
+                   MODE() WITHIN GROUP (ORDER BY cl.gate) AS fav_gate
+            FROM card_logs cl
+            JOIN users u ON u.user_id = cl.user_id
+            WHERE cl.created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY u.user_id, u.username
+            ORDER BY approved_count DESC
+            LIMIT 10
+        """, fetch=True) or []
+
+    rows = await loop.run_in_executor(None, _fetch)
+
+    medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
+    sep = "━━━━━━━━━━━━━━━━━━━━━━━━"
+    lines = [ae(f"🏆 <b>ONICHAN LEADERBOARD</b>\n<i>Top checkers this week</i>\n{sep}")]
+
+    if not rows:
+        lines.append("No checks recorded this week yet.\nStart checking to climb the rankings!")
+    else:
+        for i, r in enumerate(rows):
+            uname   = r.get("username") or "Anonymous"
+            safe_u  = ("@" + uname[:14]) if uname and uname != "Anonymous" else "Anonymous"
+            count   = int(r.get("approved_count") or 0)
+            gate    = (r.get("fav_gate") or "?").upper()
+            lines.append(f"{medals[i]} <b>#{i+1}</b>  {safe_u}  — <b>{count}</b> approved  [{gate}]")
+
+    lines.append(sep)
+    lines.append("💡 Top 3 earn bonus premium days every Sunday!")
+
+    text = "\n".join(lines)
+    gif_url = get_sexy_anime_gif("welcome")
+    if gif_url:
+        try:
+            await update.message.reply_animation(
+                animation=gif_url, caption=text,
+                parse_mode=ParseMode.HTML)
+            return
+        except Exception:
+            pass
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# LIVE CARD PASTE DETECTION — detect raw card in any DM message
+# ════════════════════════════════════════════════════════════════════════════
+
+import re as _re
+_CARD_PATTERN = _re.compile(
+    r'\b(\d{15,16})[|/\s:](\d{1,2})[|/\s:](\d{2,4})[|/\s:](\d{3,4})\b'
+)
+
+
+async def live_card_paste_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Detects raw card in any DM text and prompts gate selection."""
+    if not update.message or not update.message.text:
+        return
+    if update.message.chat.type != "private":
+        return
+    if update.message.text.startswith("/"):
+        return
+    # Don't interfere with active mass checks
+    user = update.effective_user
+    if context.user_data.get(f"mass_check_running_{user.id}"):
+        return
+
+    txt = update.message.text.strip()
+    match = _CARD_PATTERN.search(txt)
+    if not match:
+        return
+
+    cc, mm, yy, cvv = match.groups()
+    masked = f"{cc[:6]}{'*' * (len(cc)-10)}{cc[-4:]}"
+
+    # Store card for gate selection callback
+    context.user_data["paste_card"] = f"{cc}|{mm}|{yy}|{cvv}"
+
+    keyboard = InlineKeyboardMarkup([
+        [_btn("⚡ ST5", callback_data="paste_gate:st5"),
+         _btn("🎯 ST12", callback_data="paste_gate:st12"),
+         _btn("💎 B3N", callback_data="paste_gate:b3n")],
+        [_btn("🔥 STR", callback_data="paste_gate:str"),
+         _btn("🏦 AST", callback_data="paste_gate:ast"),
+         _btn("💳 RPP", callback_data="paste_gate:st1")],
+        [_btn("❌ Cancel", style="default", callback_data="paste_gate:cancel")],
+    ])
+    gif_url = get_sexy_anime_gif("welcome")
+    prompt = ae(
+        f"💳 <b>Card Detected!</b>\n\n"
+        f"<code>{masked}|{mm}|{yy}|{cvv}</code>\n\n"
+        f"Select a gate to check it on:"
+    )
+    if gif_url:
+        try:
+            await update.message.reply_animation(
+                animation=gif_url, caption=prompt,
+                parse_mode=ParseMode.HTML, reply_markup=keyboard)
+            return
+        except Exception:
+            pass
+    await update.message.reply_text(prompt, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def paste_gate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle gate selection after live card paste detection."""
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+
+    action = query.data.split(":", 1)[1]
+    if action == "cancel":
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return
+
+    card_str = context.user_data.pop("paste_card", None)
+    if not card_str:
+        await query.message.reply_text(ae("❌ Card data expired. Please paste again."))
+        return
+
+    gate_map = {
+        "st5": "/st5", "st12": "/st12", "b3n": "/b3n",
+        "str": "/str", "ast": "/ast", "st1": "/st1",
+    }
+    cmd = gate_map.get(action)
+    if not cmd:
+        return
+
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    # Simulate sending the gate command
+    from telegram import Message
+    fake_args = card_str.split("|")
+    context.args = fake_args
+
+    gate_handler_map = {
+        "st5": gate_st5, "st12": gate_st12, "b3n": gate_b3n,
+        "str": gate_str, "ast": gate_ast, "st1": gate_st1,
+    }
+    handler = gate_handler_map.get(action)
+    if handler:
+        await handler(update, context)
+    else:
+        await query.message.reply_text(ae(f"❌ Gate {action.upper()} not available."))
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# MASS BIN CHECKER  /bincheck
+# ════════════════════════════════════════════════════════════════════════════
+
+async def bincheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/bincheck GATE — check a list of BINs for liveness. Premium only."""
+    user = update.effective_user
+    if not is_approved(user.id):
+        await update.message.reply_text(ae("❌ Access denied."))
+        return
+    if not is_premium(user.id):
+        await update.message.reply_text(
+            ae("💎 <b>PREMIUM REQUIRED</b>\n\nMass BIN checking requires premium.\n/premium to upgrade."),
+            parse_mode=ParseMode.HTML)
+        return
+
+    gate = context.args[0].lower() if context.args else "st5"
+    context.user_data["bincheck_gate"] = gate
+    context.user_data["awaiting_bincheck"] = True
+
+    await update.message.reply_text(
+        ae(f"📋 <b>Mass BIN Checker</b>\n\n"
+           f"Gate: <b>{gate.upper()}</b>\n\n"
+           f"Now send me a list of BINs (one per line, max 20):\n"
+           f"<code>411111\n424242\n512345</code>"),
+        parse_mode=ParseMode.HTML)
+
+
+async def _process_bincheck(update: Update, context: ContextTypes.DEFAULT_TYPE, bins_text: str):
+    """Process mass BIN check."""
+    from modules.gate_checker import get_bin_info
+    from modules.cc_generator import generate_cards_for_bin
+
+    user = update.effective_user
+    gate = context.user_data.pop("bincheck_gate", "st5")
+    bins = [b.strip() for b in bins_text.strip().splitlines() if b.strip().isdigit() and len(b.strip()) >= 6][:20]
+
+    if not bins:
+        await update.message.reply_text(ae("❌ No valid BINs found. Send 6-digit BINs one per line."))
+        return
+
+    status_msg = await update.message.reply_text(
+        ae(f"🔍 Checking {len(bins)} BINs on {gate.upper()}... Please wait."),
+        parse_mode=ParseMode.HTML)
+
+    results = []
+    gate_handler_map = {
+        "st5": gate_st5, "st12": gate_st12, "b3n": gate_b3n,
+        "str": gate_str, "ast": gate_ast,
+    }
+
+    for bin_num in bins:
+        try:
+            # Get BIN info
+            loop = asyncio.get_running_loop()
+            bin_info = await loop.run_in_executor(None, get_bin_info, bin_num)
+            country = bin_info.get("country", "?") if bin_info else "?"
+            brand   = bin_info.get("brand", "?") if bin_info else "?"
+
+            # Generate 3 test cards using Luhn
+            try:
+                from modules.cc_generator import generate_cards
+                test_cards = generate_cards(bin_num, count=3)
+            except Exception:
+                # Fallback: simple Luhn completion
+                test_cards = [f"{bin_num}{'0' * (16 - len(bin_num))}|12|27|123"]
+
+            approved_count = 0
+            for card in test_cards[:2]:
+                parts = card.split("|")
+                if len(parts) < 4:
+                    continue
+                try:
+                    from modules.gate_checker import check_generic_gate
+                    result = await loop.run_in_executor(
+                        None, check_generic_gate, gate, *parts[:4])
+                    if result and result.get("status", "").upper() in ("APPROVED", "LIVE", "CHARGED"):
+                        approved_count += 1
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
+
+            if approved_count >= 1:
+                status = "✅ LIVE"
+            else:
+                status = "❌ DEAD"
+            results.append(f"{status}  <code>{bin_num}</code>  {brand} · {country}")
+        except Exception as e:
+            results.append(f"⚠️ ERROR  <code>{bin_num}</code>  {str(e)[:30]}")
+        await asyncio.sleep(0.5)
+
+    live_count = sum(1 for r in results if "LIVE" in r)
+    sep = "━━━━━━━━━━━━━━━━━━━━"
+    text = ae(
+        f"📊 <b>BIN Check Results</b>  [{gate.upper()}]\n{sep}\n"
+        + "\n".join(results)
+        + f"\n{sep}\n✅ Live: {live_count}  |  ❌ Dead: {len(results) - live_count}"
+    )
+    try:
+        await status_msg.edit_text(text, parse_mode=ParseMode.HTML)
+    except Exception:
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BIN SHOP BOT COMMANDS  /binshop  /addbin  /removebin
+# ════════════════════════════════════════════════════════════════════════════
+
+async def binshop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/binshop — browse available BINs for purchase."""
+    user = update.effective_user
+    if not is_approved(user.id):
+        await update.message.reply_text(ae("❌ Access denied."))
+        return
+
+    loop = asyncio.get_running_loop()
+    try:
+        from modules.bin_shop import get_bin_listings, get_purchased_bin_ids
+        result = await loop.run_in_executor(None, get_bin_listings, 1, 10)
+        purchased = await loop.run_in_executor(None, get_purchased_bin_ids, user.id)
+    except Exception as e:
+        await update.message.reply_text(ae(f"❌ BIN Shop unavailable: {str(e)[:80]}"))
+        return
+
+    listings = result.get("listings", [])
+    total    = result.get("total", 0)
+
+    if not listings:
+        await update.message.reply_text(
+            ae("🛒 <b>BIN Shop</b>\n\nNo BINs available right now. Check back later!"),
+            parse_mode=ParseMode.HTML)
+        return
+
+    sep = "━━━━━━━━━━━━━━━━━━━━━━"
+    lines = [ae(f"🛒 <b>BIN SHOP</b>  ({total} listings)\n{sep}")]
+    keyboard_rows = []
+
+    for lst in listings:
+        lid      = lst["id"]
+        country  = lst.get("country", "Unknown")
+        ctype    = lst.get("card_type", "").upper()
+        price    = float(lst.get("price", 0))
+        sites    = lst.get("site_count", 0)
+        desc     = (lst.get("public_description") or "")[:40]
+        owned    = "✅ OWNED" if lid in purchased else f"💰 ${price:.2f}"
+
+        lines.append(
+            f"<b>#{lid}</b>  {country}  {ctype}\n"
+            f"  📡 {sites} site(s)  |  {owned}\n"
+            f"  <i>{desc}</i>"
+        )
+        if lid not in purchased:
+            keyboard_rows.append([_btn(f"Buy #{lid} — ${price:.2f}", callback_data=f"binbuy:{lid}")])
+
+    keyboard_rows.append([_btn("🔄 Refresh", style="default", callback_data="binshop_refresh")])
+    text = "\n".join(lines)
+
+    gif_url = get_sexy_anime_gif("welcome")
+    if gif_url:
+        try:
+            await update.message.reply_animation(
+                animation=gif_url, caption=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard_rows))
+            return
+        except Exception:
+            pass
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML,
+                                     reply_markup=InlineKeyboardMarkup(keyboard_rows))
+
+
+async def binbuy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle BIN purchase button."""
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+
+    listing_id = int(query.data.split(":", 1)[1])
+    loop = asyncio.get_running_loop()
+
+    try:
+        from modules.bin_shop import buy_bin
+        # buy_bin raises ValueError on failure, returns listing dict on success
+        listing = await loop.run_in_executor(None, buy_bin, user.id, listing_id)
+    except ValueError as e:
+        await query.message.reply_text(ae(f"❌ {str(e)[:120]}"))
+        return
+    except Exception as e:
+        await query.message.reply_text(ae(f"❌ Purchase failed: {str(e)[:80]}"))
+        return
+
+    # listing is a plain dict with decrypted fields
+    bin_num = listing.get("bin_number", "??????")
+    brand   = listing.get("brand", "?")
+    level   = listing.get("card_level", "?")
+    bank    = listing.get("bank", "?")
+    country = listing.get("country", "?")
+    sites   = listing.get("sites", []) or []
+    note    = listing.get("method_note", "")
+    price   = float(listing.get("price_paid", 0))
+
+    site_lines = "\n".join(
+        f"  🔗 <b>{s.get('name', '?')}</b> — {s.get('url', '?')}"
+        for s in sites
+    ) or "  No sites listed."
+
+    text = ae(
+        f"✅ <b>BIN PURCHASED!</b>\n\n"
+        f"💳 <b>BIN:</b> <code>{bin_num}</code>\n"
+        f"🏦 <b>Bank:</b> {bank}\n"
+        f"🌍 <b>Country:</b> {country}\n"
+        f"💎 <b>Brand:</b> {brand} {level}\n"
+        f"💰 <b>Paid:</b> ${price:.2f}\n\n"
+        f"📡 <b>Sites:</b>\n{site_lines}\n\n"
+        + (f"📝 <b>Method:</b>\n<i>{note}</i>" if note else "")
+    )
+    await query.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+async def addbin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/addbin BIN PRICE DESCRIPTION — admin adds a BIN to shop."""
+    user = update.effective_user
+    if not is_owner(user.id):
+        await update.message.reply_text(ae("❌ Owner only!"))
+        return
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "📋 <b>Add BIN to Shop</b>\n\n"
+            "<b>Usage:</b> <code>/addbin BIN PRICE DESCRIPTION</code>\n\n"
+            "<b>Then send a follow-up message with:</b>\n"
+            "Line 1: Brand (VISA/MC/AMEX)\n"
+            "Line 2: Country (United States)\n"
+            "Line 3: Country code (US)\n"
+            "Line 4: Card type (CREDIT/DEBIT)\n"
+            "Line 5: Level (CLASSIC/GOLD/PLATINUM)\n"
+            "Line 6: Bank name\n"
+            "Line 7+: Site URLs (one per line)\n\n"
+            "<b>Example:</b>\n"
+            "<code>/addbin 411111 9.99 Chase US Visa Gold — great for digital goods</code>",
+            parse_mode=ParseMode.HTML)
+        return
+
+    bin_num = context.args[0]
+    price   = context.args[1]
+    desc    = " ".join(context.args[2:])
+
+    try:
+        float(price)
+    except ValueError:
+        await update.message.reply_text(ae("❌ Price must be a number!"))
+        return
+
+    context.user_data["addbin_pending"] = {"bin": bin_num, "price": price, "desc": desc}
+    context.user_data["awaiting_addbin_details"] = True
+
+    await update.message.reply_text(
+        f"✅ BIN <code>{bin_num}</code> queued at ${price}.\n\n"
+        "Now send the details in this format:\n"
+        "<code>VISA\nUnited States\nUS\nCREDIT\nGOLD\nChase Bank\nhttps://example.com</code>",
+        parse_mode=ParseMode.HTML)
+
+
+async def removebin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/removebin ID — admin removes a BIN listing."""
+    user = update.effective_user
+    if not is_owner(user.id):
+        await update.message.reply_text(ae("❌ Owner only!"))
+        return
+    if not context.args:
+        await update.message.reply_text(ae("❌ Usage: /removebin LISTING_ID"))
+        return
+    try:
+        lid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text(ae("❌ Invalid ID."))
+        return
+
+    loop = asyncio.get_running_loop()
+    try:
+        from modules.bin_shop import remove_bin_listing
+        await loop.run_in_executor(None, remove_bin_listing, lid)
+        await update.message.reply_text(ae(f"✅ BIN listing #{lid} removed."))
+    except Exception as e:
+        await update.message.reply_text(ae(f"❌ Error: {str(e)[:80]}"))
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CASINO MODULE  /casino
+# ════════════════════════════════════════════════════════════════════════════
+
+async def casino_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/casino — open the casino games menu."""
+    user = update.effective_user
+    if not is_approved(user.id):
+        await update.message.reply_text(ae("❌ Access denied."))
+        return
+
+    try:
+        from modules.credits import get_balance
+        loop = asyncio.get_running_loop()
+        balance = await loop.run_in_executor(None, get_balance, user.id)
+    except Exception:
+        balance = 0
+
+    sep = "━━━━━━━━━━━━━━━━━━━━━━"
+    text = ae(
+        f"🎰 <b>ONICHAN CASINO</b>\n{sep}\n"
+        f"💰 Your credits: <b>{balance}</b>\n{sep}\n\n"
+        f"🪙 Head & Tail    ✊ Rock Paper Scissors\n"
+        f"🎲 Dice Rolling   🎡 Spin Wheel\n"
+        f"🃏 Blackjack      🎱 Number Pool\n"
+        f"💣 Mines          🚀 Crash\n{sep}\n"
+        f"<i>Min bet: 10 credits | Max bet: 500 credits</i>\n"
+        f"Earn credits by checking cards or /credits to top up."
+    )
+    keyboard = InlineKeyboardMarkup([
+        [_btn("🪙 Flip Coin", callback_data="casino:head_tail"),
+         _btn("🎲 Dice", callback_data="casino:dice_rolling")],
+        [_btn("🃏 Blackjack", callback_data="casino:blackjack"),
+         _btn("🚀 Crash", callback_data="casino:crash")],
+        [_btn("🎡 Spin Wheel", callback_data="casino:spin_wheel"),
+         _btn("💣 Mines", callback_data="casino:mines")],
+        [_btn("📊 My Stats", callback_data="casino:stats"),
+         _btn("💰 Balance", callback_data="casino:balance")],
+    ])
+
+    gif_url = get_sexy_anime_gif("welcome")
+    if gif_url:
+        try:
+            await update.message.reply_animation(
+                animation=gif_url, caption=text,
+                parse_mode=ParseMode.HTML, reply_markup=keyboard)
+            return
+        except Exception:
+            pass
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def casino_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle casino game selection callbacks."""
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+    action = query.data.split(":", 1)[1]
+
+    if action == "balance":
+        try:
+            from modules.credits import get_balance
+            loop = asyncio.get_running_loop()
+            balance = await loop.run_in_executor(None, get_balance, user.id)
+        except Exception:
+            balance = 0
+        await query.message.reply_text(
+            ae(f"💰 <b>Your Casino Balance</b>\n\n{balance} credits\n\n"
+               f"Earn credits:\n• +1 per declined check\n• +10 per approved card"),
+            parse_mode=ParseMode.HTML)
+        return
+
+    if action == "stats":
+        loop = asyncio.get_running_loop()
+        def _fetch_stats():
+            from modules.database import _execute_with_retry
+            return _execute_with_retry(
+                """SELECT COUNT(*) as total_bets,
+                          SUM(CASE WHEN outcome='win' THEN 1 ELSE 0 END) as wins,
+                          SUM(CASE WHEN outcome='loss' THEN 1 ELSE 0 END) as losses,
+                          SUM(payout - bet_amount) as net_profit
+                   FROM casino_bets WHERE user_id = %s""",
+                (user.id,), fetch_one=True)
+        row = await loop.run_in_executor(None, _fetch_stats)
+        if not row or not row.get("total_bets"):
+            await query.message.reply_text(ae("🎲 No casino bets yet! Use /casino to play."))
+            return
+        net = float(row.get("net_profit") or 0)
+        profit_str = f"+{net:.0f}" if net >= 0 else f"{net:.0f}"
+        await query.message.reply_text(
+            ae(f"📊 <b>Your Casino Stats</b>\n\n"
+               f"🎯 Total bets: {row['total_bets']}\n"
+               f"✅ Wins: {row.get('wins', 0)}\n"
+               f"❌ Losses: {row.get('losses', 0)}\n"
+               f"💰 Net: {profit_str} credits"),
+            parse_mode=ParseMode.HTML)
+        return
+
+    # Generic game handler
+    game_names = {
+        "head_tail": "Head & Tail 🪙",
+        "dice_rolling": "Dice Rolling 🎲",
+        "blackjack": "Blackjack 🃏",
+        "crash": "Crash 🚀",
+        "spin_wheel": "Spin Wheel 🎡",
+        "mines": "Mines 💣",
+    }
+    game_name = game_names.get(action, action.replace("_", " ").title())
+
+    try:
+        from modules.credits import get_balance
+        loop = asyncio.get_running_loop()
+        balance = await loop.run_in_executor(None, get_balance, user.id)
+    except Exception:
+        balance = 0
+
+    if balance < 10:
+        await query.message.reply_text(
+            ae(f"❌ Not enough credits to play {game_name}!\n\n"
+               f"Minimum bet: 10 credits\nYour balance: {balance} credits\n\n"
+               f"Earn credits by checking cards."),
+            parse_mode=ParseMode.HTML)
+        return
+
+    # Show bet selection
+    bet_kb = InlineKeyboardMarkup([
+        [_btn("10 credits", callback_data=f"casinobet:{action}:10"),
+         _btn("25 credits", callback_data=f"casinobet:{action}:25")],
+        [_btn("50 credits", callback_data=f"casinobet:{action}:50"),
+         _btn("100 credits", callback_data=f"casinobet:{action}:100")],
+        [_btn("❌ Cancel", style="default", callback_data="casino:balance")],
+    ])
+    await query.message.reply_text(
+        ae(f"🎮 <b>{game_name}</b>\n\nBalance: {balance} credits\nChoose your bet:"),
+        parse_mode=ParseMode.HTML, reply_markup=bet_kb)
+
+
+async def casinobet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle casino bet placement."""
+    import random as _rand
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+
+    _, game, bet_str = query.data.split(":", 2)
+    bet = int(bet_str)
+
+    try:
+        from modules.credits import get_balance, deduct_credits, add_credits
+        loop = asyncio.get_running_loop()
+        balance = await loop.run_in_executor(None, get_balance, user.id)
+
+        if balance < bet:
+            await query.message.reply_text(ae(f"❌ Insufficient credits! You have {balance}, need {bet}."))
+            return
+
+        # Deduct bet
+        await loop.run_in_executor(None, deduct_credits, user.id, bet, "casino_bet", f"Casino: {game}")
+
+        # Simple outcome (house edge ~5%)
+        win = _rand.random() < 0.47
+        payout = int(bet * 1.9) if win else 0
+
+        if win:
+            await loop.run_in_executor(None, add_credits, user.id, payout, "casino_win", f"Casino win: {game}")
+
+        # Log bet
+        try:
+            from modules.database import _execute_with_retry
+            _execute_with_retry("""
+                INSERT INTO casino_bets (user_id, game, bet_amount, outcome, payout, created_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+            """, (user.id, game, bet, "win" if win else "loss", payout))
+        except Exception:
+            pass
+
+        new_balance = await loop.run_in_executor(None, get_balance, user.id)
+
+        if win:
+            result_text = ae(
+                f"🎉 <b>YOU WIN!</b>\n\n"
+                f"🎮 Game: {game.replace('_', ' ').title()}\n"
+                f"💰 Bet: {bet} credits\n"
+                f"🏆 Payout: +{payout} credits\n"
+                f"💼 New balance: {new_balance} credits"
+            )
+            gif_type = "success"
+        else:
+            result_text = ae(
+                f"😔 <b>YOU LOSE</b>\n\n"
+                f"🎮 Game: {game.replace('_', ' ').title()}\n"
+                f"💸 Lost: {bet} credits\n"
+                f"💼 New balance: {new_balance} credits\n\n"
+                f"Better luck next time!"
+            )
+            gif_type = "failed"
+
+        gif_url = get_sexy_anime_gif(gif_type)
+        if gif_url:
+            try:
+                await query.message.reply_animation(
+                    animation=gif_url, caption=result_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup([[
+                        _btn("🎮 Play Again", callback_data=f"casino:{game}"),
+                        _btn("🎰 Main Menu", callback_data="casino_main")
+                    ]]))
+                return
+            except Exception:
+                pass
+        await query.message.reply_text(result_text, parse_mode=ParseMode.HTML)
+
+    except Exception as e:
+        await query.message.reply_text(ae(f"❌ Casino error: {str(e)[:80]}"))
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PAYMENT RECEIPT SYSTEM — auto-send receipt on any premium activation
+# ════════════════════════════════════════════════════════════════════════════
+
+async def send_premium_receipt(bot, user_id: int, username: str, plan_name: str,
+                                payment_method: str, amount_str: str,
+                                duration_days: int, expiry_date: str):
+    """DM a formatted receipt to the user after premium activation."""
+    import uuid
+    order_id = f"ONC-{user_id % 10000:04d}-{uuid.uuid4().hex[:6].upper()}"
+    text = ae(
+        f"🧾 <b>ONICHAN PREMIUM RECEIPT</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 <b>Order ID:</b> <code>{order_id}</code>\n"
+        f"📅 <b>Date:</b> {__import__('datetime').datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"
+        f"📦 <b>Plan:</b> {plan_name}\n"
+        f"💳 <b>Payment:</b> {payment_method}\n"
+        f"💰 <b>Amount:</b> {amount_str}\n"
+        f"👤 <b>User:</b> @{username} (<code>{user_id}</code>)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"✅ <b>Activated:</b> Immediately\n"
+        f"📅 <b>Expires:</b> {expiry_date}\n"
+        f"⏰ <b>Duration:</b> {duration_days} days\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎉 Thank you for supporting Onichan!\n"
+        f"Use /help to see all premium commands."
+    )
+    try:
+        await bot.send_message(chat_id=user_id, text=text, parse_mode="HTML")
+    except Exception as e:
+        print(f"[Receipt] Could not send receipt to {user_id}: {e}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# RICH BROADCAST SYSTEM  /broadcast
+# (extends the existing one — keeps backward compat, adds html/photo/preview/segment)
+# ════════════════════════════════════════════════════════════════════════════
+
+async def rich_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/broadcast — rich broadcast with flags: html, photo, preview, segment."""
+    user = update.effective_user
+    if not is_owner(user.id):
+        await update.message.reply_text(ae("❌ Owner only!"))
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "📢 <b>Rich Broadcast</b>\n\n"
+            "<b>Modes:</b>\n"
+            "• <code>/broadcast TEXT</code> — plain text (HTML supported)\n"
+            "• <code>/broadcast preview TEXT</code> — send to yourself first\n"
+            "• <code>/broadcast segment premium TEXT</code> — only premium users\n"
+            "• <code>/broadcast segment free TEXT</code> — only free users\n"
+            "• <code>/broadcast photo URL CAPTION</code> — photo + caption\n\n"
+            "<b>Example:</b>\n"
+            "<code>/broadcast 🔥 &lt;b&gt;New gate live!&lt;/b&gt;</code>",
+            parse_mode=ParseMode.HTML)
+        return
+
+    args = context.args
+    mode = args[0].lower()
+
+    # Preview mode
+    if mode == "preview":
+        message_text = " ".join(args[1:])
+        try:
+            await context.bot.send_message(
+                chat_id=user.id, text=message_text, parse_mode=ParseMode.HTML)
+            keyboard = InlineKeyboardMarkup([[
+                _btn("✅ Send to All", callback_data=f"bcast_confirm:all:{message_text[:100]}"),
+                _btn("❌ Cancel", style="default", callback_data="bcast_cancel")
+            ]])
+            await update.message.reply_text(
+                ae("👁 Preview sent to you. Confirm broadcast?"),
+                reply_markup=keyboard)
+        except Exception as e:
+            await update.message.reply_text(ae(f"❌ Preview failed: {str(e)[:80]}"))
+        return
+
+    # Photo mode
+    if mode == "photo" and len(args) >= 2:
+        photo_url = args[1]
+        caption   = " ".join(args[2:]) if len(args) > 2 else ""
+        segment   = "all"
+        await _do_broadcast(update, context, None, photo_url, caption, segment)
+        return
+
+    # Segment mode
+    if mode == "segment" and len(args) >= 3:
+        segment      = args[1].lower()  # premium / free
+        message_text = " ".join(args[2:])
+        await _do_broadcast(update, context, message_text, None, None, segment)
+        return
+
+    # Default — all users, HTML supported
+    message_text = " ".join(args)
+    await _do_broadcast(update, context, message_text, None, None, "all")
+
+
+async def _do_broadcast(update, context, text, photo_url, caption, segment):
+    """Internal: execute the broadcast loop.
+    get_approved_users_sync / get_premium_users_sync both return plain lists of int user_ids.
+    """
+    from modules.database import get_approved_users_sync, get_premium_users_sync
+
+    status_msg = await update.message.reply_text(ae(f"📢 Broadcasting to [{segment}]..."))
+
+    loop = asyncio.get_running_loop()
+    if segment == "premium":
+        user_ids = await loop.run_in_executor(None, get_premium_users_sync)
+    elif segment == "free":
+        all_ids  = await loop.run_in_executor(None, get_approved_users_sync)
+        prem_ids = set(await loop.run_in_executor(None, get_premium_users_sync))
+        user_ids = [uid for uid in (all_ids or []) if uid not in prem_ids]
+    else:
+        user_ids = await loop.run_in_executor(None, get_approved_users_sync)
+    user_ids = user_ids or []
+
+    success = 0
+    failed  = 0
+
+    for uid in user_ids:
+        try:
+            if photo_url:
+                await context.bot.send_photo(
+                    chat_id=uid, photo=photo_url,
+                    caption=caption, parse_mode=ParseMode.HTML)
+            else:
+                await context.bot.send_message(
+                    chat_id=uid, text=text, parse_mode=ParseMode.HTML)
+            success += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            err = str(e).lower()
+            if "blocked" in err or "deactivated" in err or "not found" in err:
+                failed += 1
+            else:
+                try:
+                    await asyncio.sleep(1)
+                    if photo_url:
+                        await context.bot.send_photo(
+                            chat_id=uid, photo=photo_url,
+                            caption=caption, parse_mode=ParseMode.HTML)
+                    else:
+                        await context.bot.send_message(
+                            chat_id=uid, text=text, parse_mode=ParseMode.HTML)
+                    success += 1
+                except Exception:
+                    failed += 1
+
+    await status_msg.edit_text(
+        f"📢 <b>Broadcast Complete</b>\n\n"
+        f"✅ Sent: <b>{success}</b>\n"
+        f"❌ Failed: <b>{failed}</b>\n"
+        f"👥 Total: <b>{success + failed}</b>",
+        parse_mode=ParseMode.HTML)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SMART ADMIN ALERTS  /alertset  /myalerts
+# ════════════════════════════════════════════════════════════════════════════
+
+_alert_settings: dict = {}   # {user_id: {alert_type: value}}
+
+
+async def alertset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/alertset TYPE VALUE — configure notification alerts."""
+    user = update.effective_user
+    if not is_owner(user.id):
+        await update.message.reply_text(ae("❌ Owner only!"))
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "🔔 <b>Alert Settings</b>\n\n"
+            "<b>Available alerts:</b>\n"
+            "• <code>/alertset new_user on</code> — notify on new user join\n"
+            "• <code>/alertset payment on</code> — notify on successful payment\n"
+            "• <code>/alertset approved_threshold 10</code> — alert when user hits N approvals/session\n"
+            "• <code>/alertset gate_fail_rate 80</code> — alert when gate decline rate > N%\n\n"
+            "<b>Turn off:</b> <code>/alertset TYPE off</code>",
+            parse_mode=ParseMode.HTML)
+        return
+
+    alert_type = context.args[0].lower()
+    value      = context.args[1].lower()
+
+    valid = {"new_user", "payment", "approved_threshold", "gate_fail_rate"}
+    if alert_type not in valid:
+        await update.message.reply_text(ae(f"❌ Unknown alert type. Use: {', '.join(valid)}"))
+        return
+
+    if user.id not in _alert_settings:
+        _alert_settings[user.id] = {}
+
+    if value == "off":
+        _alert_settings[user.id].pop(alert_type, None)
+        await update.message.reply_text(ae(f"🔕 Alert <b>{alert_type}</b> disabled."), parse_mode=ParseMode.HTML)
+    else:
+        _alert_settings[user.id][alert_type] = value
+        await update.message.reply_text(
+            ae(f"🔔 Alert <b>{alert_type}</b> set to <code>{value}</code>."),
+            parse_mode=ParseMode.HTML)
+
+
+async def myalerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/myalerts — view active alert configurations."""
+    user = update.effective_user
+    if not is_owner(user.id):
+        await update.message.reply_text(ae("❌ Owner only!"))
+        return
+
+    alerts = _alert_settings.get(user.id, {})
+    if not alerts:
+        await update.message.reply_text(
+            ae("🔕 <b>No alerts configured.</b>\n\nUse /alertset to configure notifications."),
+            parse_mode=ParseMode.HTML)
+        return
+
+    lines = [ae("🔔 <b>Your Active Alerts</b>\n")]
+    for atype, val in alerts.items():
+        lines.append(f"• <b>{atype}</b>: <code>{val}</code>")
+    lines.append("\nUse <code>/alertset TYPE off</code> to disable any alert.")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def trigger_owner_alert(bot, alert_type: str, message: str):
+    """Trigger an alert to all owners who have this alert type enabled."""
+    from config import OWNER_ID
+    # Check hardcoded owners + configured ones
+    all_owners = list(_HARDCODED_OWNERS) + ([OWNER_ID] if OWNER_ID else [])
+    for oid in set(all_owners):
+        alerts = _alert_settings.get(oid, {})
+        if alert_type in alerts and alerts[alert_type] != "off":
+            try:
+                await bot.send_message(
+                    chat_id=oid,
+                    text=f"🔔 <b>Alert: {alert_type}</b>\n\n{message}",
+                    parse_mode="HTML")
+            except Exception:
+                pass
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PREMIUM ADVANCE EXPIRY NOTIFICATIONS  (24h / 6h / 1h warnings)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _start_advance_expiry_notifier(bot_token: str):
+    """Start background thread sending advance warnings before premium expires."""
+    import threading, time as _t, requests as _req, json as _json
+    from datetime import datetime, timedelta
+
+    notified_cache: dict = {}  # {user_id: set_of_sent_intervals}
+
+    def _loop():
+        _t.sleep(60)
+        while True:
+            try:
+                from modules.database import _execute_with_retry
+                rows = _execute_with_retry("""
+                    SELECT user_id, premium_expiry FROM users
+                    WHERE premium = TRUE
+                      AND premium_expiry IS NOT NULL
+                      AND premium_expiry > NOW()
+                      AND premium_expiry < NOW() + INTERVAL '25 hours'
+                """, fetch=True) or []
+
+                now = datetime.utcnow()
+                for row in rows:
+                    uid    = row["user_id"]
+                    expiry = row["premium_expiry"]
+                    if hasattr(expiry, "tzinfo") and expiry.tzinfo:
+                        expiry = expiry.replace(tzinfo=None)
+                    hours_left = (expiry - now).total_seconds() / 3600
+
+                    if uid not in notified_cache:
+                        notified_cache[uid] = set()
+
+                    for threshold, label in [(24, "24h"), (6, "6h"), (1, "1h")]:
+                        if hours_left <= threshold and label not in notified_cache[uid]:
+                            notified_cache[uid].add(label)
+                            msg = (
+                                f"⏳ <b>Premium Expiring Soon!</b>\n\n"
+                                f"Your Onichan Premium expires in ~{label}.\n\n"
+                                f"Renew now to keep all gates, mass checks, and premium features.\n"
+                                f"👉 /premium"
+                            )
+                            if label == "1h":
+                                msg = (
+                                    f"🚨 <b>FINAL HOUR!</b>\n\n"
+                                    f"Your Premium expires in ~1 hour!\n"
+                                    f"Renew immediately to avoid losing access.\n"
+                                    f"👉 /premium"
+                                )
+                            try:
+                                _req.post(
+                                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                                    json={"chat_id": uid, "text": msg, "parse_mode": "HTML"},
+                                    timeout=10)
+                            except Exception as e:
+                                print(f"[AdvExpiry] Notify {uid} failed: {e}")
+
+                # Clean up cache for users whose premium has expired
+                alive = {row["user_id"] for row in rows}
+                for uid in list(notified_cache.keys()):
+                    if uid not in alive:
+                        del notified_cache[uid]
+
+            except Exception as e:
+                print(f"[AdvExpiry] Loop error: {e}")
+            _t.sleep(1800)  # check every 30 minutes
+
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+    print("⏰ Advance premium expiry notifier started (30min interval)")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TEXT MESSAGE ROUTER — dispatch awaiting states and live card paste
+# ════════════════════════════════════════════════════════════════════════════
+
+async def universal_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Route non-command text messages: bincheck, addbin details, card paste detection."""
+    if not update.message or not update.message.text:
+        return
+
+    user = update.effective_user
+    txt  = update.message.text.strip()
+
+    # BIN check awaiting input
+    if context.user_data.get("awaiting_bincheck"):
+        context.user_data.pop("awaiting_bincheck", None)
+        await _process_bincheck(update, context, txt)
+        return
+
+    # AddBin details awaiting input (admin)
+    if context.user_data.get("awaiting_addbin_details") and is_owner(user.id):
+        context.user_data.pop("awaiting_addbin_details", None)
+        pending = context.user_data.pop("addbin_pending", {})
+        lines = [l.strip() for l in txt.strip().splitlines() if l.strip()]
+        if len(lines) < 6:
+            await update.message.reply_text(ae("❌ Need at least 6 lines: brand, country, cc, type, level, bank, [sites...]"))
+            return
+        brand, country, cc, card_type, level, bank = lines[:6]
+        sites = [{"name": f"Site {i+1}", "url": u, "description": "", "success_rate": 0}
+                 for i, u in enumerate(lines[6:])]
+        try:
+            from modules.bin_shop import create_bin_listing
+            loop = asyncio.get_running_loop()
+            lid = await loop.run_in_executor(
+                None, create_bin_listing,
+                pending.get("bin"), brand, country, cc, card_type, level,
+                bank, float(pending.get("price", 5)),
+                sites, "", pending.get("desc", ""))
+            await update.message.reply_text(
+                ae(f"✅ BIN <code>{pending.get('bin')}</code> added to shop as listing #{lid}"),
+                parse_mode=ParseMode.HTML)
+        except Exception as e:
+            await update.message.reply_text(ae(f"❌ Failed to add BIN: {str(e)[:100]}"))
+        return
+
+    # Live card paste detection (last resort)
+    await live_card_paste_handler(update, context)
+
+
 def main():
     """Start the bot"""
     print("=" * 80)
@@ -18814,6 +19959,33 @@ def main():
     application.add_handler(CommandHandler("proxyinfo", cmd_proxy_info))
     application.add_handler(CommandHandler("geterror", cmd_geterror))
 
+    # ── New feature handlers ──────────────────────────────────────────────
+    application.add_handler(CommandHandler("history", history_command))
+    application.add_handler(CommandHandler("top", leaderboard_command))
+    application.add_handler(CommandHandler("leaderboard", leaderboard_command))
+    application.add_handler(CommandHandler("bincheck", bincheck_command))
+    application.add_handler(CommandHandler("binshop", binshop_command))
+    application.add_handler(CommandHandler("addbin", addbin_command))
+    application.add_handler(CommandHandler("removebin", removebin_command))
+    application.add_handler(CommandHandler("casino", casino_command))
+    application.add_handler(CommandHandler("broadcast2", rich_broadcast))
+    application.add_handler(CommandHandler("rcast", rich_broadcast))
+    application.add_handler(CommandHandler("alertset", alertset_command))
+    application.add_handler(CommandHandler("myalerts", myalerts_command))
+    # Live card paste gate-selection callback
+    application.add_handler(CallbackQueryHandler(paste_gate_callback, pattern="^paste_gate:"))
+    # BIN shop purchase callback
+    application.add_handler(CallbackQueryHandler(binbuy_callback, pattern="^binbuy:"))
+    # Casino callbacks
+    application.add_handler(CallbackQueryHandler(casino_callback, pattern="^casino:"))
+    application.add_handler(CallbackQueryHandler(casinobet_callback, pattern="^casinobet:"))
+    # Universal text handler: bincheck/addbin state machine + live card paste
+    # group=2 so it runs after handle_dot_commands (group=0) and handle_ton_txhash (group=1)
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, universal_text_handler),
+        group=2
+    )
+
     # Robust error handler - catches all errors without crashing
     conflict_count = [0]
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -18907,6 +20079,10 @@ def main():
     expiry_thread = threading.Thread(target=_premium_expiry_checker, daemon=True)
     expiry_thread.start()
     print("⏰ Premium expiry checker started (checks every 5 minutes)")
+
+    # Start advance expiry notifier (24h / 6h / 1h warnings before expiry)
+    if BOT_TOKEN:
+        _start_advance_expiry_notifier(BOT_TOKEN)
 
     try:
         start_monitor(bot=None, admin_chat_id=OWNER_ID if OWNER_ID else None)
