@@ -12623,6 +12623,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
                 except:
                     pass
+
+    async def send_gif_screen(text, reply_markup=None, gif_type="welcome"):
+        """Delete current message and send a fresh animation — adds GIF to every screen."""
+        text = ae(text)
+        gif_url = get_sexy_anime_gif(gif_type)
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        try:
+            await context.bot.send_animation(
+                chat_id=query.message.chat_id,
+                animation=gif_url,
+                caption=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+        except Exception:
+            # fallback: edit in-place if send fails
+            await safe_edit(text, reply_markup)
     
     # Regenerate cards
     if query.data == "regen_cards":
@@ -12768,8 +12788,8 @@ Uses bli-us.com membership gateway.
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # CHARGE GATES
     elif query.data == "charge_gates":
         if not is_premium(user.id):
@@ -12794,8 +12814,8 @@ Uses bli-us.com membership gateway.
             keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # MASS CHECK INFO
     elif query.data == "mass_info":
         sep = "━━━━━━━━━━━━━━━━━━━━"
@@ -12814,8 +12834,8 @@ cc2|mm|yy|cvv</code>
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # TOOLS MENU
     elif query.data == "tools":
         sep = "━━━━━━━━━━━━━━━━━━━━"
@@ -12830,7 +12850,7 @@ cc2|mm|yy|cvv</code>
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="start")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
+        await send_gif_screen(text, reply_markup)
 
     # HELP MENU
     elif query.data == "help_menu":
@@ -12875,7 +12895,7 @@ cc2|mm|yy|cvv</code>
         text += ae(f"\n📞 @{SUPPORT_USERNAME} | 📢 @{CHANNEL_USERNAME}")
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="start")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
+        await send_gif_screen(text, reply_markup)
 
     # INFO
     elif query.data == "info":
@@ -12891,8 +12911,8 @@ cc2|mm|yy|cvv</code>
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="start")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # PREMIUM INFO
     elif query.data == "premium":
         sep = "━━━━━━━━━━━━━━━━━━━━"
@@ -12916,8 +12936,8 @@ cc2|mm|yy|cvv</code>
             [_btn("BACK", style="default", icon=EID["back"], callback_data="start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # PAY WITH UPI (Easebuzz)
     elif query.data == "pay_upi":
         from modules.easebuzz import UPI_PLANS
@@ -12962,8 +12982,8 @@ GPay, PhonePe, Paytm, BHIM & more
                 [_btn("BACK", style="default", icon=EID["back"], callback_data="premium")]
             ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # UPI PAYMENT (Easebuzz)
     elif query.data.startswith("upi_"):
         plan_key = query.data.replace("upi_", "")
@@ -13032,8 +13052,8 @@ Please try again or use another payment method.""")
             ]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # PAY WITH CRYPTO
     elif query.data == "pay_crypto":
         text = ae("""🪙 <b>PAY WITH CRYPTO</b>
@@ -13053,8 +13073,8 @@ BTC, ETH, USDC, LTC, BCH, DOGE & more!
             [_btn("BACK", style="default", icon=EID["back"], callback_data="premium")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # PAY WITH TELEGRAM STARS
     elif query.data == "pay_stars":
         text = ae("""⭐ <b>PAY WITH TELEGRAM STARS</b>
@@ -13081,8 +13101,8 @@ Fast, secure, no crypto needed.
             [_btn("BACK", style="default", icon=EID["back"], callback_data="premium")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # TELEGRAM STARS PAYMENT
     elif query.data.startswith("stars_"):
         plan_key = query.data.replace("stars_", "")
@@ -13121,7 +13141,7 @@ Fast, secure, no crypto needed.
             )
         except Exception as e:
             print(f"[Stars] Invoice error: {e}")
-            await safe_edit(
+            await send_gif_screen(
                 f"❌ <b>Error creating Stars invoice</b>\n\n{str(e)[:100]}\n\nPlease try Crypto payment instead.",
                 InlineKeyboardMarkup([
                     [_btn("Pay with Crypto", icon=EID["card"], callback_data="pay_crypto")],
@@ -13154,7 +13174,7 @@ Fast, secure, no crypto needed.
             [_btn("3 Months — 5.0 TON", icon=EID["card"], callback_data="ton_3_months")],
             [_btn("BACK", style="default", icon=EID["back"], callback_data="premium")]
         ]
-        await safe_edit(text, InlineKeyboardMarkup(keyboard))
+        await send_gif_screen(text, InlineKeyboardMarkup(keyboard))
 
     # TON PLAN SELECTED — show wallet + auto-monitor instructions
     elif query.data.startswith("ton_"):
@@ -13201,7 +13221,7 @@ Fast, secure, no crypto needed.
         keyboard = [
             [_btn("BACK", style="default", icon=EID["back"], callback_data="pay_ton")]
         ]
-        await safe_edit(text, InlineKeyboardMarkup(keyboard))
+        await send_gif_screen(text, InlineKeyboardMarkup(keyboard))
 
     # BUY PLAN - Create CoinPayments Order
     elif query.data.startswith("buy_"):
@@ -13228,7 +13248,7 @@ Fast, secure, no crypto needed.
         )
         
         if result.get("error"):
-            await safe_edit(
+            await send_gif_screen(
                 f"❌ <b>Payment Error</b>\n\n{result['error']}\n\nPlease contact @{SUPPORT_USERNAME}",
                 InlineKeyboardMarkup([
                     [_btn("Contact Support", style="default", icon=EID["users"], url=f"https://t.me/{SUPPORT_USERNAME}")],
@@ -13269,8 +13289,8 @@ Fast, secure, no crypto needed.
         keyboard.append([_btn("BACK", style="default", icon=EID["back"], callback_data="premium")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # CHECK PAYMENT STATUS
     elif query.data.startswith("check_"):
         order_id = query.data.replace("check_", "").replace("payment_", "")
@@ -13347,8 +13367,8 @@ Complete payment on OxaPay, then check again.""")
             keyboard.append([_btn("BACK", style="default", icon=EID["back"], callback_data="premium")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # MY PAYMENTS - Show pending orders
     elif query.data == "my_payments":
         text = ae(f"""💳 <b>PAYMENT STATUS</b>
@@ -13375,8 +13395,8 @@ Premium activates within 5 mins! ✅
         ]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # ADMIN - ALL USERS LIST
     elif query.data == "admin_users":
         if not is_owner(user.id):
@@ -13421,8 +13441,8 @@ Premium activates within 5 mins! ✅
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="admin")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # ADMIN - PREMIUM USERS LIST
     elif query.data == "admin_premium":
         if not is_owner(user.id):
@@ -13460,8 +13480,8 @@ Premium activates within 5 mins! ✅
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="admin")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # ADMIN - FREE USERS LIST
     elif query.data == "admin_free":
         if not is_owner(user.id):
@@ -13496,8 +13516,8 @@ Premium activates within 5 mins! ✅
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="admin")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # ADMIN - PENDING USERS LIST
     elif query.data == "admin_pending":
         if not is_owner(user.id):
@@ -13531,8 +13551,8 @@ Premium activates within 5 mins! ✅
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="admin")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # ADMIN - BANNED USERS LIST
     elif query.data == "admin_banned":
         if not is_owner(user.id):
@@ -13567,8 +13587,8 @@ Premium activates within 5 mins! ✅
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="admin")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # ADMIN - ADMINS LIST
     elif query.data == "admin_admins":
         if not is_owner(user.id):
@@ -13607,8 +13627,8 @@ Premium activates within 5 mins! ✅
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="admin")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # ADMIN - STATS
     elif query.data == "admin_stats":
         if not is_owner(user.id):
@@ -13655,8 +13675,8 @@ Premium activates within 5 mins! ✅
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="admin")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # ADMIN - SETTINGS
     elif query.data == "admin_settings":
         if not is_owner(user.id):
@@ -13687,8 +13707,8 @@ Premium activates within 5 mins! ✅
         
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="admin")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
-    
+        await send_gif_screen(text, reply_markup)
+
     # BACK TO START
     elif query.data == "start":
         from modules.database import get_user_check_stats
@@ -13749,7 +13769,7 @@ Premium activates within 5 mins! ✅
             ])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await safe_edit(text, reply_markup)
+        await send_gif_screen(text, reply_markup)
 
 # ============================================================================
 # RPP GATE COMMAND
