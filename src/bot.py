@@ -12649,164 +12649,109 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [_btn("BACK", style="default", icon=EID["back"], callback_data="start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        # Delete old message (may be animation) and send fresh plain text — ensures
-        # all subsequent gate-detail edits work reliably via edit_message_text.
+        # Delete old message and send fresh animation for the gates menu.
+        gif_url = get_sexy_anime_gif("welcome")
         try:
             await query.message.delete()
         except Exception:
             pass
-        await context.bot.send_message(
+        await context.bot.send_animation(
             chat_id=query.message.chat_id,
-            text=ae("<b>💜 Select a Gate</b>"),
+            animation=gif_url,
+            caption=ae("<b>💜 Select a Gate</b>"),
             parse_mode=ParseMode.HTML,
             reply_markup=reply_markup
         )
 
-    # Individual Gate Info Screens — plain safe_edit (message is now text)
-    elif query.data == "gate_stripe5":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Stripe $5</b>
+    # Individual Gate Info Screens — edit the caption of the animation (GIF stays, caption changes)
+    elif query.data in (
+        "gate_stripe5", "gate_braintree", "gate_ast", "gate_vbv3ds",
+        "gate_paypal", "gate_auto_shopify", "gate_stripe_newrp",
+        "gate_razorpay", "gate_payu", "gate_shopify_v2",
+        "gate_stripe1", "gate_auto_hitter", "gate_cc_killer"
+    ):
+        gate_texts = {
+            "gate_stripe5": ae("""<b>Stripe $5</b>
 
 ▸ /st5 cc|mm|yy|cvv — Single Check
-▸ /mst5 — Mass Check""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_braintree":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Braintree</b>
+▸ /mst5 — Mass Check"""),
+            "gate_braintree": ae("""<b>Braintree</b>
 
 ▸ /b3 cc|mm|yy|cvv — Single Check
 ▸ /b3n cc|mm|yy|cvv — Braintree $5.00
-▸ /mb3 — Mass Check""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_ast":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Auto Stripe Auth</b>
+▸ /mb3 — Mass Check"""),
+            "gate_ast": ae("""<b>Auto Stripe Auth</b>
 
 ▸ /ast cc|mm|yy|cvv — Single Check
-▸ /mast — Mass Check (5 batches)""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_vbv3ds":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>VBV/3DS</b>
+▸ /mast — Mass Check (5 batches)"""),
+            "gate_vbv3ds": ae("""<b>VBV/3DS</b>
 
 ▸ /bt3d cc|mm|yy|cvv — Single Check
-▸ /mbt3d — Mass Check""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_paypal":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>PayPal</b>
+▸ /mbt3d — Mass Check"""),
+            "gate_paypal": ae("""<b>PayPal</b>
 
 ▸ /pp cc|mm|yy|cvv — Single Check
 ▸ /ppv cc|mm|yy|cvv — Variable Price ($0.01)
-▸ /mpp — Mass Check""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_auto_shopify":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Shopify</b>
+▸ /mpp — Mass Check"""),
+            "gate_auto_shopify": ae("""<b>Shopify</b>
 
 ▸ /sh cc|mm|yy|cvv — Single Check
 ▸ /msh — Mass Check
-▸ /mshtxt — Mass Check via .txt file""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_stripe_newrp":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Stripe Auth</b>
+▸ /mshtxt — Mass Check via .txt file"""),
+            "gate_stripe_newrp": ae("""<b>Stripe Auth</b>
 
 ▸ /st cc|mm|yy|cvv — Single Check
 ▸ /str cc|mm|yy|cvv — Stripe $1 Donation
 ▸ /mst — Mass Check (5 batches)
-▸ /msttxt — Mass Check via .txt file""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_razorpay":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Razorpay ₹1</b>
+▸ /msttxt — Mass Check via .txt file"""),
+            "gate_razorpay": ae("""<b>Razorpay ₹1</b>
 
 ▸ /rz cc|mm|yy|cvv — Single Check
-▸ /mrz — Mass Check (5 batches)""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_payu":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>PayU ₹1</b>
+▸ /mrz — Mass Check (5 batches)"""),
+            "gate_payu": ae("""<b>PayU ₹1</b>
 
 ▸ /payu cc|mm|yy|cvv — Single Check
 ▸ /mpayu — Mass Check (1s delay)
 
-💡 Uses MiracleManna donation gateway""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_shopify_v2":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Shopify V2</b>
+💡 Uses MiracleManna donation gateway"""),
+            "gate_shopify_v2": ae("""<b>Shopify V2</b>
 
 ▸ /sh6 cc|mm|yy|cvv — Single Check
-▸ /msh6 — Mass Check""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_stripe1":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Stripe $1</b>
+▸ /msh6 — Mass Check"""),
+            "gate_stripe1": ae("""<b>Stripe $1</b>
 
 ▸ /st1 cc|mm|yy|cvv — Single Check
-▸ /mst1 — Mass Check""")
-        await safe_edit(text, reply_markup)
+▸ /mst1 — Mass Check"""),
+            "gate_auto_hitter": ae("""<b>⚡ Auto Hitter — /hit</b>
 
-    elif query.data == "gate_auto_hitter":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>⚡ Auto Hitter — /hit</b>
-
-▸ /hit — Open Auto Hitter dashboard
+▸ /hit — Open dashboard
 ▸ /hit url — Auto-detect & hit a URL
-▸ /hit url cc|mm|yy|cvv — Hit with specific card
+▸ /hit url cc|mm|yy|cvv — Hit with card
 
-<b>Dashboard Features:</b>
-• Hit Cards — run cards against a site
-• My Hits — view your hit history
-• My Status — plan & usage info
-• Ranking — leaderboard
-• Saved BINs — your saved BINs
-• Settings — toggle proxy/site display
+<b>Dashboard:</b>
+• Hit Cards · My Hits · Status
+• Ranking · Saved BINs · Settings
 
-<b>Example:</b>
-<code>/hit https://checkout.stripe.com/... 4242424242424242|12|25|123</code>""")
-        await safe_edit(text, reply_markup)
-
-    elif query.data == "gate_cc_killer":
-        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>💀 CC Killer Gate</b>
+<code>/hit https://checkout.stripe.com/... 4|12|25|123</code>"""),
+            "gate_cc_killer": ae("""<b>💀 CC Killer Gate</b>
 
 ▸ /kill cc|mm|yy|cvv — Kill a card
 
-<b>Description:</b>
-Uses bli-us.com membership gateway to check cards with multi-threaded requests.
+Uses bli-us.com membership gateway.
 
-<b>Response Format:</b>
-• Processed (X) ✅🔥 — Card is dead/killed
-• Card is still live try again 😭 — Card is live
+• Processed (X) ✅🔥 — Card killed
+• Card is still live try again 😭 — Live
 
-<b>Example:</b>
-<code>/kill 4242424242424242|12|25|123</code>""")
-        await safe_edit(text, reply_markup)
+<code>/kill 4242424242424242|12|25|123</code>"""),
+        }
+        text = gate_texts[query.data]
+        keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        try:
+            await query.message.edit_caption(
+                caption=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+        except Exception:
+            await safe_edit(text, reply_markup)
 
     # AUTH GATES
     elif query.data == "auth_gates":
