@@ -2959,3 +2959,20 @@ Bank: Capital One, National Association
 Country: United States of America (the) 🇺🇸
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-05-04 15:09:23
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 376212405794006|07|26|9902
+Gateway: sq
+Response: Status code INVALID_CARD_DATA: Invalid card data.
+BIN: 376212
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: BANK
+Country: Singapore 🇸🇬
+================================================================================
+
