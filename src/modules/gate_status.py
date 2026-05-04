@@ -36,12 +36,14 @@ def _save(data):
         _cache_ts = time.time()
 
 def is_gate_offline(gate_name: str) -> bool:
+    # File stores True = ONLINE, False/missing = OFFLINE
     data = _load()
-    return bool(data.get(gate_name, False))
+    return not bool(data.get(gate_name, True))
 
 def set_gate_offline(gate_name: str, offline: bool):
+    # Store inverted: True = online, False = offline (matches panel semantics)
     data = _load()
-    data[gate_name] = offline
+    data[gate_name] = not offline
     _save(data)
 
 def get_all_gate_status() -> dict:
