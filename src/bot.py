@@ -12635,41 +12635,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # ============================================================
-    # GATES MENU - FIXED LAYOUT
-    # ============================================================
-    # Full-width single-column gate buttons, BACK at bottom
+    # GATES MENU
     # ============================================================
     if query.data == "gates":
         keyboard = [
-            [_btn("Auto Stripe Auth", icon=EID["bolt"], callback_data="gate_ast")],
-            [_btn("Stripe $5", icon=EID["card"], callback_data="gate_stripe5")],
-            [_btn("Braintree", icon=EID["bolt"], callback_data="gate_braintree")],
-            [_btn("VBV/3DS", icon=EID["3ds"], callback_data="gate_vbv3ds")],
-            [_btn("Stripe Auth", icon=EID["bolt"], callback_data="gate_stripe_newrp")],
-            [_btn("Stripe $1", icon=EID["card"], callback_data="gate_stripe1")],
-            [_btn("PayPal", icon=EID["card"], callback_data="gate_paypal")],
-            [_btn("Auto Shopify", icon=EID["bolt"], callback_data="gate_auto_shopify")],
-            [_btn("Razorpay", icon=EID["card"], callback_data="gate_razorpay")],
-            [_btn("Shopify V2", icon=EID["bolt"], callback_data="gate_shopify_v2")],
-            [_btn("PayU ₹1", icon=EID["card"], callback_data="gate_payu")],
-            [_btn("CC Killer", icon=EID["danger"], callback_data="gate_cc_killer")],
+            [_btn("Auto Stripe Auth", icon=EID["bolt"], callback_data="gate_ast"), _btn("Stripe $5", icon=EID["card"], callback_data="gate_stripe5")],
+            [_btn("Braintree", icon=EID["bolt"], callback_data="gate_braintree"), _btn("VBV/3DS", icon=EID["3ds"], callback_data="gate_vbv3ds")],
+            [_btn("Stripe Auth", icon=EID["bolt"], callback_data="gate_stripe_newrp"), _btn("Stripe $1", icon=EID["card"], callback_data="gate_stripe1")],
+            [_btn("PayPal", icon=EID["card"], callback_data="gate_paypal"), _btn("Auto Shopify", icon=EID["bolt"], callback_data="gate_auto_shopify")],
+            [_btn("Razorpay", icon=EID["card"], callback_data="gate_razorpay"), _btn("Shopify V2", icon=EID["bolt"], callback_data="gate_shopify_v2")],
+            [_btn("PayU ₹1", icon=EID["card"], callback_data="gate_payu"), _btn("CC Killer", icon=EID["danger"], callback_data="gate_cc_killer")],
             [_btn("BACK", style="default", icon=EID["back"], callback_data="start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption="<b>Select a Gate</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit("<b>Select a Gate</b>", reply_markup)
-    
+        await safe_edit("<b>Select a Gate</b>", reply_markup)
+
     # Individual Gate Info Screens
     elif query.data == "gate_stripe5":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
@@ -12678,19 +12658,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ▸ /st5 cc|mm|yy|cvv — Single Check
 ▸ /mst5 — Mass Check"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_braintree":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12699,19 +12668,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ▸ /b3 cc|mm|yy|cvv — Single Check
 ▸ /b3n cc|mm|yy|cvv — Braintree $5.00
 ▸ /mb3 — Mass Check"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_ast":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12719,19 +12677,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ▸ /ast cc|mm|yy|cvv — Single Check
 ▸ /mast — Mass Check (5 batches)"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_vbv3ds":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12739,19 +12686,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ▸ /bt3d cc|mm|yy|cvv — Single Check
 ▸ /mbt3d — Mass Check"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_paypal":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12760,19 +12696,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ▸ /pp cc|mm|yy|cvv — Single Check
 ▸ /ppv cc|mm|yy|cvv — Variable Price ($0.01)
 ▸ /mpp — Mass Check"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_auto_shopify":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12781,19 +12706,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ▸ /sh cc|mm|yy|cvv — Single Check
 ▸ /msh — Mass Check
 ▸ /mshtxt — Mass Check via .txt file"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_stripe_newrp":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12803,19 +12717,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ▸ /str cc|mm|yy|cvv — Stripe $1 Donation
 ▸ /mst — Mass Check (5 batches)
 ▸ /msttxt — Mass Check via .txt file"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_razorpay":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12823,19 +12726,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ▸ /rz cc|mm|yy|cvv — Single Check
 ▸ /mrz — Mass Check (5 batches)"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_payu":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12845,19 +12737,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ▸ /mpayu — Mass Check (1s delay)
 
 💡 Uses MiracleManna donation gateway""")
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_shopify_v2":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12865,19 +12746,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ▸ /sh6 cc|mm|yy|cvv — Single Check
 ▸ /msh6 — Mass Check"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_stripe1":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12885,19 +12755,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ▸ /st1 cc|mm|yy|cvv — Single Check
 ▸ /mst1 — Mass Check"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_auto_hitter":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12917,19 +12776,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 <b>Example:</b>
 <code>/co https://checkout.stripe.com/c/pay/cs_live_xxx</code>
 <code>/co https://checkout.stripe.com/... 4242424242424242|12|25|123</code>"""
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     elif query.data == "gate_cc_killer":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12946,19 +12794,8 @@ Uses bli-us.com membership gateway to check cards with multi-threaded requests.
 
 <b>Example:</b>
 <code>/kill 4242424242424242|12|25|123</code>""")
-        gif_url = get_sexy_anime_gif("welcome")
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=query.message.chat_id,
-                animation=gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        except:
-            await safe_edit(text, reply_markup)
-    
+        await safe_edit(text, reply_markup)
+
     # AUTH GATES
     elif query.data == "auth_gates":
         sep = "━━━━━━━━━━━━━━━━━━━━"
