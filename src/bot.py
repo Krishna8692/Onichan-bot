@@ -12645,6 +12645,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [_btn("PayPal", icon=EID["card"], callback_data="gate_paypal"), _btn("Auto Shopify", icon=EID["bolt"], callback_data="gate_auto_shopify")],
             [_btn("Razorpay", icon=EID["card"], callback_data="gate_razorpay"), _btn("Shopify V2", icon=EID["bolt"], callback_data="gate_shopify_v2")],
             [_btn("PayU ₹1", icon=EID["card"], callback_data="gate_payu"), _btn("CC Killer", icon=EID["danger"], callback_data="gate_cc_killer")],
+            [_btn("⚡ Auto Hitter", icon=EID["bolt"], callback_data="gate_auto_hitter")],
             [_btn("BACK", style="default", icon=EID["back"], callback_data="start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -12771,17 +12772,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "gate_auto_hitter":
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        text = ae("""<b>Auto Hitter (Stripe Checkout)</b>
+        text = ae("""<b>⚡ Auto Hitter — /hit</b>
 
-▸ /co url — Parse Stripe checkout URL
-▸ /co url cc|mm|yy|cvv — Charge card on checkout
+▸ /hit — Open Auto Hitter dashboard
+▸ /hit url — Auto-detect & hit a URL
+▸ /hit url cc|mm|yy|cvv — Hit with specific card
 
-<b>Supported URLs:</b>
-• checkout.stripe.com
-• buy.stripe.com
+<b>Dashboard Features:</b>
+• Hit Cards — run cards against a site
+• My Hits — view your hit history
+• My Status — plan & usage info
+• Ranking — leaderboard
+• Saved BINs — your saved BINs
+• Settings — toggle proxy/site display
 
 <b>Example:</b>
-<code>/co https://checkout.stripe.com/... 4242424242424242|12|25|123</code>""")
+<code>/hit https://checkout.stripe.com/... 4242424242424242|12|25|123</code>""")
         await safe_edit(text, reply_markup)
 
     elif query.data == "gate_cc_killer":
