@@ -12637,22 +12637,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ============================================================
     # GATES MENU - FIXED LAYOUT
     # ============================================================
-    # Row 1: Stripe Auth | Stripe $5
-    # Row 2: Braintree   | VBV/3DS
-    # Row 3: PayPal      | Auto Shopify
-    # Row 4: Razorpay    | Shopify V2
-    # Row 5: Stripe $1   | Auto Hitter
-    # Row 6: ◀ BACK
+    # Full-width single-column gate buttons, BACK at bottom
     # ============================================================
     if query.data == "gates":
         keyboard = [
-            [_btn("Auto Stripe Auth", icon=EID["bolt"], callback_data="gate_ast"), _btn("Stripe $5", icon=EID["card"], callback_data="gate_stripe5")],
-            [_btn("Braintree", icon=EID["bolt"], callback_data="gate_braintree"), _btn("VBV/3DS", icon=EID["3ds"], callback_data="gate_vbv3ds")],
-            [_btn("Stripe Auth", icon=EID["bolt"], callback_data="gate_stripe_newrp"), _btn("Stripe $1", icon=EID["card"], callback_data="gate_stripe1")],
-            [_btn("PayPal", icon=EID["card"], callback_data="gate_paypal"), _btn("Auto Shopify", icon=EID["bolt"], callback_data="gate_auto_shopify")],
-            [_btn("Razorpay", icon=EID["card"], callback_data="gate_razorpay"), _btn("Shopify V2", icon=EID["bolt"], callback_data="gate_shopify_v2")],
-            [_btn("PayU ₹1", icon=EID["card"], callback_data="gate_payu"), _btn("CC Killer", icon=EID["danger"], callback_data="gate_cc_killer")],
-            [_btn("Auto Hitter", icon=EID["bolt"], callback_data="gate_auto_hitter")],
+            [_btn("Auto Stripe Auth", icon=EID["bolt"], callback_data="gate_ast")],
+            [_btn("Stripe $5", icon=EID["card"], callback_data="gate_stripe5")],
+            [_btn("Braintree", icon=EID["bolt"], callback_data="gate_braintree")],
+            [_btn("VBV/3DS", icon=EID["3ds"], callback_data="gate_vbv3ds")],
+            [_btn("Stripe Auth", icon=EID["bolt"], callback_data="gate_stripe_newrp")],
+            [_btn("Stripe $1", icon=EID["card"], callback_data="gate_stripe1")],
+            [_btn("PayPal", icon=EID["card"], callback_data="gate_paypal")],
+            [_btn("Auto Shopify", icon=EID["bolt"], callback_data="gate_auto_shopify")],
+            [_btn("Razorpay", icon=EID["card"], callback_data="gate_razorpay")],
+            [_btn("Shopify V2", icon=EID["bolt"], callback_data="gate_shopify_v2")],
+            [_btn("PayU ₹1", icon=EID["card"], callback_data="gate_payu")],
+            [_btn("CC Killer", icon=EID["danger"], callback_data="gate_cc_killer")],
             [_btn("BACK", style="default", icon=EID["back"], callback_data="start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
