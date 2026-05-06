@@ -1008,6 +1008,7 @@ def admin_dashboard():
             <h2>Onichan Admin</h2>
             <a href="/admin" class="active" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -1188,6 +1189,7 @@ def admin_users():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" class="active" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -1321,6 +1323,7 @@ def admin_premium():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -1452,6 +1455,7 @@ def admin_owners():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" class="active" onclick="closeSidebar()">Admins</a>
@@ -1644,6 +1648,7 @@ def admin_permissions():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -1738,6 +1743,7 @@ def admin_payments():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -1855,6 +1861,7 @@ def admin_banned():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -1919,6 +1926,7 @@ def admin_cards():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -2079,6 +2087,7 @@ def admin_settings():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -3741,6 +3750,205 @@ def admin_gates_toggle():
     return jsonify({'ok': True, 'gate': gate, 'offline': offline})
 
 
+# ── Gate API Config Panel ─────────────────────────────────────────────────────
+
+_GATE_API_FIELDS = [
+    ("Stripe Charge Server",       "stripe_charge_url",      "http://15.204.130.9:6969/check",                   "Stripe / generic primary check server"),
+    ("Stripe Charge Server #2",    "stripe_charge_url2",     "http://194.150.166.130:5000/",                      "Braintree & secondary fallback server"),
+    ("freechk Stripe URL",         "freechk_stripe_url",     "https://freechk.cards/free/stripe.php",            "freechk.cards Stripe endpoint"),
+    ("freechk Braintree URL",      "freechk_braintree_url",  "https://freechk.cards/free/braintree.php",         "freechk.cards Braintree endpoint"),
+    ("freechk Square URL",         "freechk_square_url",     "https://freechk.cards/free/square.php",            "freechk.cards Square endpoint"),
+    ("freechk PayPal URL",         "freechk_paypal_url",     "https://freechk.cards/free/paypal.php",            "freechk.cards PayPal endpoint"),
+    ("Nyvexis Stripe URL",         "nyvexis_stripe_url",     "https://api.nyvexis.com/stripeauth/",              "Nyvexis Stripe Auth endpoint"),
+    ("Nyvexis Braintree URL",      "nyvexis_braintree_url",  "https://api.nyvexis.com/braintree/",               "Nyvexis Braintree endpoint"),
+    ("Nyvexis PayPal URL",         "nyvexis_paypal_url",     "https://api.nyvexis.com/paypal/",                  "Nyvexis PayPal endpoint"),
+    ("Netherex Stripe URL",        "netherex_stripe_url",    "https://checker.netherex.xyz/strauth.php",         "Netherex Stripe Auth checker"),
+    ("Netherex Stripe Key",        "netherex_stripe_key",    "netherex_auth_shorien_wpxp60bhe",                  "Auth key for Netherex Stripe & PayPal"),
+    ("Netherex Shopify URL",       "netherex_shopify_url",   "https://checker.netherex.xyz/autosh.php",          "Netherex Auto-Shopify checker"),
+    ("Netherex Shopify Key",       "netherex_shopify_key",   "netherex_auth_autosh",                             "Auth key for Netherex Shopify"),
+    ("Netherex PayPal URL",        "netherex_paypal_url",    "https://checker.netherex.xyz/paypalcheck.php",     "Netherex PayPal checker"),
+    ("Razorpay API URL",           "razorpay_api_url",       "https://api.barryxapi.xyz/razorpay",              "BarryX Razorpay endpoint"),
+    ("Razorpay API Key",           "razorpay_api_key",       "BRY-KESNP-TUPWH-JFOT9",                           "BarryX Razorpay API key"),
+    ("CyborX STV1 URL",            "cybor_stv1_url",         "http://206.206.78.217:1011/",                      "CyborX Stripe Auth V1"),
+    ("CyborX STV2 URL",            "cybor_stv2_url",         "http://206.206.78.217:1012/",                      "CyborX Stripe Auth V2"),
+    ("CyborX STV3 URL",            "cybor_stv3_url",         "http://206.206.78.217:1013/",                      "CyborX Stripe Auth V3"),
+    ("CyborX Shopii URL",          "cybor_shopii_url",       "https://cyborxchecker.com/api/autog.php",          "CyborX Shopify auto-gate"),
+    ("ApprovedChkr URL",           "approvedchkr_url",       "https://approvedchkr.store/api/v1/check.php",      "approvedchkr.store external API"),
+    ("Square API URL",             "square_api_url",         "http://138.128.240.15:8006/square",                "Square Auth gate (/sq)"),
+    ("Braintree API URL",          "braintree_api_url",      "https://api.barryxapi.xyz/braintree_auth",        "BarryX Braintree Auth endpoint"),
+    ("Braintree API Key",          "braintree_api_key",      "BRY-KESNP-TUPWH-JFOT9",                           "BarryX Braintree API key"),
+    ("Razorpay Pages URL",         "rzpauto_url",            "https://rzpauto-production.up.railway.app/rzp",    "RZP Auto railway endpoint (/rzp)"),
+]
+
+@app.route('/admin/gates/api')
+@admin_required
+def admin_gates_api():
+    from modules.gate_api_config import get_all_gate_cfg, GATE_API_DEFAULTS
+    cfg = get_all_gate_cfg()
+
+    rows = ""
+    for label, key, default, hint in _GATE_API_FIELDS:
+        current = cfg.get(key, "")
+        display = current if current else default
+        is_key = "key" in key.lower() or "auth" in key.lower()
+        input_type = "password" if is_key else "text"
+        rows += f"""
+        <div class="api-row" id="row-{key}">
+            <div class="api-info">
+                <span class="api-label">{label}</span>
+                <span class="api-hint">{hint}</span>
+            </div>
+            <div class="api-controls">
+                <input type="{input_type}" class="api-input" id="val-{key}"
+                       value="{display}"
+                       placeholder="{default}"
+                       title="{hint}" autocomplete="off" spellcheck="false">
+                <button class="save-btn" onclick="saveKey('{key}')">Save</button>
+                <button class="reset-btn" onclick="resetKey('{key}', '{default}')">Reset</button>
+            </div>
+        </div>"""
+
+    return render_template_string(f"""
+    <html>
+    <head><title>Gate APIs - Onichan Admin</title>{ADMIN_CSS}
+    <style>
+        .api-row {{
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 20px; border-radius: 10px;
+            background: rgba(255,255,255,0.05); margin-bottom: 10px;
+            border: 1px solid rgba(255,255,255,0.08); gap: 16px; flex-wrap: wrap;
+        }}
+        .api-row:hover {{ background: rgba(255,255,255,0.08); }}
+        .api-info {{ display: flex; flex-direction: column; gap: 3px; min-width: 180px; }}
+        .api-label {{ font-size: 0.95em; font-weight: 600; color: #a78bfa; }}
+        .api-hint {{ font-size: 0.8em; color: rgba(255,255,255,0.45); }}
+        .api-controls {{ display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }}
+        .api-input {{
+            flex: 1; min-width: 0; background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.15); border-radius: 7px;
+            color: #fff; padding: 8px 12px; font-family: monospace; font-size: 0.88em;
+            outline: none; transition: border-color 0.2s;
+        }}
+        .api-input:focus {{ border-color: #a78bfa; }}
+        .save-btn {{
+            padding: 7px 16px; border-radius: 7px; border: none; cursor: pointer;
+            background: #4ade80; color: #1a1a2e; font-weight: 700; font-size: 0.88em;
+            white-space: nowrap; flex-shrink: 0;
+        }}
+        .save-btn:hover {{ background: #22c55e; }}
+        .reset-btn {{
+            padding: 7px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.2);
+            cursor: pointer; background: transparent; color: rgba(255,255,255,0.6);
+            font-size: 0.82em; white-space: nowrap; flex-shrink: 0;
+        }}
+        .reset-btn:hover {{ background: rgba(255,255,255,0.08); color: #fff; }}
+        .toast {{
+            position: fixed; bottom: 24px; right: 24px;
+            background: #1a1a2e; color: #fff;
+            padding: 12px 22px; border-radius: 8px;
+            border-left: 4px solid #4ade80;
+            opacity: 0; transition: opacity 0.3s;
+            z-index: 9999; font-size: 0.95em;
+        }}
+        .toast.error {{ border-left-color: #e94560; }}
+        .toast.show {{ opacity: 1; }}
+        .section-title {{
+            font-size: 1.05em; font-weight: 700; color: rgba(255,255,255,0.8);
+            margin: 22px 0 10px; padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }}
+    </style>
+    </head>
+    <body>
+        <button class="menu-toggle" onclick="toggleSidebar()">
+            <span></span><span></span><span></span>
+        </button>
+        <div class="sidebar-overlay" onclick="closeSidebar()"></div>
+        <div class="sidebar">
+            <h2>Onichan Admin</h2>
+            <a href="/admin" onclick="closeSidebar()">Dashboard</a>
+            <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
+            <a href="/admin/gates/api" class="active" onclick="closeSidebar()">Gate APIs</a>
+            <a href="/admin/users" onclick="closeSidebar()">Users</a>
+            <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
+            <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
+            <a href="/admin/permissions" onclick="closeSidebar()">Permissions</a>
+            <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
+            <a href="/admin/payments" onclick="closeSidebar()">Payments</a>
+            <a href="/admin/banned" onclick="closeSidebar()">Banned</a>
+            <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
+            <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
+            <a href="/tools/checker" onclick="closeSidebar()">CC Checker</a>
+            <a href="/tools/generator" onclick="closeSidebar()">Generator</a>
+            <a href="/admin/autohitter" onclick="closeSidebar()">Auto Hitter</a>
+            <a href="/tools/cleaner" onclick="closeSidebar()">CC Cleaner</a>
+            <hr style="border-color: rgba(255,255,255,0.1); margin: 10px 0;">
+            <a href="/admin/ccshop" onclick="closeSidebar()">CC Shop</a>
+            <a href="/admin/proxyshop" onclick="closeSidebar()">Proxy Shop</a>
+            <a href="/admin/casino" onclick="closeSidebar()">Casino</a>
+            <a href="/admin/market" onclick="closeSidebar()">🛍 Marketplace</a>
+            <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
+            <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
+        </div>
+        <div class="main">
+            <div class="header"><h1>🔌 Gate API Configuration</h1></div>
+            <div class="card">
+                <h2 style="margin-bottom:6px;">API Endpoints &amp; Keys</h2>
+                <p style="color:rgba(255,255,255,0.55);margin-bottom:18px;font-size:0.92em;">
+                    Edit any API URL or auth key below and click <b>Save</b>.<br>
+                    Changes take effect within 5 seconds — no bot restart required.<br>
+                    Click <b>Reset</b> to restore the original hardcoded default.
+                </p>
+                {rows}
+            </div>
+        </div>
+        <div class="toast" id="toast"></div>
+        <script>
+        function showToast(msg, isError) {{
+            var t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast' + (isError ? ' error' : '') + ' show';
+            setTimeout(function(){{ t.className = 'toast'; }}, 2500);
+        }}
+        function saveKey(key) {{
+            var val = document.getElementById('val-' + key).value.trim();
+            fetch('/admin/gates/api/update', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{key: key, value: val}})
+            }})
+            .then(function(r){{ return r.json(); }})
+            .then(function(d){{
+                if (d.ok) {{ showToast('Saved: ' + key, false); }}
+                else {{ showToast('Error: ' + (d.error || 'unknown'), true); }}
+            }})
+            .catch(function(){{ showToast('Request failed', true); }});
+        }}
+        function resetKey(key, def_val) {{
+            document.getElementById('val-' + key).value = def_val;
+            saveKey(key);
+        }}
+        </script>
+    </body>
+    </html>
+    """)
+
+
+@app.route('/admin/gates/api/update', methods=['POST'])
+@admin_required
+def admin_gates_api_update():
+    from modules.gate_api_config import set_gate_cfg
+    data = request.get_json(silent=True) or {}
+    key = data.get('key', '').strip()
+    value = data.get('value', '').strip()
+    valid_keys = {row[1] for row in _GATE_API_FIELDS}
+    if not key or key not in valid_keys:
+        return jsonify({'ok': False, 'error': 'Invalid key'}), 400
+    set_gate_cfg(key, value)
+    return jsonify({'ok': True, 'key': key})
+
+
 def _fmt_uptime(seconds):
     seconds = int(seconds)
     d, r = divmod(seconds, 86400)
@@ -3825,6 +4033,7 @@ def admin_user_profile():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" class="active" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -12136,6 +12345,7 @@ def admin_ccshop():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -12614,6 +12824,7 @@ def admin_ccshop_purchases():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -12750,6 +12961,7 @@ def admin_bin_shop():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -14593,6 +14805,7 @@ def _admin_proxy_sidebar(active='proxyshop'):
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
