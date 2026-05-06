@@ -3656,6 +3656,7 @@ def admin_gates():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" class="active" onclick="closeSidebar()">Gates</a>
+            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
             <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
@@ -3752,54 +3753,85 @@ def admin_gates_toggle():
 
 # ── Gate API Config Panel ─────────────────────────────────────────────────────
 
+# Each entry is (label, key, default, hint).
+# A section-header entry has key=None — rendered as a group heading, never saved.
 _GATE_API_FIELDS = [
-    ("Stripe Charge Server",       "stripe_charge_url",      "http://15.204.130.9:6969/check",                   "Stripe / generic primary check server"),
-    ("Stripe Charge Server #2",    "stripe_charge_url2",     "http://194.150.166.130:5000/",                      "Braintree & secondary fallback server"),
-    ("freechk Stripe URL",         "freechk_stripe_url",     "https://freechk.cards/free/stripe.php",            "freechk.cards Stripe endpoint"),
-    ("freechk Braintree URL",      "freechk_braintree_url",  "https://freechk.cards/free/braintree.php",         "freechk.cards Braintree endpoint"),
-    ("freechk Square URL",         "freechk_square_url",     "https://freechk.cards/free/square.php",            "freechk.cards Square endpoint"),
-    ("freechk PayPal URL",         "freechk_paypal_url",     "https://freechk.cards/free/paypal.php",            "freechk.cards PayPal endpoint"),
-    ("Nyvexis Stripe URL",         "nyvexis_stripe_url",     "https://api.nyvexis.com/stripeauth/",              "Nyvexis Stripe Auth endpoint"),
-    ("Nyvexis Braintree URL",      "nyvexis_braintree_url",  "https://api.nyvexis.com/braintree/",               "Nyvexis Braintree endpoint"),
-    ("Nyvexis PayPal URL",         "nyvexis_paypal_url",     "https://api.nyvexis.com/paypal/",                  "Nyvexis PayPal endpoint"),
-    ("Netherex Stripe URL",        "netherex_stripe_url",    "https://checker.netherex.xyz/strauth.php",         "Netherex Stripe Auth checker"),
-    ("Netherex Stripe Key",        "netherex_stripe_key",    "netherex_auth_shorien_wpxp60bhe",                  "Auth key for Netherex Stripe & PayPal"),
-    ("Netherex Shopify URL",       "netherex_shopify_url",   "https://checker.netherex.xyz/autosh.php",          "Netherex Auto-Shopify checker"),
-    ("Netherex Shopify Key",       "netherex_shopify_key",   "netherex_auth_autosh",                             "Auth key for Netherex Shopify"),
-    ("Netherex PayPal URL",        "netherex_paypal_url",    "https://checker.netherex.xyz/paypalcheck.php",     "Netherex PayPal checker"),
-    ("Razorpay API URL",           "razorpay_api_url",       "https://api.barryxapi.xyz/razorpay",              "BarryX Razorpay endpoint"),
-    ("Razorpay API Key",           "razorpay_api_key",       "BRY-KESNP-TUPWH-JFOT9",                           "BarryX Razorpay API key"),
-    ("CyborX STV1 URL",            "cybor_stv1_url",         "http://206.206.78.217:1011/",                      "CyborX Stripe Auth V1"),
-    ("CyborX STV2 URL",            "cybor_stv2_url",         "http://206.206.78.217:1012/",                      "CyborX Stripe Auth V2"),
-    ("CyborX STV3 URL",            "cybor_stv3_url",         "http://206.206.78.217:1013/",                      "CyborX Stripe Auth V3"),
-    ("CyborX Shopii URL",          "cybor_shopii_url",       "https://cyborxchecker.com/api/autog.php",          "CyborX Shopify auto-gate"),
-    ("ApprovedChkr URL",           "approvedchkr_url",       "https://approvedchkr.store/api/v1/check.php",      "approvedchkr.store external API"),
-    ("Square API URL",             "square_api_url",         "http://138.128.240.15:8006/square",                "Square Auth gate (/sq)"),
-    ("Braintree API URL",          "braintree_api_url",      "https://api.barryxapi.xyz/braintree_auth",        "BarryX Braintree Auth endpoint"),
-    ("Braintree API Key",          "braintree_api_key",      "BRY-KESNP-TUPWH-JFOT9",                           "BarryX Braintree API key"),
-    ("Razorpay Pages URL",         "rzpauto_url",            "https://rzpauto-production.up.railway.app/rzp",    "RZP Auto railway endpoint (/rzp)"),
-    # ── Per-gate URL overrides (leave blank = use shared provider keys above) ──
-    ("ss — URL #1 override",       "generic_ss_url1",   "", "Stripe Auth primary. Blank = stripe_charge_url + ?cc=…&gate=stripe_auth"),
-    ("ss — URL #2 override",       "generic_ss_url2",   "", "Stripe Auth fallback #2. Blank = freechk_stripe_url + ?lista=…"),
-    ("ss — URL #3 override",       "generic_ss_url3",   "", "Stripe Auth fallback #3. Blank = nyvexis_stripe_url + ?lista=…"),
-    ("bu — URL #1 override",       "generic_bu_url1",   "", "Braintree Auth primary. Blank = stripe_charge_url + ?cc=…&gate=braintree"),
-    ("bu — URL #2 override",       "generic_bu_url2",   "", "Braintree Auth fallback #2. Blank = freechk_braintree_url + ?lista=…"),
-    ("bu — URL #3 override",       "generic_bu_url3",   "", "Braintree Auth fallback #3. Blank = nyvexis_braintree_url + ?lista=…"),
-    ("sq — URL #1 override",       "generic_sq_url1",   "", "Square Auth primary. Blank = stripe_charge_url + ?cc=…&gate=square"),
-    ("sq — URL #2 override",       "generic_sq_url2",   "", "Square Auth fallback #2. Blank = freechk_square_url + ?lista=…"),
-    ("pp — URL #1 override",       "generic_pp_url1",   "", "PayPal $1 primary. Blank = stripe_charge_url + ?cc=…&gate=paypal"),
-    ("pp — URL #2 override",       "generic_pp_url2",   "", "PayPal $1 fallback #2. Blank = freechk_paypal_url + ?lista=…"),
-    ("pp — URL #3 override",       "generic_pp_url3",   "", "PayPal $1 fallback #3. Blank = nyvexis_paypal_url + ?lista=…&amount=1"),
-    ("sor — URL #1 override",      "generic_sor_url1",  "", "Stripe $2 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe2"),
-    ("sor — URL #2 override",      "generic_sor_url2",  "", "Stripe $2 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=2"),
-    ("st5 — URL #1 override",      "generic_st5_url1",  "", "Stripe $5 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe5"),
-    ("st5 — URL #2 override",      "generic_st5_url2",  "", "Stripe $5 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=5"),
-    ("st12 — URL #1 override",     "generic_st12_url1", "", "Stripe $12 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe12"),
-    ("st12 — URL #2 override",     "generic_st12_url2", "", "Stripe $12 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=12"),
-    ("str — URL #1 override",      "generic_str_url1",  "", "Stripe $15 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe15"),
-    ("str — URL #2 override",      "generic_str_url2",  "", "Stripe $15 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=15"),
-    ("dep — URL #1 override",      "generic_dep_url1",  "", "Stripe $49 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe49"),
-    ("dep — URL #2 override",      "generic_dep_url2",  "", "Stripe $49 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=49"),
+    # ── /st — Stripe Auth (Netherex) ──────────────────────────────────────────
+    (None, None, None, "🔷 Stripe Auth — /st"),
+    ("Netherex Stripe URL",  "netherex_stripe_url", "https://checker.netherex.xyz/strauth.php", "Primary endpoint for /st"),
+    ("Netherex Stripe Key",  "netherex_stripe_key", "netherex_auth_shorien_wpxp60bhe",          "Auth key for /st & /pp Netherex"),
+    # ── /ss — Stripe Auth (generic fallback chain) ────────────────────────────
+    (None, None, None, "🔷 Stripe Auth — /ss  (per-gate overrides; blank = shared provider defaults)"),
+    ("URL #1 override", "generic_ss_url1", "", "Blank → stripe_charge_url + ?cc=…&gate=stripe_auth"),
+    ("URL #2 override", "generic_ss_url2", "", "Blank → freechk_stripe_url + ?lista=…"),
+    ("URL #3 override", "generic_ss_url3", "", "Blank → nyvexis_stripe_url + ?lista=…"),
+    # ── /stm — Stripe Mass Auth ───────────────────────────────────────────────
+    (None, None, None, "🔷 Stripe Mass Auth — /stm"),
+    ("freechk Stripe URL", "freechk_stripe_url", "https://freechk.cards/free/stripe.php", "Used by /stm and stripe amount-gates as shared fallback"),
+    # ── /sor /st5 /st12 /str /dep — Stripe Amount gates ─────────────────────
+    (None, None, None, "🔷 Stripe Amount Gates — /sor /st5 /st12 /str /dep  (blank = shared providers)"),
+    ("Stripe $2  (/sor) — URL #1", "generic_sor_url1", "", "Blank → freechk_stripe_url + ?lista=…&amount=2"),
+    ("Stripe $2  (/sor) — URL #2", "generic_sor_url2", "", "Blank → stripe_charge_url + ?cc=…&gate=stripe2"),
+    ("Stripe $5  (/st5) — URL #1", "generic_st5_url1", "", "Blank → freechk_stripe_url + ?lista=…&amount=5"),
+    ("Stripe $5  (/st5) — URL #2", "generic_st5_url2", "", "Blank → stripe_charge_url + ?cc=…&gate=stripe5"),
+    ("Stripe $12 (/st12) — URL #1","generic_st12_url1","", "Blank → freechk_stripe_url + ?lista=…&amount=12"),
+    ("Stripe $12 (/st12) — URL #2","generic_st12_url2","", "Blank → stripe_charge_url + ?cc=…&gate=stripe12"),
+    ("Stripe $15 (/str) — URL #1", "generic_str_url1", "", "Blank → freechk_stripe_url + ?lista=…&amount=15"),
+    ("Stripe $15 (/str) — URL #2", "generic_str_url2", "", "Blank → stripe_charge_url + ?cc=…&gate=stripe15"),
+    ("Stripe $49 (/dep) — URL #1", "generic_dep_url1", "", "Blank → freechk_stripe_url + ?lista=…&amount=49"),
+    ("Stripe $49 (/dep) — URL #2", "generic_dep_url2", "", "Blank → stripe_charge_url + ?cc=…&gate=stripe49"),
+    # ── /b3 — Braintree Auth (BarryX) ────────────────────────────────────────
+    (None, None, None, "🔷 Braintree Auth — /b3  (BarryX API)"),
+    ("Braintree API URL", "braintree_api_url", "https://api.barryxapi.xyz/braintree_auth", "BarryX Braintree Auth endpoint"),
+    ("Braintree API Key", "braintree_api_key", "BRY-KESNP-TUPWH-JFOT9",                  "BarryX Braintree API key"),
+    # ── /bu — Braintree Auth $1 (generic chain) ───────────────────────────────
+    (None, None, None, "🔷 Braintree Auth $1 — /bu  (blank = shared provider defaults)"),
+    ("URL #1 override", "generic_bu_url1", "", "Blank → stripe_charge_url + ?cc=…&gate=braintree"),
+    ("URL #2 override", "generic_bu_url2", "", "Blank → freechk_braintree_url + ?lista=…"),
+    ("URL #3 override", "generic_bu_url3", "", "Blank → nyvexis_braintree_url + ?lista=…"),
+    ("freechk Braintree URL", "freechk_braintree_url", "https://freechk.cards/free/braintree.php", "Shared fallback for /bu"),
+    ("Nyvexis Braintree URL", "nyvexis_braintree_url", "https://api.nyvexis.com/braintree/",        "Shared fallback #3 for /bu"),
+    # ── /sq — Square Auth ─────────────────────────────────────────────────────
+    (None, None, None, "🔷 Square Auth — /sq"),
+    ("Square API URL",    "square_api_url",  "http://138.128.240.15:8006/square",         "Main Square Auth endpoint"),
+    ("freechk Square URL","freechk_square_url","https://freechk.cards/free/square.php",  "Shared fallback for /sq"),
+    ("URL #1 override",   "generic_sq_url1", "", "Blank → stripe_charge_url + ?cc=…&gate=square"),
+    ("URL #2 override",   "generic_sq_url2", "", "Blank → freechk_square_url + ?lista=…"),
+    # ── /pp — PayPal $1 ───────────────────────────────────────────────────────
+    (None, None, None, "🔷 PayPal $1 — /pp  (blank = shared provider defaults)"),
+    ("Netherex PayPal URL", "netherex_paypal_url", "https://checker.netherex.xyz/paypalcheck.php", "Netherex PayPal endpoint"),
+    ("freechk PayPal URL",  "freechk_paypal_url",  "https://freechk.cards/free/paypal.php",        "Shared fallback for /pp"),
+    ("Nyvexis PayPal URL",  "nyvexis_paypal_url",   "https://api.nyvexis.com/paypal/",              "Shared fallback #3 for /pp"),
+    ("URL #1 override",     "generic_pp_url1", "", "Blank → stripe_charge_url + ?cc=…&gate=paypal"),
+    ("URL #2 override",     "generic_pp_url2", "", "Blank → freechk_paypal_url + ?lista=…"),
+    ("URL #3 override",     "generic_pp_url3", "", "Blank → nyvexis_paypal_url + ?lista=…&amount=1"),
+    # ── /sh — Shopify Netherex ────────────────────────────────────────────────
+    (None, None, None, "🔷 Shopify Netherex — /sh"),
+    ("Netherex Shopify URL", "netherex_shopify_url", "https://checker.netherex.xyz/autosh.php", "Netherex Auto-Shopify endpoint"),
+    ("Netherex Shopify Key", "netherex_shopify_key", "netherex_auth_autosh",                    "Auth key for /sh"),
+    # ── /se1 — SE1 Gate (approvedchkr) ───────────────────────────────────────
+    (None, None, None, "🔷 SE1 Gate — /se1"),
+    ("ApprovedChkr URL", "approvedchkr_url", "https://approvedchkr.store/api/v1/check.php", "approvedchkr.store external API"),
+    # ── /rz /mrz — Razorpay ──────────────────────────────────────────────────
+    (None, None, None, "🔷 Razorpay — /rz  /mrz"),
+    ("Razorpay API URL", "razorpay_api_url", "https://api.barryxapi.xyz/razorpay", "BarryX Razorpay endpoint"),
+    ("Razorpay API Key", "razorpay_api_key", "BRY-KESNP-TUPWH-JFOT9",             "BarryX Razorpay API key"),
+    # ── /rzp /mrzp — Razorpay Pages ──────────────────────────────────────────
+    (None, None, None, "🔷 Razorpay Pages — /rzp  /mrzp"),
+    ("RZP Auto URL", "rzpauto_url", "https://rzpauto-production.up.railway.app/rzp", "RZP Auto railway endpoint"),
+    # ── /ast — CyborX Stripe Auth V1/V2/V3 ───────────────────────────────────
+    (None, None, None, "🔷 CyborX Stripe Auth — /ast  (stv1 / stv2 / stv3)"),
+    ("CyborX STV1 URL", "cybor_stv1_url", "http://206.206.78.217:1011/", "CyborX Stripe Auth V1"),
+    ("CyborX STV2 URL", "cybor_stv2_url", "http://206.206.78.217:1012/", "CyborX Stripe Auth V2"),
+    ("CyborX STV3 URL", "cybor_stv3_url", "http://206.206.78.217:1013/", "CyborX Stripe Auth V3"),
+    # ── /sh6 /sh8 /sh10 /sh13 — CyborX Shopify ───────────────────────────────
+    (None, None, None, "🔷 CyborX Shopify — /sh6  /sh8  /sh10  /sh13"),
+    ("CyborX Shopii URL", "cybor_shopii_url", "https://cyborxchecker.com/api/autog.php", "CyborX Shopify auto-gate endpoint"),
+    # ── Shared Charge Servers ─────────────────────────────────────────────────
+    (None, None, None, "⚙️ Shared Charge Servers — used as defaults when per-gate URL overrides are blank"),
+    ("Stripe Charge Server",    "stripe_charge_url",  "http://15.204.130.9:6969/check",   "Primary: /ss /bu /sq /pp /sor /st5 /st12 /str /dep"),
+    ("Stripe Charge Server #2", "stripe_charge_url2", "http://194.150.166.130:5000/",      "Secondary / braintree fallback"),
+    ("Nyvexis Stripe URL",      "nyvexis_stripe_url", "https://api.nyvexis.com/stripeauth/","Shared fallback #3 for /ss"),
 ]
 
 @app.route('/admin/gates/api')
@@ -3810,9 +3842,12 @@ def admin_gates_api():
 
     rows = ""
     for label, key, default, hint in _GATE_API_FIELDS:
+        if key is None:
+            rows += f'<div class="section-title">{hint}</div>'
+            continue
         current = cfg.get(key, "")
         display = current if current else default
-        is_key = "key" in key.lower() or "auth" in key.lower()
+        is_key = key.endswith("_key") or "auth_key" in key
         input_type = "password" if is_key else "text"
         rows += f"""
         <div class="api-row" id="row-{key}">
@@ -3823,7 +3858,7 @@ def admin_gates_api():
             <div class="api-controls">
                 <input type="{input_type}" class="api-input" id="val-{key}"
                        value="{display}"
-                       placeholder="{default}"
+                       placeholder="{default if default else 'leave blank to use provider default'}"
                        title="{hint}" autocomplete="off" spellcheck="false">
                 <button class="save-btn" onclick="saveKey('{key}')">Save</button>
                 <button class="reset-btn" onclick="resetKey('{key}', '{default}')">Reset</button>
@@ -3963,7 +3998,7 @@ def admin_gates_api_update():
     data = request.get_json(silent=True) or {}
     key = data.get('key', '').strip()
     value = data.get('value', '').strip()
-    valid_keys = {row[1] for row in _GATE_API_FIELDS}
+    valid_keys = {row[1] for row in _GATE_API_FIELDS if row[1]}
     if not key or key not in valid_keys:
         return jsonify({'ok': False, 'error': 'Invalid key'}), 400
     set_gate_cfg(key, value)
@@ -10852,6 +10887,7 @@ TOOLS_SIDEBAR = """
     <a href="/admin/premium" onclick="closeSidebar()">Premium</a>
     <a href="/admin/cards" onclick="closeSidebar()">Approved Cards</a>
     <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+    <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
     <a href="/admin/settings" onclick="closeSidebar()">Settings</a>
     <a href="/admin/logout" onclick="closeSidebar()">Logout</a>
 </div>
@@ -13173,6 +13209,7 @@ def admin_bin_shop_edit_get(listing_id):
     sidebar_html = """
         <a href="/admin" onclick="closeSidebar()">Dashboard</a>
         <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
+        <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
         <a href="/admin/users" onclick="closeSidebar()">Users</a>
         <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
         <a href="/admin/owners" onclick="closeSidebar()">Admins</a>
