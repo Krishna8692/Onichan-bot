@@ -3843,25 +3843,32 @@ def admin_gates_api():
     rows = ""
     for label, key, default, hint in _GATE_API_FIELDS:
         if key is None:
-            rows += f'<div class="section-title">{hint}</div>'
+            import html as _html
+            rows += f'<div class="section-title">{_html.escape(hint)}</div>'
             continue
+        import html as _html
         current = cfg.get(key, "")
         display = current if current else default
         is_key = key.endswith("_key") or "auth_key" in key
         input_type = "password" if is_key else "text"
+        safe_display = _html.escape(display)
+        safe_hint = _html.escape(hint)
+        safe_label = _html.escape(label)
+        safe_placeholder = _html.escape(default if default else "leave blank to use provider default")
+        safe_default = _html.escape(default)
         rows += f"""
         <div class="api-row" id="row-{key}">
             <div class="api-info">
-                <span class="api-label">{label}</span>
-                <span class="api-hint">{hint}</span>
+                <span class="api-label">{safe_label}</span>
+                <span class="api-hint">{safe_hint}</span>
             </div>
             <div class="api-controls">
                 <input type="{input_type}" class="api-input" id="val-{key}"
-                       value="{display}"
-                       placeholder="{default if default else 'leave blank to use provider default'}"
-                       title="{hint}" autocomplete="off" spellcheck="false">
+                       value="{safe_display}"
+                       placeholder="{safe_placeholder}"
+                       title="{safe_hint}" autocomplete="off" spellcheck="false">
                 <button class="save-btn" onclick="saveKey('{key}')">Save</button>
-                <button class="reset-btn" onclick="resetKey('{key}', '{default}')">Reset</button>
+                <button class="reset-btn" onclick="resetKey('{key}', '{safe_default}')">Reset</button>
             </div>
         </div>"""
 

