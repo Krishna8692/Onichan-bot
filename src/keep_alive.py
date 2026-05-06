@@ -3778,6 +3778,28 @@ _GATE_API_FIELDS = [
     ("Braintree API URL",          "braintree_api_url",      "https://api.barryxapi.xyz/braintree_auth",        "BarryX Braintree Auth endpoint"),
     ("Braintree API Key",          "braintree_api_key",      "BRY-KESNP-TUPWH-JFOT9",                           "BarryX Braintree API key"),
     ("Razorpay Pages URL",         "rzpauto_url",            "https://rzpauto-production.up.railway.app/rzp",    "RZP Auto railway endpoint (/rzp)"),
+    # ── Per-gate URL overrides (leave blank = use shared provider keys above) ──
+    ("ss — URL #1 override",       "generic_ss_url1",   "", "Stripe Auth primary. Blank = stripe_charge_url + ?cc=…&gate=stripe_auth"),
+    ("ss — URL #2 override",       "generic_ss_url2",   "", "Stripe Auth fallback #2. Blank = freechk_stripe_url + ?lista=…"),
+    ("ss — URL #3 override",       "generic_ss_url3",   "", "Stripe Auth fallback #3. Blank = nyvexis_stripe_url + ?lista=…"),
+    ("bu — URL #1 override",       "generic_bu_url1",   "", "Braintree Auth primary. Blank = stripe_charge_url + ?cc=…&gate=braintree"),
+    ("bu — URL #2 override",       "generic_bu_url2",   "", "Braintree Auth fallback #2. Blank = freechk_braintree_url + ?lista=…"),
+    ("bu — URL #3 override",       "generic_bu_url3",   "", "Braintree Auth fallback #3. Blank = nyvexis_braintree_url + ?lista=…"),
+    ("sq — URL #1 override",       "generic_sq_url1",   "", "Square Auth primary. Blank = stripe_charge_url + ?cc=…&gate=square"),
+    ("sq — URL #2 override",       "generic_sq_url2",   "", "Square Auth fallback #2. Blank = freechk_square_url + ?lista=…"),
+    ("pp — URL #1 override",       "generic_pp_url1",   "", "PayPal $1 primary. Blank = stripe_charge_url + ?cc=…&gate=paypal"),
+    ("pp — URL #2 override",       "generic_pp_url2",   "", "PayPal $1 fallback #2. Blank = freechk_paypal_url + ?lista=…"),
+    ("pp — URL #3 override",       "generic_pp_url3",   "", "PayPal $1 fallback #3. Blank = nyvexis_paypal_url + ?lista=…&amount=1"),
+    ("sor — URL #1 override",      "generic_sor_url1",  "", "Stripe $2 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe2"),
+    ("sor — URL #2 override",      "generic_sor_url2",  "", "Stripe $2 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=2"),
+    ("st5 — URL #1 override",      "generic_st5_url1",  "", "Stripe $5 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe5"),
+    ("st5 — URL #2 override",      "generic_st5_url2",  "", "Stripe $5 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=5"),
+    ("st12 — URL #1 override",     "generic_st12_url1", "", "Stripe $12 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe12"),
+    ("st12 — URL #2 override",     "generic_st12_url2", "", "Stripe $12 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=12"),
+    ("str — URL #1 override",      "generic_str_url1",  "", "Stripe $15 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe15"),
+    ("str — URL #2 override",      "generic_str_url2",  "", "Stripe $15 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=15"),
+    ("dep — URL #1 override",      "generic_dep_url1",  "", "Stripe $49 primary. Blank = stripe_charge_url + ?cc=…&gate=stripe49"),
+    ("dep — URL #2 override",      "generic_dep_url2",  "", "Stripe $49 fallback #2. Blank = freechk_stripe_url + ?lista=…&amount=49"),
 ]
 
 @app.route('/admin/gates/api')
@@ -3868,7 +3890,6 @@ def admin_gates_api():
             <h2>Onichan Admin</h2>
             <a href="/admin" onclick="closeSidebar()">Dashboard</a>
             <a href="/admin/gates" onclick="closeSidebar()">Gates</a>
-            <a href="/admin/gates/api" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/gates/api" class="active" onclick="closeSidebar()">Gate APIs</a>
             <a href="/admin/users" onclick="closeSidebar()">Users</a>
             <a href="/admin/user-profile" onclick="closeSidebar()">User Search</a>
