@@ -344,41 +344,65 @@ def _btn(text, style="danger", icon=None, **kwargs):
 # Each theme maps button slots to EID animated-emoji IDs + a label for the Magic button.
 # The theme index is encoded in callback_data so no per-user server state is needed.
 _MAGIC_THEMES = [
-    {   # 0 — Default (sparkle)
-        "gates": EID["live"],     "tools": EID["bolt"],
-        "premium": EID["crown"],  "stats": EID["stats"],
-        "help": EID["question"],  "admin": EID["crown"],   "channel": EID["broadcast"],
-        "magic": EID["welcome"],  "label": "✨ Magic",
+    {   # 0 — Sparkle / Mixed (default colours)
+        "gates": EID["live"],      "tools": EID["bolt"],
+        "premium": EID["crown"],   "stats": EID["stats"],
+        "help": EID["question"],   "admin": EID["crown"],    "channel": EID["broadcast"],
+        "magic": EID["welcome"],   "label": "✨ Magic",
+        "st_gates": "danger",  "st_tools": "success",
+        "st_premium": "success", "st_stats": "danger",
+        "st_help": "default",  "st_admin": "primary",  "st_channel": "primary",
+        "st_magic": "primary",
     },
-    {   # 1 — Fire / Danger
-        "gates": EID["danger"],   "tools": EID["hitting"],
-        "premium": EID["risky"],  "stats": EID["error"],
-        "help": EID["blocked"],   "admin": EID["ban"],     "channel": EID["broadcast"],
-        "magic": EID["stopped"],  "label": "🔥 Magic",
+    {   # 1 — Fire / All Red
+        "gates": EID["danger"],    "tools": EID["hitting"],
+        "premium": EID["risky"],   "stats": EID["error"],
+        "help": EID["blocked"],    "admin": EID["ban"],      "channel": EID["broadcast"],
+        "magic": EID["stopped"],   "label": "🔥 Magic",
+        "st_gates": "danger",  "st_tools": "danger",
+        "st_premium": "danger",  "st_stats": "danger",
+        "st_help": "danger",   "st_admin": "danger",   "st_channel": "danger",
+        "st_magic": "danger",
     },
-    {   # 2 — Emerald / Success
-        "gates": EID["free"],     "tools": EID["regenerate"],
+    {   # 2 — Emerald / All Green
+        "gates": EID["free"],      "tools": EID["regenerate"],
         "premium": EID["infinity"],"stats": EID["plan"],
-        "help": EID["ticket"],    "admin": EID["crown"],   "channel": EID["link"],
-        "magic": EID["back"],     "label": "🌟 Magic",
+        "help": EID["ticket"],     "admin": EID["crown"],    "channel": EID["link"],
+        "magic": EID["back"],      "label": "🌟 Magic",
+        "st_gates": "success", "st_tools": "success",
+        "st_premium": "success", "st_stats": "success",
+        "st_help": "success",  "st_admin": "success",  "st_channel": "success",
+        "st_magic": "success",
     },
-    {   # 3 — Royal / Crown
-        "gates": EID["crown"],    "tools": EID["card"],
-        "premium": EID["lock"],   "stats": EID["users"],
-        "help": EID["search"],    "admin": EID["plug"],    "channel": EID["broadcast"],
+    {   # 3 — Royal / All Purple-Blue
+        "gates": EID["crown"],     "tools": EID["card"],
+        "premium": EID["lock"],    "stats": EID["users"],
+        "help": EID["search"],     "admin": EID["plug"],     "channel": EID["broadcast"],
         "magic": EID["regenerate"],"label": "👑 Magic",
+        "st_gates": "primary", "st_tools": "primary",
+        "st_premium": "primary", "st_stats": "primary",
+        "st_help": "primary",  "st_admin": "primary",  "st_channel": "primary",
+        "st_magic": "primary",
     },
-    {   # 4 — Cyber / Neon
-        "gates": EID["charged"],  "tools": EID["infinity"],
-        "premium": EID["3ds"],    "stats": EID["search"],
-        "help": EID["link"],      "admin": EID["lock"],    "channel": EID["plug"],
-        "magic": EID["risky"],    "label": "🔮 Magic",
+    {   # 4 — Cyber / Alternating Purple-Gray
+        "gates": EID["charged"],   "tools": EID["infinity"],
+        "premium": EID["3ds"],     "stats": EID["search"],
+        "help": EID["link"],       "admin": EID["lock"],     "channel": EID["plug"],
+        "magic": EID["risky"],     "label": "🔮 Magic",
+        "st_gates": "primary", "st_tools": "default",
+        "st_premium": "primary", "st_stats": "default",
+        "st_help": "primary",  "st_admin": "default",  "st_channel": "primary",
+        "st_magic": "default",
     },
-    {   # 5 — Electric / Wild
-        "gates": EID["hitting"],  "tools": EID["danger"],
-        "premium": EID["expired"],"stats": EID["trash"],
-        "help": EID["blocked"],   "admin": EID["ban"],     "channel": EID["stopped"],
-        "magic": EID["bolt"],     "label": "⚡ Magic",
+    {   # 5 — Electric / Alternating Red-Purple
+        "gates": EID["hitting"],   "tools": EID["danger"],
+        "premium": EID["expired"], "stats": EID["trash"],
+        "help": EID["blocked"],    "admin": EID["ban"],      "channel": EID["stopped"],
+        "magic": EID["bolt"],      "label": "⚡ Magic",
+        "st_gates": "danger",  "st_tools": "primary",
+        "st_premium": "danger",  "st_stats": "primary",
+        "st_help": "danger",   "st_admin": "primary",  "st_channel": "danger",
+        "st_magic": "primary",
     },
 ]
 
@@ -389,27 +413,27 @@ def _build_start_keyboard(theme_idx: int, owner: bool) -> "InlineKeyboardMarkup"
     next_idx = (theme_idx + 1) % len(_MAGIC_THEMES)
     keyboard = [
         [
-            _btn("Gates",   style="danger",  icon=t["gates"],   callback_data="gates"),
-            _btn("Tools",   style="success", icon=t["tools"],   callback_data="tools"),
+            _btn("Gates",   style=t["st_gates"],   icon=t["gates"],   callback_data="gates"),
+            _btn("Tools",   style=t["st_tools"],   icon=t["tools"],   callback_data="tools"),
         ],
         [
-            _btn("Premium", style="success", icon=t["premium"], callback_data="premium"),
-            _btn("Stats",   style="danger",  icon=t["stats"],   callback_data="info"),
+            _btn("Premium", style=t["st_premium"], icon=t["premium"], callback_data="premium"),
+            _btn("Stats",   style=t["st_stats"],   icon=t["stats"],   callback_data="info"),
         ],
     ]
     if owner:
         keyboard.append([
-            _btn("Help",  style="default", icon=t["help"],  callback_data="help_menu"),
-            _btn("Admin", style="primary", icon=t["admin"], callback_data="admin"),
+            _btn("Help",  style=t["st_help"],  icon=t["help"],  callback_data="help_menu"),
+            _btn("Admin", style=t["st_admin"], icon=t["admin"], callback_data="admin"),
         ])
     else:
         keyboard.append([
-            _btn("Help",    style="default", icon=t["help"],    callback_data="help_menu"),
-            _btn("Channel", style="primary", icon=t["channel"],
+            _btn("Help",    style=t["st_help"],    icon=t["help"],    callback_data="help_menu"),
+            _btn("Channel", style=t["st_channel"], icon=t["channel"],
                  url=f"https://t.me/{CHANNEL_USERNAME}"),
         ])
     keyboard.append([
-        _btn(t["label"], style="primary", icon=t["magic"], callback_data=f"magic:{next_idx}"),
+        _btn(t["label"], style=t["st_magic"], icon=t["magic"], callback_data=f"magic:{next_idx}"),
     ])
     return InlineKeyboardMarkup(keyboard)
 
