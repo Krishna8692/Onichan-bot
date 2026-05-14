@@ -323,6 +323,10 @@ _ANIMATED_EMOJI = {
     "📌": "5431449001532594346", "🏪": "5375296873982604963",
     "📋": "5197269100878907942", "👥": "5453957997418004470",
     "📣": "5424818078833715060",
+    "📁": "5431376038628171216", "📖": "5197269100878907942",
+    "📥": "5231200819986047254", "📧": "5472146462362048818",
+    "🔎": "5188217332748527444", "🧹": "5454415424319931791",
+    "🗑": "5372825386591732174",  "⚠": "5213205860498549992",
 }
 
 _SORTED_ANIM_KEYS = sorted(_ANIMATED_EMOJI.keys(), key=len, reverse=True)
@@ -5130,13 +5134,13 @@ async def download_quality_callback(update: Update, context: ContextTypes.DEFAUL
     url_key = f"dlurl_{user.id}_{qtoken}" if qtoken else f"dlurl_{user.id}"
 
     if quality == "cancel":
-        await query.edit_message_text("❌ Download cancelled.")
+        await query.edit_message_text(ae("❌ Download cancelled."), parse_mode=ParseMode.HTML)
         context.bot_data.pop(url_key, None)
         return
 
     url = context.bot_data.get(url_key)
     if not url:
-        await query.edit_message_text("❌ Session expired. Please send /download again.")
+        await query.edit_message_text(ae("❌ Session expired. Please send /download again."), parse_mode=ParseMode.HTML)
         return
 
     audio_only = quality == "audio"
@@ -5267,7 +5271,7 @@ async def download_delivery_callback(update: Update, context: ContextTypes.DEFAU
 
     session = context.bot_data.get(f"dldel_{token}")
     if not session:
-        await query.edit_message_text("❌ Session expired. Please run /download again.")
+        await query.edit_message_text(ae("❌ Session expired. Please run /download again."), parse_mode=ParseMode.HTML)
         return
 
     user = update.effective_user
@@ -5291,7 +5295,7 @@ async def download_delivery_callback(update: Update, context: ContextTypes.DEFAU
     context.bot_data.pop(f"dldel_{token}", None)
 
     if action == "cancel":
-        await query.edit_message_text("❌ Cancelled. File discarded.")
+        await query.edit_message_text(ae("❌ Cancelled. File discarded."), parse_mode=ParseMode.HTML)
         if downloader:
             downloader.cleanup()
         return
@@ -6369,7 +6373,7 @@ async def temp_phone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
-            await query.edit_message_text(f"❌ Error: {str(e)[:100]}", parse_mode=ParseMode.HTML)
+            await query.edit_message_text(ae(f"❌ Error: {str(e)[:100]}"), parse_mode=ParseMode.HTML)
     
     elif data == "tpno_new":
         await query.edit_message_text(
@@ -6405,9 +6409,9 @@ async def temp_phone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
-                await query.edit_message_text(f"❌ {result.get('error', 'Failed')}", parse_mode=ParseMode.HTML)
+                await query.edit_message_text(ae(f"❌ {result.get('error', 'Failed')}"), parse_mode=ParseMode.HTML)
         except Exception as e:
-            await query.edit_message_text(f"❌ Error: {str(e)[:100]}", parse_mode=ParseMode.HTML)
+            await query.edit_message_text(ae(f"❌ Error: {str(e)[:100]}"), parse_mode=ParseMode.HTML)
     
     elif data == "tpno_countries":
         try:
@@ -6427,7 +6431,7 @@ async def temp_phone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
-            await query.edit_message_text(f"❌ Error: {str(e)[:100]}", parse_mode=ParseMode.HTML)
+            await query.edit_message_text(ae(f"❌ Error: {str(e)[:100]}"), parse_mode=ParseMode.HTML)
 
 # ============================================================================
 # AI CHAT - /ask COMMAND
@@ -7638,7 +7642,7 @@ async def tempmail_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat_type = update.effective_chat.type
     
-    loading_msg = await update.message.reply_text("📧 Generating temporary email...")
+    loading_msg = await update.message.reply_text(ae("📧 Generating temporary email..."), parse_mode=ParseMode.HTML)
     
     try:
         loop = asyncio.get_running_loop()
@@ -7711,7 +7715,7 @@ async def tempmail_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    loading_msg = await update.message.reply_text(f"📥 Checking inbox for {email}...")
+    loading_msg = await update.message.reply_text(ae(f"📥 Checking inbox for {email}..."), parse_mode=ParseMode.HTML)
     
     try:
         loop = asyncio.get_running_loop()
@@ -7759,7 +7763,7 @@ async def tempmail_read(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ae("❌ Usage: /rmail_[message_id]"))
         return
     
-    loading_msg = await update.message.reply_text("📖 Loading message...")
+    loading_msg = await update.message.reply_text(ae("📖 Loading message..."), parse_mode=ParseMode.HTML)
     
     try:
         loop = asyncio.get_running_loop()
@@ -8094,7 +8098,7 @@ async def clean_cc_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ae("❌ Only <b>.txt</b> files are supported!"), parse_mode=ParseMode.HTML)
         return
 
-    loading_msg = await update.message.reply_text("🧹 Cleaning and extracting cards…")
+    loading_msg = await update.message.reply_text(ae("🧹 Cleaning and extracting cards…"), parse_mode=ParseMode.HTML)
 
     try:
         # Download file content
@@ -8427,7 +8431,7 @@ async def get_txt_content_from_reply(update, context) -> str:
     reply = msg.reply_to_message
     if reply.document and reply.document.file_name and reply.document.file_name.lower().endswith(".txt"):
         try:
-            loading_msg = await msg.reply_text("📁 <b>Loading cards from file...</b>", parse_mode=ParseMode.HTML)
+            loading_msg = await msg.reply_text(ae("📁 <b>Loading cards from file...</b>"), parse_mode=ParseMode.HTML)
             context.user_data['_txt_loading_msg'] = loading_msg
             file = await context.bot.get_file(reply.document.file_id)
             content = await file.download_as_bytearray()
@@ -10712,7 +10716,7 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_bin_mode:
         cc, mm, yy, cvv = card_digits, mm_part, yy_part, cvv_part
         if not cc.isdigit() or len(cc) < 15:
-            await update.message.reply_text("❌ <b>Invalid card number.</b>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("❌ <b>Invalid card number.</b>"), parse_mode=ParseMode.HTML)
             return
 
         status_msg = await update.message.reply_text(
@@ -11198,7 +11202,7 @@ async def gate_mrz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     raw_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
     if not raw_text:
-        await update.message.reply_text("📋 <b>MASS CHECK - Razorpay ₹1</b>\n\n<b>Usage:</b>\n<code>/mrz CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\nOr reply to a .txt file with cards.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("📋 <b>MASS CHECK - Razorpay ₹1</b>\n\n<b>Usage:</b>\n<code>/mrz CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\nOr reply to a .txt file with cards."), parse_mode=ParseMode.HTML)
         return
 
     cards_text = raw_text
@@ -11335,7 +11339,7 @@ async def gate_mpayu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     raw_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
     if not raw_text:
-        await update.message.reply_text("📋 <b>MASS CHECK - PayU ₹1</b>\n\n<b>Usage:</b>\n<code>/mpayu CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\nOr reply to a .txt file with cards.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("📋 <b>MASS CHECK - PayU ₹1</b>\n\n<b>Usage:</b>\n<code>/mpayu CC|MM|YY|CVV CC|MM|YY|CVV ...</code>\n\nOr reply to a .txt file with cards."), parse_mode=ParseMode.HTML)
         return
 
     cards_text = raw_text
@@ -12165,7 +12169,7 @@ async def handle_mass_check_txt_file(update: Update, context: ContextTypes.DEFAU
         del context.user_data['mass_check_gate']
         return
     
-    loading_msg = await update.message.reply_text(f"📁 Processing file for {gate_display}...")
+    loading_msg = await update.message.reply_text(ae(f"📁 Processing file for {gate_display}..."), parse_mode=ParseMode.HTML)
     
     try:
         # Download file
@@ -16407,11 +16411,11 @@ async def checkout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if stripe is None:
-            await update.message.reply_text("❌ Stripe is not installed on this deployment.")
+            await update.message.reply_text(ae("❌ Stripe is not installed on this deployment."), parse_mode=ParseMode.HTML)
             return
         from config import STRIPE_SECRET_KEY, STRIPE_CHECKOUT_PRICE_ID, STRIPE_SUCCESS_URL, STRIPE_CANCEL_URL
         if not STRIPE_SECRET_KEY or not STRIPE_CHECKOUT_PRICE_ID or not STRIPE_SUCCESS_URL or not STRIPE_CANCEL_URL:
-            await update.message.reply_text("❌ Stripe checkout is not configured on this deployment.")
+            await update.message.reply_text(ae("❌ Stripe checkout is not configured on this deployment."), parse_mode=ParseMode.HTML)
             return
         stripe.api_key = STRIPE_SECRET_KEY
         session = stripe.checkout.Session.create(
@@ -16425,13 +16429,13 @@ async def checkout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Failed to create checkout session: {e}")
+        await update.message.reply_text(ae(f"❌ Failed to create checkout session: {e}"), parse_mode=ParseMode.HTML)
 
 
 async def setscript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_approved(user_id):
-        await update.message.reply_text("❌ You are not approved to use this bot.")
+        await update.message.reply_text(ae("❌ You are not approved to use this bot."), parse_mode=ParseMode.HTML)
         return
     script = " ".join(context.args).strip() if context.args else ""
     if not script:
@@ -16455,7 +16459,7 @@ async def setscript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def myscript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_approved(user_id):
-        await update.message.reply_text("❌ You are not approved to use this bot.")
+        await update.message.reply_text(ae("❌ You are not approved to use this bot."), parse_mode=ParseMode.HTML)
         return
     script = context.user_data.get('call_script', '')
     if not script:
@@ -16474,10 +16478,10 @@ async def myscript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def clearscript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_approved(user_id):
-        await update.message.reply_text("❌ You are not approved to use this bot.")
+        await update.message.reply_text(ae("❌ You are not approved to use this bot."), parse_mode=ParseMode.HTML)
         return
     context.user_data.pop('call_script', None)
-    await update.message.reply_text("🗑️ Script cleared. Default voice script will be used.")
+    await update.message.reply_text(ae("🗑️ Script cleared. Default voice script will be used."), parse_mode=ParseMode.HTML)
 
 
 async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -16485,7 +16489,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if not is_approved(user_id):
-        await update.message.reply_text("❌ You are not approved to use this bot.")
+        await update.message.reply_text(ae("❌ You are not approved to use this bot."), parse_mode=ParseMode.HTML)
         return
 
     args = context.args
@@ -16551,7 +16555,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not (4 <= otp_digits <= 8):
             raise ValueError()
     except ValueError:
-        await update.message.reply_text("❌ OTP digits must be a number between 4 and 8.")
+        await update.message.reply_text(ae("❌ OTP digits must be a number between 4 and 8."), parse_mode=ParseMode.HTML)
         return
 
     from modules.twilio_call import (
@@ -16777,7 +16781,7 @@ async def otp_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     parts = query.data.split("_", 2)
     if len(parts) < 3:
-        await query.edit_message_text("❌ Invalid callback data.")
+        await query.edit_message_text(ae("❌ Invalid callback data."), parse_mode=ParseMode.HTML)
         return
 
     action = parts[1]
@@ -17006,10 +17010,10 @@ async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         amount = int(context.args[1])
     except ValueError:
-        await update.message.reply_text("❌ Amount must be a number.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Amount must be a number."), parse_mode=ParseMode.HTML)
         return
     if amount <= 0:
-        await update.message.reply_text("❌ Amount must be positive.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Amount must be positive."), parse_mode=ParseMode.HTML)
         return
 
     sender_id = update.effective_user.id
@@ -17043,7 +17047,7 @@ async def cmd_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_voucher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin: create or list credit vouchers (/voucher create <credits> [max_uses] | /voucher list)."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
     sub = context.args[0].lower() if context.args else ""
     if sub == "create":
@@ -17111,7 +17115,7 @@ async def cmd_voucher(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin: add credits to user (/addcredits user_id amount)."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
     if len(context.args) < 2:
         await update.message.reply_text(
@@ -17131,7 +17135,7 @@ async def cmd_addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target = int(context.args[0])
         amount = int(context.args[1])
     except ValueError:
-        await update.message.reply_text("❌ Invalid arguments.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Invalid arguments."), parse_mode=ParseMode.HTML)
         return
     add_credits(target, amount, tx_type="add", description="Admin grant")
     await _reply_with_gif(update.message, "success",
@@ -17211,7 +17215,7 @@ async def cmd_extkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show gate hit rate analytics (/analytics)."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
     stats = get_gate_stats()
     if not stats:
@@ -17232,9 +17236,9 @@ async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_gatetest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin: ping all gates for health status (/gatetest)."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
-    msg = await update.message.reply_text("🔎 Testing all gates...", parse_mode=ParseMode.HTML)
+    msg = await update.message.reply_text(ae("🔎 Testing all gates..."), parse_mode=ParseMode.HTML)
     results = run_gate_health_check()
     lines = []
     for r in sorted(results, key=lambda x: x.get('gate', '')):
@@ -17250,7 +17254,7 @@ async def cmd_gatetest(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin: find user by ID or username (/find <user_id|@username>)."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
     if not context.args:
         await update.message.reply_text(
@@ -17270,7 +17274,7 @@ async def cmd_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         target_id = int(query_val)
     except ValueError:
-        await update.message.reply_text("❌ Provide numeric user ID.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Provide numeric user ID."), parse_mode=ParseMode.HTML)
         return
 
     try:
@@ -17294,9 +17298,9 @@ async def cmd_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin: restart the bot process (/restart)."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
-    await update.message.reply_text("🔄 Restarting bot...", parse_mode=ParseMode.HTML)
+    await update.message.reply_text(ae("🔄 Restarting bot..."), parse_mode=ParseMode.HTML)
     import os, sys
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -17341,7 +17345,7 @@ async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             remove_reseller(rid)
-            await update.message.reply_text(f"✅ Removed reseller <code>{rid}</code>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae(f"✅ Removed reseller <code>{rid}</code>"), parse_mode=ParseMode.HTML)
         elif sub == "list":
             all_r = get_all_resellers()
             if not all_r:
@@ -17370,7 +17374,7 @@ async def cmd_reseller(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         info = get_reseller_info(user_id)
         if not info:
-            await update.message.reply_text("❌ You are not a reseller.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("❌ You are not a reseller."), parse_mode=ParseMode.HTML)
             return
         clients = get_clients(user_id)
         await _reply_with_gif(update.message, "admin",
@@ -17387,7 +17391,7 @@ async def cmd_addclient(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     reseller = get_reseller_info(user_id)
     if not reseller and not is_owner(user_id):
-        await update.message.reply_text("❌ Only resellers can add clients.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Only resellers can add clients."), parse_mode=ParseMode.HTML)
         return
     if len(context.args) < 2:
         await update.message.reply_text(
@@ -17407,7 +17411,7 @@ async def cmd_addclient(update: Update, context: ContextTypes.DEFAULT_TYPE):
         client_id = int(context.args[0])
         credit_limit = int(context.args[1])
     except ValueError:
-        await update.message.reply_text("❌ Invalid arguments.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Invalid arguments."), parse_mode=ParseMode.HTML)
         return
     ok = add_client(user_id, client_id, credit_limit)
     if ok:
@@ -17431,13 +17435,13 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             amount = int(context.args[1])
         except ValueError:
-            await update.message.reply_text("❌ Amount must be a number.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("❌ Amount must be a number."), parse_mode=ParseMode.HTML)
             return
         desc = " ".join(context.args[2:])
         result = create_deal(user_id, amount, desc)
         if not result or "error" in result:
             err = result.get("error", "Unknown error") if result else "Database error"
-            await update.message.reply_text(f"❌ {html_escape(err)}", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae(f"❌ {html_escape(err)}"), parse_mode=ParseMode.HTML)
             return
         deal_id = result["deal_id"]
         await update.message.reply_text(
@@ -17518,7 +17522,7 @@ async def cmd_escrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         deal_id = context.args[1]
         winner = context.args[2].lower()
         if winner not in ("seller", "buyer"):
-            await update.message.reply_text("❌ Winner must be 'seller' or 'buyer'.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("❌ Winner must be 'seller' or 'buyer'."), parse_mode=ParseMode.HTML)
             return
         ok, msg_txt = admin_resolve_deal(deal_id, winner)
         await update.message.reply_text(
@@ -17597,7 +17601,7 @@ async def cmd_hibpwatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ok, msg_txt = result
             else:
                 ok, msg_txt = bool(result), "Added" if result else "Failed"
-            await update.message.reply_text(("✅ " if ok else "❌ ") + html_escape(msg_txt), parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae(("✅ " if ok else "❌ ") + html_escape(msg_txt)), parse_mode=ParseMode.HTML)
 
         elif sub == "remove":
             if len(context.args) < 2:
@@ -17610,7 +17614,7 @@ async def cmd_hibpwatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             email = context.args[1]
             ok = remove_watch(user_id, email)
-            await update.message.reply_text("✅ Watch removed." if ok else "❌ Not found.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("✅ Watch removed.") if ok else "❌ Not found.", parse_mode=ParseMode.HTML)
 
         elif sub == "list":
             watches = get_user_watches(user_id)
@@ -17646,7 +17650,7 @@ async def cmd_hibpwatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Channel card scraper: add/remove/list channels (/scraper add|remove|list|stats)."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
     sub = context.args[0].lower() if context.args else "list"
 
@@ -17663,7 +17667,7 @@ async def cmd_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         channel = context.args[1].lstrip("@")
         ok = add_channel(channel, added_by=admin_id)
-        await update.message.reply_text(f"✅ Channel @{channel} added." if ok else f"❌ Could not add @{channel}.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae(f"✅ Channel @{channel} added.") if ok else f"❌ Could not add @{channel}.", parse_mode=ParseMode.HTML)
 
     elif sub == "remove":
         if len(context.args) < 2:
@@ -17676,7 +17680,7 @@ async def cmd_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         channel = context.args[1].lstrip("@")
         ok = remove_channel(channel)
-        await update.message.reply_text(f"✅ Channel @{channel} removed." if ok else f"❌ Not found.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae(f"✅ Channel @{channel} removed.") if ok else f"❌ Not found.", parse_mode=ParseMode.HTML)
 
     elif sub == "list":
         channels = get_active_channels()
@@ -17762,7 +17766,7 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             price = int(context.args[1])
         except ValueError:
-            await update.message.reply_text("❌ Price must be a number.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("❌ Price must be a number."), parse_mode=ParseMode.HTML)
             return
         item_desc = " ".join(context.args[2:])
         listing_id = _uuid.uuid4().hex[:8].upper()
@@ -17801,15 +17805,15 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         listing_id = context.args[1].upper()
         row = er("SELECT seller_id, price, description FROM marketplace_listings WHERE listing_id=%s AND status='active'", (listing_id,), fetch=True, fetch_one=True)
         if not row:
-            await update.message.reply_text("❌ Listing not found or sold.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("❌ Listing not found or sold."), parse_mode=ParseMode.HTML)
             return
         seller_id, price, desc = row
         if seller_id == user_id:
-            await update.message.reply_text("❌ Cannot buy your own listing.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("❌ Cannot buy your own listing."), parse_mode=ParseMode.HTML)
             return
         bal = get_balance(user_id)
         if bal < price:
-            await update.message.reply_text(f"❌ Insufficient credits. You have {bal}, need {price}.", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae(f"❌ Insufficient credits. You have {bal}, need {price}."), parse_mode=ParseMode.HTML)
             return
         ok, msg_txt = transfer_credits(user_id, seller_id, price)
         if ok:
@@ -17821,7 +17825,7 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML,
             )
         else:
-            await update.message.reply_text(f"❌ Purchase failed: {msg_txt}", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae(f"❌ Purchase failed: {msg_txt}"), parse_mode=ParseMode.HTML)
 
     elif sub == "mylistings":
         rows = er("SELECT listing_id, price, description, status FROM marketplace_listings WHERE seller_id=%s LIMIT 10", (user_id,), fetch=True)
@@ -17850,7 +17854,7 @@ async def cmd_geterror(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send the error log file to the owner (/geterror)."""
     user = update.effective_user
     if not is_owner(user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
 
     import io, datetime
@@ -17862,9 +17866,9 @@ async def cmd_geterror(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if subcommand == "clear":
         try:
             open(log_path, "w").close()
-            await update.message.reply_text("🗑 <b>Error log cleared.</b>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text(ae("🗑 <b>Error log cleared.</b>"), parse_mode=ParseMode.HTML)
         except Exception as e:
-            await update.message.reply_text(f"❌ Could not clear log: {e}")
+            await update.message.reply_text(ae(f"❌ Could not clear log: {e}"), parse_mode=ParseMode.HTML)
         return
 
     # Read log file
@@ -17878,7 +17882,7 @@ async def cmd_geterror(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     except Exception as e:
-        await update.message.reply_text(f"❌ Could not read log: {e}")
+        await update.message.reply_text(ae(f"❌ Could not read log: {e}"), parse_mode=ParseMode.HTML)
         return
 
     if not content.strip():
@@ -17929,7 +17933,7 @@ async def cmd_geterror(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_proxy_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show residential proxy pool info (/proxyinfo)."""
     if not is_owner(update.effective_user.id):
-        await update.message.reply_text("❌ Owner only.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(ae("❌ Owner only."), parse_mode=ParseMode.HTML)
         return
     proxy = get_random_proxy()
     if proxy:
@@ -18019,10 +18023,10 @@ async def cmd_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         addrs = get_or_create_addresses(user.id) or {}
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(ae(f"❌ Error: {e}"), parse_mode=ParseMode.HTML)
         return
     if not addrs:
-        await update.message.reply_text("❌ Could not generate deposit addresses.")
+        await update.message.reply_text(ae("❌ Could not generate deposit addresses."), parse_mode=ParseMode.HTML)
         return
     if chain and chain in addrs:
         text = (f"⬇️ <b>Deposit {chain.title()}</b>\n"
@@ -18056,7 +18060,7 @@ async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if amount <= 0:
             raise ValueError()
     except Exception:
-        await update.message.reply_text("❌ Invalid amount")
+        await update.message.reply_text(ae("❌ Invalid amount"), parse_mode=ParseMode.HTML)
         return
     asset = context.args[2].upper()
     note = " ".join(context.args[3:])[:200]
@@ -18074,11 +18078,11 @@ async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "SELECT user_id, username FROM users WHERE LOWER(username) = LOWER(%s)",
                 (q,), fetch_one=True)
         if not rec:
-            await update.message.reply_text(f"❌ Recipient '{recipient_q}' not found. They must use the bot first.")
+            await update.message.reply_text(ae(f"❌ Recipient '{recipient_q}' not found. They must use the bot first."), parse_mode=ParseMode.HTML)
             return
         rec_id = int(rec['user_id'])
         if rec_id == user.id:
-            await update.message.reply_text("❌ Cannot send to yourself")
+            await update.message.reply_text(ae("❌ Cannot send to yourself"), parse_mode=ParseMode.HTML)
             return
 
         # Atomic debit + credit + log inside one DB transaction
@@ -18114,12 +18118,12 @@ async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
     except RuntimeError as e:
         if str(e) == "INSUFFICIENT" or insufficient:
-            await update.message.reply_text(f"❌ Insufficient {asset} balance")
+            await update.message.reply_text(ae(f"❌ Insufficient {asset} balance"), parse_mode=ParseMode.HTML)
             return
-        await update.message.reply_text(f"❌ Transfer failed: {e}")
+        await update.message.reply_text(ae(f"❌ Transfer failed: {e}"), parse_mode=ParseMode.HTML)
         return
     except Exception as e:
-        await update.message.reply_text(f"❌ Transfer failed: {e}")
+        await update.message.reply_text(ae(f"❌ Transfer failed: {e}"), parse_mode=ParseMode.HTML)
         return
 
     rec_label = f"@{rec['username']}" if rec.get('username') else f"User #{rec_id}"
@@ -18164,7 +18168,7 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if amount <= 0:
             raise ValueError()
     except Exception:
-        await update.message.reply_text("❌ Invalid amount")
+        await update.message.reply_text(ae("❌ Invalid amount"), parse_mode=ParseMode.HTML)
         return
     asset = context.args[1].upper()
     raw_recipient = context.args[2].strip()
@@ -18180,12 +18184,12 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _debit_balance, _log_wallet_tx,
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Wallet module error: {e}")
+        await update.message.reply_text(ae(f"❌ Wallet module error: {e}"), parse_mode=ParseMode.HTML)
         return
 
     parsed = parse_recipient(raw_recipient, asset=asset, chain_hint=chain_hint)
     if parsed.get('error'):
-        await update.message.reply_text(f"❌ {parsed['error']}")
+        await update.message.reply_text(ae(f"❌ {parsed['error']}"), parse_mode=ParseMode.HTML)
         return
     kind = parsed.get('kind')
 
@@ -18199,12 +18203,12 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         rec_id = int(rec['user_id'])
         if rec_id == user.id:
-            await update.message.reply_text("❌ Cannot send to yourself")
+            await update.message.reply_text(ae("❌ Cannot send to yourself"), parse_mode=ParseMode.HTML)
             return
         try:
             with _wallet_txn() as conn:
                 if not _debit_balance(user.id, asset, amount, conn=conn):
-                    await update.message.reply_text(f"❌ Insufficient {asset} balance")
+                    await update.message.reply_text(ae(f"❌ Insufficient {asset} balance"), parse_mode=ParseMode.HTML)
                     return
                 _credit_balance(rec_id, asset, amount, conn=conn)
                 _log_wallet_tx(conn=conn, telegram_id=user.id, counterparty_id=rec_id,
@@ -18214,7 +18218,7 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                tx_type='transfer_in', asset=asset, amount=amount,
                                status='confirmed')
         except Exception as e:
-            await update.message.reply_text(f"❌ Transfer failed: {e}")
+            await update.message.reply_text(ae(f"❌ Transfer failed: {e}"), parse_mode=ParseMode.HTML)
             return
         rec_label = f"@{rec.get('username')}" if rec.get('username') else f"#{rec_id}"
         await update.message.reply_text(
@@ -18235,7 +18239,7 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── On-chain withdrawal ────────────────────────────────────────────
     if kind != 'address':
-        await update.message.reply_text("❌ Could not interpret recipient.")
+        await update.message.reply_text(ae("❌ Could not interpret recipient."), parse_mode=ParseMode.HTML)
         return
 
     chain = parsed.get('chain')
@@ -18285,7 +18289,7 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wid = None
         with _wallet_txn() as conn:
             if not _debit_balance(user.id, asset, amount, conn=conn):
-                await update.message.reply_text(f"❌ Insufficient {asset} balance")
+                await update.message.reply_text(ae(f"❌ Insufficient {asset} balance"), parse_mode=ParseMode.HTML)
                 return
             wid = _log_wallet_tx(
                 conn=conn, telegram_id=user.id, tx_type='withdraw',
@@ -18293,7 +18297,7 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 address=address, status='pending',
             )
     except Exception as e:
-        await update.message.reply_text(f"❌ Withdrawal failed: {e}")
+        await update.message.reply_text(ae(f"❌ Withdrawal failed: {e}"), parse_mode=ParseMode.HTML)
         return
 
     short = f"{address[:10]}…{address[-6:]}" if len(address) > 22 else address
@@ -18327,7 +18331,7 @@ async def cmd_confirmwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wid = int(context.args[0])
         tx_hash = context.args[1].strip()
     except Exception:
-        await update.message.reply_text("❌ Invalid args")
+        await update.message.reply_text(ae("❌ Invalid args"), parse_mode=ParseMode.HTML)
         return
     try:
         from modules.database import _execute_with_retry
@@ -18339,9 +18343,9 @@ async def cmd_confirmwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (tx_hash, wid), fetch_one=True
         )
         if not row:
-            await update.message.reply_text(f"❌ Withdrawal #{wid} not found or already processed")
+            await update.message.reply_text(ae(f"❌ Withdrawal #{wid} not found or already processed"), parse_mode=ParseMode.HTML)
             return
-        await update.message.reply_text(f"✅ Marked #{wid} confirmed (tx: {tx_hash[:14]}…)")
+        await update.message.reply_text(ae(f"✅ Marked #{wid} confirmed (tx: {tx_hash[:14]}…)"), parse_mode=ParseMode.HTML)
         try:
             from modules.chain_config import explorer_tx_url, chain_label
             tx_url = explorer_tx_url(row['chain'], tx_hash)
@@ -18362,7 +18366,7 @@ async def cmd_confirmwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(ae(f"❌ Error: {e}"), parse_mode=ParseMode.HTML)
 
 
 async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -18376,7 +18380,7 @@ async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         wid = int(context.args[0])
     except Exception:
-        await update.message.reply_text("❌ Invalid id")
+        await update.message.reply_text(ae("❌ Invalid id"), parse_mode=ParseMode.HTML)
         return
     reason = " ".join(context.args[1:]) or "Rejected by admin"
     try:
@@ -18410,7 +18414,7 @@ async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          SET balance = wallet_balances.balance + EXCLUDED.balance, updated_at = NOW()""",
                     (int(row['telegram_id']), row['asset'], str(row['amount']))
                 )
-        await update.message.reply_text(f"✅ Withdrawal #{wid} rejected and refunded.")
+        await update.message.reply_text(ae(f"✅ Withdrawal #{wid} rejected and refunded."), parse_mode=ParseMode.HTML)
         try:
             await context.bot.send_message(
                 chat_id=int(row['telegram_id']),
@@ -18423,11 +18427,11 @@ async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     except RuntimeError as e:
         if str(e) == "NOT_FOUND":
-            await update.message.reply_text(f"❌ Withdrawal #{wid} not found or already processed")
+            await update.message.reply_text(ae(f"❌ Withdrawal #{wid} not found or already processed"), parse_mode=ParseMode.HTML)
             return
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(ae(f"❌ Error: {e}"), parse_mode=ParseMode.HTML)
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(ae(f"❌ Error: {e}"), parse_mode=ParseMode.HTML)
 
 
 async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -18477,7 +18481,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      SET balance = wallet_balances.balance + EXCLUDED.balance, updated_at = NOW()""",
                 (int(row['telegram_id']), row['asset'], str(row['amount']))
             )
-            await q.edit_message_text(f"❌ Withdrawal #{wid} rejected and refunded.")
+            await q.edit_message_text(ae(f"❌ Withdrawal #{wid} rejected and refunded."), parse_mode=ParseMode.HTML)
             try:
                 await context.bot.send_message(
                     chat_id=int(row['telegram_id']),
@@ -18507,7 +18511,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pend = store.pop(short_id, None)
         if not pend:
             try:
-                await q.edit_message_text("⚠️ This picker expired. Re-run /withdraw.")
+                await q.edit_message_text(ae("⚠️ This picker expired. Re-run /withdraw."), parse_mode=ParseMode.HTML)
             except Exception:
                 pass
             return
@@ -18535,7 +18539,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with _wallet_txn() as conn:
                 if not _debit_balance(q.from_user.id, asset, amount, conn=conn):
                     try:
-                        await q.edit_message_text(f"❌ Insufficient {asset} balance")
+                        await q.edit_message_text(ae(f"❌ Insufficient {asset} balance"), parse_mode=ParseMode.HTML)
                     except Exception:
                         pass
                     return
@@ -18546,7 +18550,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         except Exception as e:
             try:
-                await q.edit_message_text(f"❌ Withdrawal failed: {e}")
+                await q.edit_message_text(ae(f"❌ Withdrawal failed: {e}"), parse_mode=ParseMode.HTML)
             except Exception:
                 pass
             return
