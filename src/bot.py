@@ -382,11 +382,6 @@ _MAGIC_THEMES = [
     },
 ]
 
-_MAGIC_TOASTS = [
-    "✨ Magic loading...", "🔥 Power up!",   "🌟 Enchanting...",
-    "👑 Royal mode!",     "🔮 Mystic shift!", "⚡ Electrifying!",
-]
-
 
 def _build_start_keyboard(theme_idx: int, owner: bool) -> "InlineKeyboardMarkup":
     """Build the /start inline keyboard for the given magic theme index."""
