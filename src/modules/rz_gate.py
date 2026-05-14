@@ -87,8 +87,6 @@ async def check_rz_async(card: str, proxy: str = None, retries: int = 2) -> dict
                         try:
                             data = json.loads(response_text)
                             
-                            print(f"[RZ DEBUG] Raw API Response: {data}")
-                            
                             result = data.get('result', {})
                             api_status = data.get('status', False)
                             
@@ -96,8 +94,6 @@ async def check_rz_async(card: str, proxy: str = None, retries: int = 2) -> dict
                             message = result.get('message', '').lower()
                             reason = result.get('reason', '').lower()
                             response_msg = result.get('message', '')
-                            
-                            print(f"[RZ DEBUG] api_status={api_status}, status_code={status_code}, message={message}")
                             
                             if api_status == True or status_code == 'approved' or status_code == 'success' or status_code == 'live' or 'charged' in message or 'approved' in message or 'live' in message or 'success' in message:
                                 return {

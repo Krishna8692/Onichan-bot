@@ -463,10 +463,8 @@ async def get_checkout_info(url: str, proxy_str: str = None) -> dict:
     }
     
     url = url.strip() if url else ""
-    print(f"[CO] DEBUG: Processing URL: '{url}' (len: {len(url)})")
     
     if not url or len(url) < 10:
-        print("[CO] ERROR: URL too short or empty")
         result["error"] = "No checkout URL provided"
         result["time"] = round(time.perf_counter() - start, 2)
         return result
