@@ -402,7 +402,7 @@ _MAGIC_THEMES = [
         "st_gates": "danger",  "st_tools": "primary",
         "st_premium": "danger",  "st_stats": "primary",
         "st_help": "danger",   "st_admin": "primary",  "st_channel": "danger",
-        "st_magic": "primary",
+        "st_magic": "danger",
     },
 ]
 
