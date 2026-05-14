@@ -20282,14 +20282,47 @@ def main():
             "arbitrum": "ETH", "optimism": "ETH", "avalanche": "AVAX",
             "solana": "SOL", "ton": "TON", "bitcoin": "BTC", "tron": "TRX",
         }
+        # Blockscout API base + native coin symbol/decimals per EVM chain
         _BLOCKSCOUT = {
             "ethereum": ("https://eth.blockscout.com/api", "ETH", 18),
-            "bsc": ("https://bsc.blockscout.com/api", "BNB", 18),
-            "polygon": ("https://polygon.blockscout.com/api", "POL", 18),
+            "bsc":      ("https://bsc.blockscout.com/api", "BNB", 18),
+            "polygon":  ("https://polygon.blockscout.com/api", "POL", 18),
             "arbitrum": ("https://arbitrum.blockscout.com/api", "ETH", 18),
             "optimism": ("https://optimism.blockscout.com/api", "ETH", 18),
-            "avalanche": ("https://avax.blockscout.com/api", "AVAX", 18),
+            "avalanche":("https://avax.blockscout.com/api", "AVAX", 18),
         }
+        # ERC-20 / BEP-20 token contracts to watch per EVM chain
+        # (contract_address, symbol, decimals)
+        _EVM_TOKENS = {
+            "ethereum": [
+                ("0xdAC17F958D2ee523a2206206994597C13D831ec7", "USDT", 6),
+                ("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "USDC", 6),
+            ],
+            "bsc": [
+                ("0x55d398326f99059fF775485246999027B3197955", "USDT", 18),
+                ("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", "USDC", 18),
+            ],
+            "polygon": [
+                ("0xc2132D05D31c914a87C6611C10748AEb04B58e8F", "USDT", 6),
+                ("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", "USDC", 6),
+            ],
+            "arbitrum": [
+                ("0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", "USDT", 6),
+                ("0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "USDC", 6),
+            ],
+            "optimism": [
+                ("0x94b008aA00579c1307B0EF2c499aD98a8ce58e58", "USDT", 6),
+                ("0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "USDC", 6),
+            ],
+            "avalanche": [
+                ("0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7", "USDT", 6),
+                ("0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", "USDC", 6),
+            ],
+        }
+        # TRC-20 token contracts to watch on TRON
+        _TRON_TRC20 = [
+            ("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", "USDT", 6),
+        ]
 
         seen_txs = set()
         first_run = True
@@ -20303,12 +20336,10 @@ def main():
                     _time.sleep(120)
                     continue
 
-                # New custodial schema: per-user HD-derived deposit addresses
                 rows = _execute_with_retry(
                     "SELECT telegram_id, chain, address FROM wallet_deposit_addresses",
                     fetch=True
                 ) or []
-                # Backward compat: also pick up legacy externally-registered addresses
                 legacy = _execute_with_retry(
                     "SELECT telegram_id, chain, address FROM wallet_addresses",
                     fetch=True
@@ -20319,95 +20350,225 @@ def main():
                     continue
 
                 for row in rows:
-                    tg_id = row.get('telegram_id') if hasattr(row, 'get') else row[0]
-                    chain = row.get('chain') if hasattr(row, 'get') else row[1]
-                    address = row.get('address') if hasattr(row, 'get') else row[2]
+                    tg_id   = row.get('telegram_id') if hasattr(row, 'get') else row[0]
+                    chain   = row.get('chain')       if hasattr(row, 'get') else row[1]
+                    address = row.get('address')     if hasattr(row, 'get') else row[2]
                     if not address or not chain:
                         continue
 
                     try:
                         recent_txs = []
 
+                        # ── EVM chains (native coin + USDT/USDC tokens) ────────
                         if chain in _BLOCKSCOUT:
                             api_url, sym, dec = _BLOCKSCOUT[chain]
-                            r = req.get(
-                                api_url,
-                                params={"module": "account", "action": "txlist",
-                                        "address": address, "sort": "desc",
-                                        "offset": 5, "page": 1},
-                                timeout=10,
-                            )
-                            result = r.json().get("result")
-                            if isinstance(result, list):
-                                for tx in result:
-                                    if not isinstance(tx, dict):
-                                        continue
-                                    to_addr = (tx.get("to") or "").lower()
-                                    if to_addr == address.lower() and tx.get("isError") == "0":
-                                        val_raw = int(tx.get("value", 0))
-                                        if val_raw > 0:
-                                            recent_txs.append({
-                                                "hash": tx.get("hash"),
-                                                "value": val_raw / (10 ** dec),
-                                                "symbol": sym,
-                                                "from": tx.get("from", ""),
-                                            })
 
+                            # Native coin transfers
+                            try:
+                                r = req.get(
+                                    api_url,
+                                    params={"module": "account", "action": "txlist",
+                                            "address": address, "sort": "desc",
+                                            "offset": 5, "page": 1},
+                                    timeout=10,
+                                )
+                                result = r.json().get("result")
+                                if isinstance(result, list):
+                                    for tx in result:
+                                        if not isinstance(tx, dict):
+                                            continue
+                                        to_addr = (tx.get("to") or "").lower()
+                                        if to_addr == address.lower() and tx.get("isError") == "0":
+                                            val_raw = int(tx.get("value", 0))
+                                            if val_raw > 0:
+                                                recent_txs.append({
+                                                    "hash": tx.get("hash"),
+                                                    "value": val_raw / (10 ** dec),
+                                                    "symbol": sym,
+                                                    "from": tx.get("from", ""),
+                                                })
+                            except Exception:
+                                pass
+
+                            # ERC-20 / BEP-20 token transfers (USDT, USDC)
+                            for contract_addr, tok_sym, tok_dec in _EVM_TOKENS.get(chain, []):
+                                try:
+                                    tok_r = req.get(
+                                        api_url,
+                                        params={"module": "account", "action": "tokentx",
+                                                "address": address,
+                                                "contractaddress": contract_addr,
+                                                "sort": "desc", "offset": 5, "page": 1},
+                                        timeout=10,
+                                    )
+                                    tok_result = tok_r.json().get("result")
+                                    if isinstance(tok_result, list):
+                                        for tx in tok_result:
+                                            if not isinstance(tx, dict):
+                                                continue
+                                            to_addr = (tx.get("to") or "").lower()
+                                            if to_addr == address.lower() and tx.get("isError", "0") == "0":
+                                                val_raw = int(tx.get("value", 0))
+                                                if val_raw > 0:
+                                                    recent_txs.append({
+                                                        "hash": tx.get("hash"),
+                                                        "value": val_raw / (10 ** tok_dec),
+                                                        "symbol": tok_sym,
+                                                        "from": tx.get("from", ""),
+                                                    })
+                                except Exception:
+                                    pass
+
+                        # ── TON ────────────────────────────────────────────────
                         elif chain == "ton":
-                            r = req.get(
-                                "https://toncenter.com/api/v2/getTransactions",
-                                params={"address": address, "limit": 5},
-                                timeout=10,
-                            )
-                            for tx in (r.json().get("result") or []):
-                                msg = tx.get("in_msg", {}) or {}
-                                dest = (msg.get("destination") or "").lower()
-                                if dest and address.lower() in dest:
-                                    val = int(msg.get("value", 0) or 0)
-                                    if val > 0:
-                                        recent_txs.append({
-                                            "hash": tx.get("transaction_id", {}).get("hash", ""),
-                                            "value": val / 1e9,
-                                            "symbol": "TON",
-                                            "from": msg.get("source", ""),
-                                        })
+                            try:
+                                r = req.get(
+                                    "https://toncenter.com/api/v2/getTransactions",
+                                    params={"address": address, "limit": 5},
+                                    timeout=10,
+                                )
+                                for tx in (r.json().get("result") or []):
+                                    msg = tx.get("in_msg", {}) or {}
+                                    dest = (msg.get("destination") or "").lower()
+                                    if dest and address.lower() in dest:
+                                        val = int(msg.get("value", 0) or 0)
+                                        if val > 0:
+                                            recent_txs.append({
+                                                "hash": tx.get("transaction_id", {}).get("hash", ""),
+                                                "value": val / 1e9,
+                                                "symbol": "TON",
+                                                "from": msg.get("source", ""),
+                                            })
+                            except Exception:
+                                pass
 
+                        # ── Solana (native SOL with real amounts) ──────────────
                         elif chain == "solana":
-                            r = req.post(
-                                "https://api.mainnet-beta.solana.com",
-                                json={"jsonrpc": "2.0", "id": 1,
-                                      "method": "getSignaturesForAddress",
-                                      "params": [address, {"limit": 5}]},
-                                timeout=10,
-                            )
-                            for sig in (r.json().get("result") or []):
-                                if not sig.get("err"):
-                                    recent_txs.append({
-                                        "hash": sig.get("signature", ""),
-                                        "value": None,
-                                        "symbol": "SOL",
-                                        "from": "",
-                                    })
+                            try:
+                                r = req.post(
+                                    "https://api.mainnet-beta.solana.com",
+                                    json={"jsonrpc": "2.0", "id": 1,
+                                          "method": "getSignaturesForAddress",
+                                          "params": [address, {"limit": 5}]},
+                                    timeout=10,
+                                )
+                                for sig_info in (r.json().get("result") or []):
+                                    if sig_info.get("err"):
+                                        continue
+                                    sig = sig_info.get("signature", "")
+                                    if not sig:
+                                        continue
+                                    # Fetch actual balance change to get SOL amount
+                                    try:
+                                        tx_r = req.post(
+                                            "https://api.mainnet-beta.solana.com",
+                                            json={"jsonrpc": "2.0", "id": 1,
+                                                  "method": "getTransaction",
+                                                  "params": [sig, {"encoding": "json",
+                                                                    "maxSupportedTransactionVersion": 0}]},
+                                            timeout=10,
+                                        )
+                                        tx_data = tx_r.json().get("result") or {}
+                                        meta = tx_data.get("meta") or {}
+                                        acct_keys = ((tx_data.get("transaction") or {})
+                                                     .get("message", {})
+                                                     .get("accountKeys", []))
+                                        addr_idx = None
+                                        for i, key in enumerate(acct_keys):
+                                            k = key if isinstance(key, str) else (key or {}).get("pubkey", "")
+                                            if k == address:
+                                                addr_idx = i
+                                                break
+                                        if addr_idx is not None:
+                                            pre  = (meta.get("preBalances")  or [])[addr_idx] if addr_idx < len(meta.get("preBalances") or [])  else 0
+                                            post = (meta.get("postBalances") or [])[addr_idx] if addr_idx < len(meta.get("postBalances") or []) else 0
+                                            sol_recv = (post - pre) / 1e9
+                                            if sol_recv > 0:
+                                                recent_txs.append({
+                                                    "hash": sig,
+                                                    "value": sol_recv,
+                                                    "symbol": "SOL",
+                                                    "from": "",
+                                                })
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
 
+                        # ── TRON (TRX native + USDT TRC-20) ───────────────────
                         elif chain == "tron":
-                            r = req.get(
-                                "https://apilist.tronscan.org/api/transaction",
-                                params={"address": address, "limit": 5,
-                                        "sort": "-timestamp"},
-                                timeout=10,
-                            )
-                            for tx in (r.json().get("data") or []):
-                                to_a = (tx.get("toAddress") or "").lower()
-                                if to_a == address.lower():
-                                    val = int(tx.get("amount", 0))
-                                    if val > 0:
-                                        recent_txs.append({
-                                            "hash": tx.get("hash", ""),
-                                            "value": val / 1e6,
-                                            "symbol": "TRX",
-                                            "from": tx.get("ownerAddress", ""),
-                                        })
+                            # Native TRX
+                            try:
+                                r = req.get(
+                                    "https://apilist.tronscan.org/api/transaction",
+                                    params={"address": address, "limit": 5, "sort": "-timestamp"},
+                                    timeout=10,
+                                )
+                                for tx in (r.json().get("data") or []):
+                                    to_a = (tx.get("toAddress") or "").lower()
+                                    if to_a == address.lower():
+                                        val = int(tx.get("amount", 0))
+                                        if val > 0:
+                                            recent_txs.append({
+                                                "hash": tx.get("hash", ""),
+                                                "value": val / 1e6,
+                                                "symbol": "TRX",
+                                                "from": tx.get("ownerAddress", ""),
+                                            })
+                            except Exception:
+                                pass
 
+                            # TRC-20 tokens (USDT)
+                            for contract, tok_sym, tok_dec in _TRON_TRC20:
+                                try:
+                                    tok_r = req.get(
+                                        "https://apilist.tronscan.org/api/token_trc20/transfers",
+                                        params={"toAddress": address,
+                                                "contract_address": contract,
+                                                "limit": 5},
+                                        timeout=10,
+                                    )
+                                    for transfer in (tok_r.json().get("token_transfers") or []):
+                                        to_addr = transfer.get("to_address", "")
+                                        if to_addr.lower() == address.lower():
+                                            quant = int(transfer.get("quant", 0))
+                                            if quant > 0:
+                                                recent_txs.append({
+                                                    "hash": transfer.get("transaction_id", ""),
+                                                    "value": quant / (10 ** tok_dec),
+                                                    "symbol": tok_sym,
+                                                    "from": transfer.get("from_address", ""),
+                                                })
+                                except Exception:
+                                    pass
+
+                        # ── Bitcoin ────────────────────────────────────────────
+                        elif chain == "bitcoin":
+                            try:
+                                r = req.get(
+                                    f"https://blockstream.info/api/address/{address}/txs",
+                                    timeout=10,
+                                )
+                                for tx in (r.json() or [])[:5]:
+                                    tx_hash = tx.get("txid", "")
+                                    if not tx_hash:
+                                        continue
+                                    satoshis = sum(
+                                        vout.get("value", 0)
+                                        for vout in (tx.get("vout") or [])
+                                        if vout.get("scriptpubkey_address") == address
+                                    )
+                                    if satoshis > 0:
+                                        recent_txs.append({
+                                            "hash": tx_hash,
+                                            "value": satoshis / 1e8,
+                                            "symbol": "BTC",
+                                            "from": "",
+                                        })
+                            except Exception:
+                                pass
+
+                        # ── Process newly seen transactions ────────────────────
                         for tx_info in recent_txs:
                             tx_hash = tx_info.get("hash", "")
                             if not tx_hash:
@@ -20426,27 +20587,26 @@ def main():
                             short_sender = sender[:6] + "…" + sender[-4:] if len(sender) > 12 else sender
                             explorer = _EXPLORER_URLS.get(chain, "")
                             chain_label = _CHAIN_LABELS.get(chain, chain)
-                            val_str = f"{val:.6f}" if val else "?"
+                            val_str = f"{val:.6f}".rstrip('0').rstrip('.') if val else "?"
 
                             text = (
                                 f"💰 <b>Crypto Received!</b>\n"
                                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
                                 f"🔗 <b>Network:</b> {chain_label}\n"
                                 f"💎 <b>Amount:</b> {val_str} {sym}\n"
-                                f"📤 <b>From:</b> <code>{short_sender}</code>\n\n"
-                                f"━━━━━━━━━━━━━━━━━━━━\n"
+                                + (f"📤 <b>From:</b> <code>{short_sender}</code>\n\n" if short_sender else "\n")
+                                + f"━━━━━━━━━━━━━━━━━━━━\n"
                                 f"✅ <b>Confirmed on blockchain</b>"
                             )
 
                             keyboard = []
                             if explorer and tx_hash:
-                                keyboard.append([{"text": "🔍 View on Explorer", "url": f"{explorer}{tx_hash}"}])
-                            keyboard.append([{"text": "💰 Open Wallet", "url": f"https://t.me/{BOT_USERNAME}"}])
+                                keyboard.append([{"text": "🔍 View on Explorer",
+                                                  "url": f"{explorer}{tx_hash}"}])
+                            keyboard.append([{"text": "💰 Open Wallet",
+                                              "url": f"https://t.me/{BOT_USERNAME}"}])
 
-                            # Credit user's internal balance + log transaction ATOMICALLY.
-                            # Uses unique partial index on (tx_type='deposit', chain, tx_hash)
-                            # to guarantee idempotency: if the deposit row already exists,
-                            # the insert returns 0 rows and the balance update is skipped.
+                            # Credit balance atomically — idempotent via ON CONFLICT DO NOTHING
                             credited_now = False
                             try:
                                 if val and val > 0:
@@ -20456,30 +20616,34 @@ def main():
                                         with conn.cursor() as cur:
                                             cur.execute(
                                                 """INSERT INTO wallet_transactions
-                                                     (telegram_id, tx_type, chain, asset, amount, address, tx_hash, status, note)
-                                                   VALUES (%s, 'deposit', %s, %s, %s, %s, %s, 'confirmed', %s)
+                                                     (telegram_id, tx_type, chain, asset, amount,
+                                                      address, tx_hash, status, note)
+                                                   VALUES (%s, 'deposit', %s, %s, %s, %s, %s,
+                                                           'confirmed', %s)
                                                    ON CONFLICT (chain, tx_hash)
                                                      WHERE tx_type = 'deposit' AND tx_hash IS NOT NULL
                                                      DO NOTHING
                                                    RETURNING id""",
-                                                (int(tg_id), chain, asset_code, str(val), address, tx_hash,
+                                                (int(tg_id), chain, asset_code, str(val),
+                                                 address, tx_hash,
                                                  f"From {short_sender}" if sender else None)
                                             )
                                             if cur.fetchone() is not None:
                                                 cur.execute(
-                                                    """INSERT INTO wallet_balances (telegram_id, asset, balance, updated_at)
+                                                    """INSERT INTO wallet_balances
+                                                           (telegram_id, asset, balance, updated_at)
                                                        VALUES (%s, %s, %s, NOW())
                                                        ON CONFLICT (telegram_id, asset) DO UPDATE
-                                                         SET balance = wallet_balances.balance + EXCLUDED.balance,
+                                                         SET balance = wallet_balances.balance
+                                                                       + EXCLUDED.balance,
                                                              updated_at = NOW()""",
                                                     (int(tg_id), asset_code, str(val))
                                                 )
                                                 credited_now = True
                             except Exception as _ce:
-                                print(f"[Wallet] Failed to credit balance for {tg_id}: {_ce}")
+                                print(f"[Wallet] Failed to credit {tg_id}: {_ce}")
                                 continue
                             if not credited_now:
-                                # Already processed earlier — skip notification too
                                 continue
 
                             try:
@@ -20493,11 +20657,11 @@ def main():
                                     },
                                     timeout=10,
                                 )
-                                print(f"[Wallet] Notified {tg_id}: received {val_str} {sym} on {chain_label}")
+                                print(f"[Wallet] ✅ Credited {val_str} {sym} → {tg_id} ({chain_label})")
                             except Exception as ne:
-                                print(f"[Wallet] Failed to notify {tg_id}: {ne}")
+                                print(f"[Wallet] Notify failed for {tg_id}: {ne}")
 
-                    except Exception as ce:
+                    except Exception:
                         pass
 
                 if first_run:
