@@ -338,6 +338,86 @@ def ae(text):
 
 def _btn(text, style="danger", icon=None, **kwargs):
     return InlineKeyboardButton(text, style=style, icon_custom_emoji_id=icon, **kwargs)
+
+
+# ── Magic button themes ───────────────────────────────────────────────────────
+# Each theme maps button slots to EID animated-emoji IDs + a label for the Magic button.
+# The theme index is encoded in callback_data so no per-user server state is needed.
+_MAGIC_THEMES = [
+    {   # 0 — Default (sparkle)
+        "gates": EID["live"],     "tools": EID["bolt"],
+        "premium": EID["crown"],  "stats": EID["stats"],
+        "help": EID["question"],  "admin": EID["crown"],   "channel": EID["broadcast"],
+        "magic": EID["welcome"],  "label": "✨ Magic",
+    },
+    {   # 1 — Fire / Danger
+        "gates": EID["danger"],   "tools": EID["hitting"],
+        "premium": EID["risky"],  "stats": EID["error"],
+        "help": EID["blocked"],   "admin": EID["ban"],     "channel": EID["broadcast"],
+        "magic": EID["stopped"],  "label": "🔥 Magic",
+    },
+    {   # 2 — Emerald / Success
+        "gates": EID["free"],     "tools": EID["regenerate"],
+        "premium": EID["infinity"],"stats": EID["plan"],
+        "help": EID["ticket"],    "admin": EID["crown"],   "channel": EID["link"],
+        "magic": EID["back"],     "label": "🌟 Magic",
+    },
+    {   # 3 — Royal / Crown
+        "gates": EID["crown"],    "tools": EID["card"],
+        "premium": EID["lock"],   "stats": EID["users"],
+        "help": EID["search"],    "admin": EID["plug"],    "channel": EID["broadcast"],
+        "magic": EID["regenerate"],"label": "👑 Magic",
+    },
+    {   # 4 — Cyber / Neon
+        "gates": EID["charged"],  "tools": EID["infinity"],
+        "premium": EID["3ds"],    "stats": EID["search"],
+        "help": EID["link"],      "admin": EID["lock"],    "channel": EID["plug"],
+        "magic": EID["risky"],    "label": "🔮 Magic",
+    },
+    {   # 5 — Electric / Wild
+        "gates": EID["hitting"],  "tools": EID["danger"],
+        "premium": EID["expired"],"stats": EID["trash"],
+        "help": EID["blocked"],   "admin": EID["ban"],     "channel": EID["stopped"],
+        "magic": EID["bolt"],     "label": "⚡ Magic",
+    },
+]
+
+_MAGIC_TOASTS = [
+    "✨ Magic loading...", "🔥 Power up!",   "🌟 Enchanting...",
+    "👑 Royal mode!",     "🔮 Mystic shift!", "⚡ Electrifying!",
+]
+
+
+def _build_start_keyboard(theme_idx: int, owner: bool) -> "InlineKeyboardMarkup":
+    """Build the /start inline keyboard for the given magic theme index."""
+    t = _MAGIC_THEMES[theme_idx % len(_MAGIC_THEMES)]
+    next_idx = (theme_idx + 1) % len(_MAGIC_THEMES)
+    keyboard = [
+        [
+            _btn("Gates",   style="danger",  icon=t["gates"],   callback_data="gates"),
+            _btn("Tools",   style="success", icon=t["tools"],   callback_data="tools"),
+        ],
+        [
+            _btn("Premium", style="success", icon=t["premium"], callback_data="premium"),
+            _btn("Stats",   style="danger",  icon=t["stats"],   callback_data="info"),
+        ],
+    ]
+    if owner:
+        keyboard.append([
+            _btn("Help",  style="default", icon=t["help"],  callback_data="help_menu"),
+            _btn("Admin", style="primary", icon=t["admin"], callback_data="admin"),
+        ])
+    else:
+        keyboard.append([
+            _btn("Help",    style="default", icon=t["help"],    callback_data="help_menu"),
+            _btn("Channel", style="primary", icon=t["channel"],
+                 url=f"https://t.me/{CHANNEL_USERNAME}"),
+        ])
+    keyboard.append([
+        _btn(t["label"], style="primary", icon=t["magic"], callback_data=f"magic:{next_idx}"),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 _bot_start_time = time.time()
@@ -1393,29 +1473,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 💎 <b>Premium</b> : $3/w · $5/2w · $10/m · $25/3m
 {sep}""")
     
-    keyboard = [
-        [
-            _btn("Gates", style="danger", icon=EID["live"], callback_data="gates"),
-            _btn("Tools", style="success", icon=EID["bolt"], callback_data="tools")
-        ],
-        [
-            _btn("Premium", style="success", icon=EID["crown"], callback_data="premium"),
-            _btn("Stats", style="danger", icon=EID["stats"], callback_data="info")
-        ]
-    ]
-    
-    if is_owner(user.id):
-        keyboard.append([
-            _btn("Help", style="default", icon=EID["question"], callback_data="help_menu"),
-            _btn("Admin", style="primary", icon=EID["crown"], callback_data="admin")
-        ])
-    else:
-        keyboard.append([
-            _btn("Help", style="default", icon=EID["question"], callback_data="help_menu"),
-            _btn("Channel", style="primary", icon=EID["broadcast"], url=f"https://t.me/{CHANNEL_USERNAME}")
-        ])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _build_start_keyboard(0, is_owner(user.id))
     
     # Send welcome message WITH GIF
     try:
@@ -1433,6 +1491,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
         except:
             await update.message.reply_text("Welcome! Send /help for commands")
+
+async def cb_magic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cycle through magic themes on the /start keyboard."""
+    query = update.callback_query
+    try:
+        theme_idx = int(query.data.split(":")[1])
+    except Exception:
+        theme_idx = 0
+    toast = _MAGIC_TOASTS[theme_idx % len(_MAGIC_TOASTS)]
+    await query.answer(toast)
+    owner = is_owner(query.from_user.id)
+    new_markup = _build_start_keyboard(theme_idx, owner)
+    try:
+        await query.edit_message_reply_markup(reply_markup=new_markup)
+    except Exception:
+        pass
+
 
 # ============================================================================
 # ADMIN PANEL (OWNER ONLY)
@@ -20129,6 +20204,7 @@ def main():
     application.add_handler(CommandHandler("alertset", alertset_command))
     application.add_handler(CommandHandler("myalerts", myalerts_command))
     # Live card paste gate-selection callback
+    application.add_handler(CallbackQueryHandler(cb_magic, pattern="^magic:"))
     application.add_handler(CallbackQueryHandler(paste_gate_callback, pattern="^paste_gate:"))
     # BIN shop purchase callback
     application.add_handler(CallbackQueryHandler(binbuy_callback, pattern="^binbuy:"))
