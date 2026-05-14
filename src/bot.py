@@ -50,8 +50,7 @@ def _stop_early_health_srv(_port: int) -> None:
         except Exception:
             pass
 
-for _hp in [5000, 8080]:
-    _start_health_srv(_hp)
+_start_health_srv(5000)
 # ─────────────────────────────────────────────────────────────────────────────
 
 import re
