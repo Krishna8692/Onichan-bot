@@ -1499,8 +1499,7 @@ async def cb_magic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         theme_idx = int(query.data.split(":")[1])
     except Exception:
         theme_idx = 0
-    toast = _MAGIC_TOASTS[theme_idx % len(_MAGIC_TOASTS)]
-    await query.answer(toast)
+    await query.answer("✨ Magic loading…")
     owner = is_owner(query.from_user.id)
     new_markup = _build_start_keyboard(theme_idx, owner)
     try:
@@ -20162,6 +20161,7 @@ def main():
     application.add_handler(CallbackQueryHandler(regenerate_cards_callback, pattern="^regen"))
     application.add_handler(CallbackQueryHandler(download_quality_callback, pattern="^dlq_"))
     application.add_handler(CallbackQueryHandler(download_delivery_callback, pattern="^dldel_"))
+    application.add_handler(CallbackQueryHandler(cb_magic, pattern="^magic:"))
     application.add_handler(CallbackQueryHandler(button_callback))
     
     application.add_handler(CommandHandler("address", cmd_address))
@@ -20204,7 +20204,6 @@ def main():
     application.add_handler(CommandHandler("alertset", alertset_command))
     application.add_handler(CommandHandler("myalerts", myalerts_command))
     # Live card paste gate-selection callback
-    application.add_handler(CallbackQueryHandler(cb_magic, pattern="^magic:"))
     application.add_handler(CallbackQueryHandler(paste_gate_callback, pattern="^paste_gate:"))
     # BIN shop purchase callback
     application.add_handler(CallbackQueryHandler(binbuy_callback, pattern="^binbuy:"))
