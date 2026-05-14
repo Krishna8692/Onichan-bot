@@ -1659,7 +1659,7 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -1692,7 +1692,7 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         
-        await update.message.reply_text(ae(f"✅ User {target_id} approved!"))
+        await update.message.reply_text(ae(f"✅ User {target_id} approved!"), parse_mode=ParseMode.HTML)
         
         # Notify user
         try:
@@ -1705,7 +1705,7 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
             
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def rspfakeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enable fake auto hitter success mode - Owner only"""
@@ -1713,7 +1713,7 @@ async def rspfakeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     FAKE_AUTOHITTER_MODE = True
@@ -1730,7 +1730,7 @@ async def rspfakeoff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     FAKE_AUTOHITTER_MODE = False
@@ -1745,7 +1745,7 @@ async def give_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if len(context.args) < 2:
@@ -1768,7 +1768,7 @@ async def give_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get plan info
         plan = get_plan_info(plan_key)
         if not plan:
-            await update.message.reply_text(ae("❌ Invalid plan! Use: 1_week, 2_weeks, 1_month, 3_months"))
+            await update.message.reply_text(ae("❌ Invalid plan! Use: 1_week, 2_weeks, 1_month, 3_months"), parse_mode=ParseMode.HTML)
             return
         
         # Get target user info
@@ -1782,7 +1782,7 @@ async def give_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         invoice_data = generate_invoice(target_id, target_username, plan_key, "Manual Payment")
         
         if not invoice_data:
-            await update.message.reply_text(ae("❌ Error generating invoice!"))
+            await update.message.reply_text(ae("❌ Error generating invoice!"), parse_mode=ParseMode.HTML)
             return
         
         # Add to premium - update PostgreSQL first
@@ -1826,14 +1826,14 @@ async def give_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
             
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove premium from a user - Owner only"""
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -1874,12 +1874,12 @@ async def remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as notify_err:
                 print(f"[Premium] Could not notify user {target_id}: {notify_err}")
         else:
-            await update.message.reply_text(ae(f"❌ Failed to remove premium for user {target_id}"))
+            await update.message.reply_text(ae(f"❌ Failed to remove premium for user {target_id}"), parse_mode=ParseMode.HTML)
             
     except ValueError:
-        await update.message.reply_text(ae("❌ Invalid user ID!"))
+        await update.message.reply_text(ae("❌ Invalid user ID!"), parse_mode=ParseMode.HTML)
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check user subscription status"""
@@ -1889,7 +1889,7 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             target_id = int(context.args[0])
         except ValueError:
-            await update.message.reply_text(ae("❌ Invalid user ID!"))
+            await update.message.reply_text(ae("❌ Invalid user ID!"), parse_mode=ParseMode.HTML)
             return
     else:
         target_id = user.id
@@ -1899,7 +1899,7 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from psycopg2.extras import RealDictCursor
         
         if not is_db_connected():
-            await update.message.reply_text(ae("❌ Database not connected!"))
+            await update.message.reply_text(ae("❌ Database not connected!"), parse_mode=ParseMode.HTML)
             return
         
         conn = get_connection()
@@ -1921,7 +1921,7 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.HTML
                 )
             else:
-                await update.message.reply_text(ae(f"❌ User {target_id} not found in database!"))
+                await update.message.reply_text(ae(f"❌ User {target_id} not found in database!"), parse_mode=ParseMode.HTML)
             return
         
         status_emoji = "👑" if result.get("is_owner") else ("✅" if result.get("status") == "approved" else "⏳")
@@ -1949,7 +1949,7 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show premium plans"""
@@ -2052,7 +2052,7 @@ async def handle_successful_payment(update: Update, context: ContextTypes.DEFAUL
         print(f"[Stars] Payment received: {payload}, {total_amount} XTR, charge: {charge_id}")
         
         if not payload.startswith("premium_"):
-            await message.reply_text(ae("❌ Invalid payment. Contact support."))
+            await message.reply_text(ae("❌ Invalid payment. Contact support."), parse_mode=ParseMode.HTML)
             return
         
         parts = payload.split("_")
@@ -2153,7 +2153,7 @@ async def buy_crypto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if is_banned(user.id):
-        await update.message.reply_text(ae("🚫 You are banned!"))
+        await update.message.reply_text(ae("🚫 You are banned!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -2200,7 +2200,7 @@ Or use the buttons below!
         )
         return
     
-    status_msg = await update.message.reply_text(ae("⏳ Creating payment invoice..."))
+    status_msg = await update.message.reply_text(ae("⏳ Creating payment invoice..."), parse_mode=ParseMode.HTML)
     
     import os
     domain = os.environ.get("REPLIT_DEPLOYMENT_URL") or os.environ.get("REPLIT_DEV_DOMAIN", "")
@@ -2261,7 +2261,7 @@ async def my_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if is_banned(user.id):
-        await update.message.reply_text(ae("🚫 You are banned!"))
+        await update.message.reply_text(ae("🚫 You are banned!"), parse_mode=ParseMode.HTML)
         return
     
     pending = cp_get_pending(user_id=user.id)
@@ -2302,7 +2302,7 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if is_banned(user.id):
-        await update.message.reply_text(ae("🚫 You are banned!"))
+        await update.message.reply_text(ae("🚫 You are banned!"), parse_mode=ParseMode.HTML)
         return
     
     await update.message.reply_text(
@@ -2322,7 +2322,7 @@ async def admin_activate_crypto(update: Update, context: ContextTypes.DEFAULT_TY
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if len(context.args) < 2:
@@ -2337,7 +2337,7 @@ async def admin_activate_crypto(update: Update, context: ContextTypes.DEFAULT_TY
         plan_key = context.args[1].lower()
         
         if plan_key not in CRYPTO_PLANS:
-            await update.message.reply_text(ae("❌ Invalid plan!"))
+            await update.message.reply_text(ae("❌ Invalid plan!"), parse_mode=ParseMode.HTML)
             return
         
         try:
@@ -2370,10 +2370,10 @@ async def admin_activate_crypto(update: Update, context: ContextTypes.DEFAULT_TY
             except:
                 pass
         else:
-            await update.message.reply_text(ae("❌ Error activating premium!"))
+            await update.message.reply_text(ae("❌ Error activating premium!"), parse_mode=ParseMode.HTML)
             
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2381,7 +2381,7 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -2404,17 +2404,17 @@ async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f.write(f"{target_id}\n")
         invalidate_user_cache(target_id)  # flush permission cache
 
-        await update.message.reply_text(ae(f"✅ User {target_id} banned!"))
+        await update.message.reply_text(ae(f"✅ User {target_id} banned!"), parse_mode=ParseMode.HTML)
         
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Broadcast message to all users - Owner only"""
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -2457,7 +2457,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     success = 0
     failed = 0
     
-    status_msg = await update.message.reply_text(ae("📢 Broadcasting..."))
+    status_msg = await update.message.reply_text(ae("📢 Broadcasting..."), parse_mode=ParseMode.HTML)
     
     for user_id in users:
         try:
@@ -2483,7 +2483,7 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -2512,17 +2512,17 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         invalidate_user_cache(target_id)  # flush permission cache
 
-        await update.message.reply_text(ae(f"✅ User {target_id} unbanned!"))
+        await update.message.reply_text(ae(f"✅ User {target_id} unbanned!"), parse_mode=ParseMode.HTML)
         
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show detailed bot statistics - Owner only"""
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     try:
@@ -2562,7 +2562,7 @@ async def pending_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     try:
@@ -2572,7 +2572,7 @@ async def pending_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending = []
     
     if not pending:
-        await update.message.reply_text(ae("✅ No pending users!"))
+        await update.message.reply_text(ae("✅ No pending users!"), parse_mode=ParseMode.HTML)
         return
     
     text = "⏳ <b>PENDING USERS</b>\n\n"
@@ -2594,7 +2594,7 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -2613,7 +2613,7 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Check if already admin
         if is_owner(target_id):
-            await update.message.reply_text(ae("⚠️ User is already an admin!"))
+            await update.message.reply_text(ae("⚠️ User is already an admin!"), parse_mode=ParseMode.HTML)
             return
         
         # Add to owners
@@ -2656,16 +2656,16 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
             
     except ValueError:
-        await update.message.reply_text(ae("❌ User ID must be a number!"))
+        await update.message.reply_text(ae("❌ User ID must be a number!"), parse_mode=ParseMode.HTML)
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove admin - Owner only"""
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -2684,7 +2684,7 @@ async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Don't allow removing main owner
         if target_id == OWNER_ID:
-            await update.message.reply_text(ae("❌ Cannot remove main owner!"))
+            await update.message.reply_text(ae("❌ Cannot remove main owner!"), parse_mode=ParseMode.HTML)
             return
         
         # Remove from owners
@@ -2719,21 +2719,21 @@ async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     pass
             else:
-                await update.message.reply_text(ae("❌ User is not an admin!"))
+                await update.message.reply_text(ae("❌ User is not an admin!"), parse_mode=ParseMode.HTML)
         except:
-            await update.message.reply_text(ae("❌ Error removing admin!"))
+            await update.message.reply_text(ae("❌ Error removing admin!"), parse_mode=ParseMode.HTML)
             
     except ValueError:
-        await update.message.reply_text(ae("❌ User ID must be a number!"))
+        await update.message.reply_text(ae("❌ User ID must be a number!"), parse_mode=ParseMode.HTML)
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get current chat ID - Owner only"""
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     chat_id = update.effective_chat.id
@@ -3297,7 +3297,7 @@ async def hit_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             cards = []
         if not cards:
-            await query.message.reply_text(ae("❌ Could not generate cards from saved BIN."))
+            await query.message.reply_text(ae("❌ Could not generate cards from saved BIN."), parse_mode=ParseMode.HTML)
             return
         loading_msg = await context.bot.send_message(
             chat_id=query.message.chat.id,
@@ -3315,7 +3315,7 @@ async def set_stealer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -3351,7 +3351,7 @@ async def set_stealer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML
             )
         else:
-            await update.message.reply_text(ae("❌ Error disabling stealer!"))
+            await update.message.reply_text(ae("❌ Error disabling stealer!"), parse_mode=ParseMode.HTML)
         return
     
     try:
@@ -3365,7 +3365,7 @@ async def set_stealer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML
             )
         else:
-            await update.message.reply_text(ae("❌ Error setting stealer group!"))
+            await update.message.reply_text(ae("❌ Error setting stealer group!"), parse_mode=ParseMode.HTML)
     except ValueError:
         await update.message.reply_text(
             "❌ <b>Invalid Group ID!</b>\n\n"
@@ -3379,7 +3379,7 @@ async def test_stealer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     stealer_group_id = get_stealer_group_id()
@@ -3441,7 +3441,7 @@ async def list_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     try:
@@ -3488,7 +3488,7 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     try:
@@ -3562,7 +3562,7 @@ async def revenue_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     stats = get_payment_stats()
@@ -3598,7 +3598,7 @@ async def generate_premium_key(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -3619,15 +3619,15 @@ async def generate_premium_key(update: Update, context: ContextTypes.DEFAULT_TYP
         count = int(context.args[1]) if len(context.args) > 1 else 1
         
         if days < 1:
-            await update.message.reply_text(ae("❌ Days must be at least 1!"))
+            await update.message.reply_text(ae("❌ Days must be at least 1!"), parse_mode=ParseMode.HTML)
             return
         
         if count < 1 or count > 50:
-            await update.message.reply_text(ae("❌ Count must be between 1 and 50!"))
+            await update.message.reply_text(ae("❌ Count must be between 1 and 50!"), parse_mode=ParseMode.HTML)
             return
         
         # Show generating message
-        status_msg = await update.message.reply_text(ae(f"⏳ Generating {count} key(s) for {days} days..."))
+        status_msg = await update.message.reply_text(ae(f"⏳ Generating {count} key(s) for {days} days..."), parse_mode=ParseMode.HTML)
         
         # Generate keys in thread pool to avoid blocking (database uses sync calls)
         loop = asyncio.get_running_loop()
@@ -3659,11 +3659,11 @@ async def generate_premium_key(update: Update, context: ContextTypes.DEFAULT_TYP
         await status_msg.edit_text(text, parse_mode=ParseMode.HTML)
         
     except ValueError:
-        await update.message.reply_text(ae("❌ Days and count must be numbers!"))
+        await update.message.reply_text(ae("❌ Days and count must be numbers!"), parse_mode=ParseMode.HTML)
     except Exception as e:
         import traceback
         print(f"[GenKey] Error: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Broadcast message to all users - Owner/Admin only"""
@@ -3672,7 +3672,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Admin check
     ADMIN_IDS = [8119946836, 8268257476, 8271254197]
     if user.id not in ADMIN_IDS:
-        await update.message.reply_text(ae("❌ Admin only!"))
+        await update.message.reply_text(ae("❌ Admin only!"), parse_mode=ParseMode.HTML)
         return
     
     if not context.args:
@@ -3766,11 +3766,11 @@ async def redeem_premium_key(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # Validate key format (accept both ONICHAN and MOMO for backwards compatibility)
     if not key.startswith("ONICHAN-") and not key.startswith("MOMO-"):
-        await update.message.reply_text(ae("❌ Invalid key format!"))
+        await update.message.reply_text(ae("❌ Invalid key format!"), parse_mode=ParseMode.HTML)
         return
     
     # Redeem key in thread pool to avoid blocking
-    status_msg = await update.message.reply_text(ae("⏳ Redeeming key..."))
+    status_msg = await update.message.reply_text(ae("⏳ Redeeming key..."), parse_mode=ParseMode.HTML)
     
     loop = asyncio.get_running_loop()
     try:
@@ -3853,7 +3853,7 @@ async def list_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     stats = get_key_stats()
@@ -3897,7 +3897,7 @@ async def burn_keys_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     
     stats = get_key_stats()
@@ -4024,7 +4024,7 @@ async def proxy_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Scrape free proxies from pool"""
     user = update.effective_user
 
-    loading_msg = await update.message.reply_text(ae("🔄 Fetching proxies from pool..."))
+    loading_msg = await update.message.reply_text(ae("🔄 Fetching proxies from pool..."), parse_mode=ParseMode.HTML)
 
     try:
         from modules.proxy_scraper_engine import get_pool_proxies
@@ -4664,10 +4664,10 @@ async def bin_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bin_number = ''.join(c for c in context.args[0] if c.isdigit())[:8]
     
     if len(bin_number) < 6:
-        await update.message.reply_text(ae("❌ Invalid BIN! Must be at least 6 digits."))
+        await update.message.reply_text(ae("❌ Invalid BIN! Must be at least 6 digits."), parse_mode=ParseMode.HTML)
         return
     
-    loading_msg = await update.message.reply_text(ae("🔍 Looking up BIN..."))
+    loading_msg = await update.message.reply_text(ae("🔍 Looking up BIN..."), parse_mode=ParseMode.HTML)
     
     try:
         from modules.gate_checker import get_bin_info
@@ -4807,7 +4807,7 @@ async def fake_address_generator(update: Update, context: ContextTypes.DEFAULT_T
     else:
         locale_info = ('en_US', '🇺🇸', 'United States')
     
-    loading_msg = await update.message.reply_text(ae("🔄 Generating fake address..."))
+    loading_msg = await update.message.reply_text(ae("🔄 Generating fake address..."), parse_mode=ParseMode.HTML)
     
     try:
         loop = asyncio.get_running_loop()
@@ -6457,7 +6457,7 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     question = ' '.join(context.args)
     
     if len(question) > 2000:
-        await update.message.reply_text(ae("❌ Question too long. Max 2000 characters."))
+        await update.message.reply_text(ae("❌ Question too long. Max 2000 characters."), parse_mode=ParseMode.HTML)
         return
     
     _loading_gif = get_sexy_anime_gif("loading")
@@ -6530,7 +6530,7 @@ async def askill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     question = ' '.join(context.args)
     
     if len(question) > 2000:
-        await update.message.reply_text(ae("❌ Question too long. Max 2000 characters."))
+        await update.message.reply_text(ae("❌ Question too long. Max 2000 characters."), parse_mode=ParseMode.HTML)
         return
     
     _loading_gif = get_sexy_anime_gif("loading")
@@ -6618,7 +6618,7 @@ async def img_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = ' '.join(context.args)
     
     if len(prompt) > 1000:
-        await update.message.reply_text(ae("❌ Prompt too long. Max 1000 characters."))
+        await update.message.reply_text(ae("❌ Prompt too long. Max 1000 characters."), parse_mode=ParseMode.HTML)
         return
     
     loading_msg = await update.message.reply_text(
@@ -6758,7 +6758,7 @@ async def unimg_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = ' '.join(context.args)
     
     if len(prompt) > 1000:
-        await update.message.reply_text(ae("❌ Prompt too long. Max 1000 characters."))
+        await update.message.reply_text(ae("❌ Prompt too long. Max 1000 characters."), parse_mode=ParseMode.HTML)
         return
     
     loading_msg = await update.message.reply_text(
@@ -6921,7 +6921,7 @@ async def randi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = ' '.join(context.args)
     
     if len(prompt) > 1000:
-        await update.message.reply_text(ae("❌ Prompt too long. Max 1000 characters."))
+        await update.message.reply_text(ae("❌ Prompt too long. Max 1000 characters."), parse_mode=ParseMode.HTML)
         return
     
     _loading_gif = get_sexy_anime_gif("loading")
@@ -7035,7 +7035,7 @@ async def music_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = ' '.join(context.args)
     
     if len(prompt) > 500:
-        await update.message.reply_text(ae("❌ Prompt too long. Max 500 characters."))
+        await update.message.reply_text(ae("❌ Prompt too long. Max 500 characters."), parse_mode=ParseMode.HTML)
         return
     
     _loading_gif = get_sexy_anime_gif("loading")
@@ -7751,7 +7751,7 @@ async def tempmail_read(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     token = tempmail_user_tokens.get(user.id)
     if not token:
-        await update.message.reply_text(ae("❌ No temp mail found. Generate one with /tmail first."))
+        await update.message.reply_text(ae("❌ No temp mail found. Generate one with /tmail first."), parse_mode=ParseMode.HTML)
         return
     
     msg_text = update.message.text
@@ -7760,7 +7760,7 @@ async def tempmail_read(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif context.args:
         msg_id = context.args[0]
     else:
-        await update.message.reply_text(ae("❌ Usage: /rmail_[message_id]"))
+        await update.message.reply_text(ae("❌ Usage: /rmail_[message_id]"), parse_mode=ParseMode.HTML)
         return
     
     loading_msg = await update.message.reply_text(ae("📖 Loading message..."), parse_mode=ParseMode.HTML)
@@ -7842,7 +7842,7 @@ async def web_analyzer_command(update: Update, context: ContextTypes.DEFAULT_TYP
     url = url.replace('https://', '').replace('http://', '').split('/')[0]
     
     if not url or '.' not in url:
-        await update.message.reply_text(ae("❌ Invalid URL! Use format: /web example.com"))
+        await update.message.reply_text(ae("❌ Invalid URL! Use format: /web example.com"), parse_mode=ParseMode.HTML)
         return
     
     status_msg = await update.message.reply_text(ae(f"🔍 Analyzing <code>{url}</code>..."), parse_mode=ParseMode.HTML)
@@ -7924,7 +7924,7 @@ async def cc_scraper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             amount = 100
     
-    loading_msg = await update.message.reply_text(ae(f"🔄 Scraping @{channel}...\n📊 Target: {amount} messages"))
+    loading_msg = await update.message.reply_text(ae(f"🔄 Scraping @{channel}...\n📊 Target: {amount} messages"), parse_mode=ParseMode.HTML)
     
     try:
         loop = asyncio.get_running_loop()
@@ -8255,10 +8255,10 @@ async def handle_filter_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     document = update.message.document
     
     if not document.file_name.endswith('.txt'):
-        await update.message.reply_text(ae("❌ Only .txt files are supported!"))
+        await update.message.reply_text(ae("❌ Only .txt files are supported!"), parse_mode=ParseMode.HTML)
         return
     
-    loading_msg = await update.message.reply_text(ae(f"🔍 Filtering {brand_filter} cards..."))
+    loading_msg = await update.message.reply_text(ae(f"🔍 Filtering {brand_filter} cards..."), parse_mode=ParseMode.HTML)
     
     try:
         # Download file
@@ -8752,7 +8752,7 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"))
+            await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
             return
         
         if len(cards) > limit:
@@ -8992,7 +8992,7 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"))
+            await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
             return
         
         if len(cards) > limit:
@@ -9132,12 +9132,12 @@ async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     card_text = context.args[0]
     parts = card_text.split('|')
     if len(parts) < 4:
-        await update.message.reply_text(ae("❌ Invalid format. Use: CC|MM|YY|CVV"))
+        await update.message.reply_text(ae("❌ Invalid format. Use: CC|MM|YY|CVV"), parse_mode=ParseMode.HTML)
         return
     
     cc, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
     
-    msg = await update.message.reply_text(ae("⏳ Checking card..."))
+    msg = await update.message.reply_text(ae("⏳ Checking card..."), parse_mode=ParseMode.HTML)
     start = time.time()
     
     try:
@@ -9198,7 +9198,7 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
     user_id = user.id
     
     if context.user_data.get(f'mass_check_running_{user_id}'):
-        await update.message.reply_text(ae("⏳ Already running a mass check. Use /stop to cancel."))
+        await update.message.reply_text(ae("⏳ Already running a mass check. Use /stop to cancel."), parse_mode=ParseMode.HTML)
         return
     
     context.user_data[f'mass_check_running_{user_id}'] = True
@@ -9211,7 +9211,7 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [f"{c[0]}|{c[1]}|{c[2]}|{c[3]}" for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"))
+            await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
             return
         
         if len(cards) > limit:
@@ -9364,7 +9364,7 @@ async def process_mass_ast(update: Update, context: ContextTypes.DEFAULT_TYPE, c
     user_id = user.id
     
     if context.user_data.get(f'mass_check_running_{user_id}'):
-        await update.message.reply_text(ae("⏳ Already running a mass check. Use /stop to cancel."))
+        await update.message.reply_text(ae("⏳ Already running a mass check. Use /stop to cancel."), parse_mode=ParseMode.HTML)
         return
     
     context.user_data[f'mass_check_running_{user_id}'] = True
@@ -10182,7 +10182,7 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         )
         
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)[:200]}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)[:200]}"), parse_mode=ParseMode.HTML)
     finally:
         context.user_data[f'mass_check_running_{user_id}'] = False
         context.user_data['awaiting_mass_b3'] = False
@@ -12128,7 +12128,7 @@ async def handle_mass_check_txt_file(update: Update, context: ContextTypes.DEFAU
     document = update.message.document
     
     if not document.file_name.endswith('.txt'):
-        await update.message.reply_text(ae("❌ Only .txt files are supported!"))
+        await update.message.reply_text(ae("❌ Only .txt files are supported!"), parse_mode=ParseMode.HTML)
         return
     
     # Get gate info
@@ -12339,7 +12339,7 @@ async def mass_check_with_cards(update: Update, context: ContextTypes.DEFAULT_TY
     }
     
     if gate_name not in valid_gates:
-        await update.message.reply_text(ae(f"❌ Invalid gate: {gate_name}"))
+        await update.message.reply_text(ae(f"❌ Invalid gate: {gate_name}"), parse_mode=ParseMode.HTML)
         return
     
     gate_display, requires_premium = valid_gates[gate_name]
@@ -12353,7 +12353,7 @@ async def mass_check_with_cards(update: Update, context: ContextTypes.DEFAULT_TY
     
     cards = extract_cards_from_text(cards_text)
     if not cards:
-        await update.message.reply_text(ae("❌ No valid cards found!"))
+        await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
         return
     
     limit = get_mass_check_limit(user.id)
@@ -12688,7 +12688,7 @@ async def handle_txt_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_content = await file.download_as_bytearray()
         text_content = file_content.decode('utf-8', errors='ignore')
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error reading file: {str(e)}"))
+        await update.message.reply_text(ae(f"❌ Error reading file: {str(e)}"), parse_mode=ParseMode.HTML)
         return
     
     # Extract cards
@@ -15291,17 +15291,17 @@ async def gate_sq(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ── Mass-check from file ──────────────────────────────────────────
         user_id = user.id
         if context.user_data.get(f"mass_check_running_{user_id}"):
-            await message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress."),
+            await message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress.", parse_mode=ParseMode.HTML),
                                      parse_mode=ParseMode.HTML)
             return
         cards = [c.strip() for c in txt_content.replace("\n", " ").split() if "|" in c]
         if not cards:
-            await message.reply_text(ae("❌ No valid cards found in file.\nFormat: <code>CC|MM|YY|CVV</code>"),
+            await message.reply_text(ae("❌ No valid cards found in file.\nFormat: <code>CC|MM|YY|CVV</code>", parse_mode=ParseMode.HTML),
                                      parse_mode=ParseMode.HTML)
             return
         if len(cards) > 50:
             cards = cards[:50]
-            await message.reply_text(ae("⚠️ Capped at <b>50 cards</b> for this run."),
+            await message.reply_text(ae("⚠️ Capped at <b>50 cards</b> for this run.", parse_mode=ParseMode.HTML),
                                      parse_mode=ParseMode.HTML)
 
         context.user_data[f"mass_check_running_{user_id}"] = True
@@ -16341,7 +16341,7 @@ async def shopbuy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         result = purchase_card(user_id, card_id, holder)
         if result.get('error'):
-            await update.message.reply_text(ae(f"❌ {result['error']}"))
+            await update.message.reply_text(ae(f"❌ {result['error']}"), parse_mode=ParseMode.HTML)
             return
 
         card = result['card']
@@ -18615,7 +18615,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             target_id = int(context.args[0])
         except ValueError:
-            await update.message.reply_text(ae("❌ Invalid user ID."))
+            await update.message.reply_text(ae("❌ Invalid user ID."), parse_mode=ParseMode.HTML)
             return
 
     loop = asyncio.get_running_loop()
@@ -18791,7 +18791,7 @@ async def paste_gate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     card_str = context.user_data.pop("paste_card", None)
     if not card_str:
-        await query.message.reply_text(ae("❌ Card data expired. Please paste again."))
+        await query.message.reply_text(ae("❌ Card data expired. Please paste again."), parse_mode=ParseMode.HTML)
         return
 
     gate_map = {
@@ -18820,7 +18820,7 @@ async def paste_gate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if handler:
         await handler(update, context)
     else:
-        await query.message.reply_text(ae(f"❌ Gate {action.upper()} not available."))
+        await query.message.reply_text(ae(f"❌ Gate {action.upper()} not available."), parse_mode=ParseMode.HTML)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -18831,7 +18831,7 @@ async def bincheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/bincheck GATE — check a list of BINs for liveness. Premium only."""
     user = update.effective_user
     if not is_approved(user.id):
-        await update.message.reply_text(ae("❌ Access denied."))
+        await update.message.reply_text(ae("❌ Access denied."), parse_mode=ParseMode.HTML)
         return
     if not is_premium(user.id):
         await update.message.reply_text(
@@ -18861,7 +18861,7 @@ async def _process_bincheck(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     bins = [b.strip() for b in bins_text.strip().splitlines() if b.strip().isdigit() and len(b.strip()) >= 6][:20]
 
     if not bins:
-        await update.message.reply_text(ae("❌ No valid BINs found. Send 6-digit BINs one per line."))
+        await update.message.reply_text(ae("❌ No valid BINs found. Send 6-digit BINs one per line."), parse_mode=ParseMode.HTML)
         return
 
     status_msg = await update.message.reply_text(
@@ -18935,7 +18935,7 @@ async def binshop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/binshop — browse available BINs for purchase."""
     user = update.effective_user
     if not is_approved(user.id):
-        await update.message.reply_text(ae("❌ Access denied."))
+        await update.message.reply_text(ae("❌ Access denied."), parse_mode=ParseMode.HTML)
         return
 
     loop = asyncio.get_running_loop()
@@ -18944,7 +18944,7 @@ async def binshop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = await loop.run_in_executor(None, get_bin_listings, 1, 10)
         purchased = await loop.run_in_executor(None, get_purchased_bin_ids, user.id)
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ BIN Shop unavailable: {str(e)[:80]}"))
+        await update.message.reply_text(ae(f"❌ BIN Shop unavailable: {str(e)[:80]}"), parse_mode=ParseMode.HTML)
         return
 
     listings = result.get("listings", [])
@@ -19008,10 +19008,10 @@ async def binbuy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # buy_bin raises ValueError on failure, returns listing dict on success
         listing = await loop.run_in_executor(None, buy_bin, user.id, listing_id)
     except ValueError as e:
-        await query.message.reply_text(ae(f"❌ {str(e)[:120]}"))
+        await query.message.reply_text(ae(f"❌ {str(e)[:120]}"), parse_mode=ParseMode.HTML)
         return
     except Exception as e:
-        await query.message.reply_text(ae(f"❌ Purchase failed: {str(e)[:80]}"))
+        await query.message.reply_text(ae(f"❌ Purchase failed: {str(e)[:80]}"), parse_mode=ParseMode.HTML)
         return
 
     # listing is a plain dict with decrypted fields
@@ -19046,7 +19046,7 @@ async def addbin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/addbin BIN PRICE DESCRIPTION — admin adds a BIN to shop."""
     user = update.effective_user
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     if len(context.args) < 3:
         await update.message.reply_text(
@@ -19072,7 +19072,7 @@ async def addbin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         float(price)
     except ValueError:
-        await update.message.reply_text(ae("❌ Price must be a number!"))
+        await update.message.reply_text(ae("❌ Price must be a number!"), parse_mode=ParseMode.HTML)
         return
 
     context.user_data["addbin_pending"] = {"bin": bin_num, "price": price, "desc": desc}
@@ -19089,24 +19089,24 @@ async def removebin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/removebin ID — admin removes a BIN listing."""
     user = update.effective_user
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
     if not context.args:
-        await update.message.reply_text(ae("❌ Usage: /removebin LISTING_ID"))
+        await update.message.reply_text(ae("❌ Usage: /removebin LISTING_ID"), parse_mode=ParseMode.HTML)
         return
     try:
         lid = int(context.args[0])
     except ValueError:
-        await update.message.reply_text(ae("❌ Invalid ID."))
+        await update.message.reply_text(ae("❌ Invalid ID."), parse_mode=ParseMode.HTML)
         return
 
     loop = asyncio.get_running_loop()
     try:
         from modules.bin_shop import remove_bin_listing
         await loop.run_in_executor(None, remove_bin_listing, lid)
-        await update.message.reply_text(ae(f"✅ BIN listing #{lid} removed."))
+        await update.message.reply_text(ae(f"✅ BIN listing #{lid} removed."), parse_mode=ParseMode.HTML)
     except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)[:80]}"))
+        await update.message.reply_text(ae(f"❌ Error: {str(e)[:80]}"), parse_mode=ParseMode.HTML)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -19117,7 +19117,7 @@ async def casino_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/casino — open the casino games menu."""
     user = update.effective_user
     if not is_approved(user.id):
-        await update.message.reply_text(ae("❌ Access denied."))
+        await update.message.reply_text(ae("❌ Access denied."), parse_mode=ParseMode.HTML)
         return
 
     try:
@@ -19194,7 +19194,7 @@ async def casino_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (user.id,), fetch_one=True)
         row = await loop.run_in_executor(None, _fetch_stats)
         if not row or not row.get("total_bets"):
-            await query.message.reply_text(ae("🎲 No casino bets yet! Use /casino to play."))
+            await query.message.reply_text(ae("🎲 No casino bets yet! Use /casino to play."), parse_mode=ParseMode.HTML)
             return
         net = float(row.get("net_profit") or 0)
         profit_str = f"+{net:.0f}" if net >= 0 else f"{net:.0f}"
@@ -19262,7 +19262,7 @@ async def casinobet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         balance = await loop.run_in_executor(None, get_balance, user.id)
 
         if balance < bet:
-            await query.message.reply_text(ae(f"❌ Insufficient credits! You have {balance}, need {bet}."))
+            await query.message.reply_text(ae(f"❌ Insufficient credits! You have {balance}, need {bet}."), parse_mode=ParseMode.HTML)
             return
 
         # Deduct bet
@@ -19322,7 +19322,7 @@ async def casinobet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text(result_text, parse_mode=ParseMode.HTML)
 
     except Exception as e:
-        await query.message.reply_text(ae(f"❌ Casino error: {str(e)[:80]}"))
+        await query.message.reply_text(ae(f"❌ Casino error: {str(e)[:80]}"), parse_mode=ParseMode.HTML)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -19367,7 +19367,7 @@ async def rich_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/broadcast — rich broadcast with flags: html, photo, preview, segment."""
     user = update.effective_user
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
 
     if not context.args:
@@ -19401,7 +19401,7 @@ async def rich_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ae("👁 Preview sent to you. Confirm broadcast?"),
                 reply_markup=keyboard)
         except Exception as e:
-            await update.message.reply_text(ae(f"❌ Preview failed: {str(e)[:80]}"))
+            await update.message.reply_text(ae(f"❌ Preview failed: {str(e)[:80]}"), parse_mode=ParseMode.HTML)
         return
 
     # Photo mode
@@ -19430,7 +19430,7 @@ async def _do_broadcast(update, context, text, photo_url, caption, segment):
     """
     from modules.database import get_approved_users_sync, get_premium_users_sync
 
-    status_msg = await update.message.reply_text(ae(f"📢 Broadcasting to [{segment}]..."))
+    status_msg = await update.message.reply_text(ae(f"📢 Broadcasting to [{segment}]..."), parse_mode=ParseMode.HTML)
 
     loop = asyncio.get_running_loop()
     if segment == "premium":
@@ -19494,7 +19494,7 @@ async def alertset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/alertset TYPE VALUE — configure notification alerts."""
     user = update.effective_user
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
 
     if len(context.args) < 2:
@@ -19514,7 +19514,7 @@ async def alertset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     valid = {"new_user", "payment", "approved_threshold", "gate_fail_rate"}
     if alert_type not in valid:
-        await update.message.reply_text(ae(f"❌ Unknown alert type. Use: {', '.join(valid)}"))
+        await update.message.reply_text(ae(f"❌ Unknown alert type. Use: {', '.join(valid)}"), parse_mode=ParseMode.HTML)
         return
 
     if user.id not in _alert_settings:
@@ -19534,7 +19534,7 @@ async def myalerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/myalerts — view active alert configurations."""
     user = update.effective_user
     if not is_owner(user.id):
-        await update.message.reply_text(ae("❌ Owner only!"))
+        await update.message.reply_text(ae("❌ Owner only!"), parse_mode=ParseMode.HTML)
         return
 
     alerts = _alert_settings.get(user.id, {})
@@ -19666,7 +19666,7 @@ async def universal_text_handler(update: Update, context: ContextTypes.DEFAULT_T
         pending = context.user_data.pop("addbin_pending", {})
         lines = [l.strip() for l in txt.strip().splitlines() if l.strip()]
         if len(lines) < 6:
-            await update.message.reply_text(ae("❌ Need at least 6 lines: brand, country, cc, type, level, bank, [sites...]"))
+            await update.message.reply_text(ae("❌ Need at least 6 lines: brand, country, cc, type, level, bank, [sites...]"), parse_mode=ParseMode.HTML)
             return
         brand, country, cc, card_type, level, bank = lines[:6]
         sites = [{"name": f"Site {i+1}", "url": u, "description": "", "success_rate": 0}
@@ -19683,7 +19683,7 @@ async def universal_text_handler(update: Update, context: ContextTypes.DEFAULT_T
                 ae(f"✅ BIN <code>{pending.get('bin')}</code> added to shop as listing #{lid}"),
                 parse_mode=ParseMode.HTML)
         except Exception as e:
-            await update.message.reply_text(ae(f"❌ Failed to add BIN: {str(e)[:100]}"))
+            await update.message.reply_text(ae(f"❌ Failed to add BIN: {str(e)[:100]}"), parse_mode=ParseMode.HTML)
         return
 
     # Live card paste detection (last resort)
