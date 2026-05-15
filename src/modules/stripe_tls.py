@@ -813,6 +813,9 @@ def _parse_confirm_result(
         elif st == "requires_action":
             result["status"] = "3DS"
             result["response"] = "3DS Required"
+            # Pass PI client_secret + pk so callers can attempt a 3DS bypass
+            result["pi_client_secret"] = pi.get("client_secret", "")
+            result["pi_id"] = pi.get("id", "")
         elif st == "requires_payment_method":
             result["status"] = "DECLINED"
             result["response"] = "Card Declined"

