@@ -14279,6 +14279,21 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
             except Exception as ex:
                 result = {"status": "ERROR", "response": str(ex)[:60], "time": 0}
 
+            # ── Fake mode: override every result with a fake CHARGED response ──
+            if FAKE_AUTOHITTER_MODE:
+                _sym  = get_currency_symbol(checkout_data.get("currency", "USD"))
+                _prc  = checkout_data.get("price")
+                _fake_resp = (f"Payment Successful — {_sym}{_prc:.2f} {checkout_data.get('currency','USD')}"
+                              if _prc else "Payment Successful")
+                result = {
+                    "status":       "CHARGED",
+                    "response":     _fake_resp,
+                    "decline_code": "N/A",
+                    "code":         "succeeded",
+                    "success_url":  checkout_data.get("success_url", ""),
+                    "time":         result.get("time", 2.1),
+                }
+
             status = result.get("status", "ERROR")
             card_str = f"{card['cc'][:6]}****{card['cc'][-4:]}|{card['month']}|{card['year']}"
             response_text = html.escape(str(result.get("response", "N/A")))
