@@ -55,16 +55,32 @@ data/*.session-journal
 *.session-journal
 
 # Runtime data files — generated at startup / written at runtime, never commit
+data/admin_permissions.json
 data/approved_cards.txt
 data/approved_log.txt
+data/ban.txt
 data/check_log.txt
 data/crypto_pending.txt
 data/crypto_transactions.txt
+data/custom_gates.txt
+data/free.txt
+data/gate_status.json
 data/invoices.txt
+data/owner.txt
+data/paid.txt
 data/payments.txt
 data/pending.txt
+data/premium.txt
+data/premium_keys.txt
+data/premium_plans.txt
 data/proxies.json
+data/redeemed_keys.txt
 data/saved_bins.json
-data/gate_status.json
+data/settings.txt
+data/sites.txt
+data/stats.txt
+data/user_configs.json
 data/user_credentials.json
+src/data/premium.txt
 src/data/proxies.json
+src/data/saved_bins.json
