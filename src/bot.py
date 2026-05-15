@@ -14279,19 +14279,29 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
             except Exception as ex:
                 result = {"status": "ERROR", "response": str(ex)[:60], "time": 0}
 
-            # ── Fake mode: override every result with a fake CHARGED response ──
+            # ── Fake mode: simulate 3DS bypass → CHARGED for every card ──
             if FAKE_AUTOHITTER_MODE:
                 _sym  = get_currency_symbol(checkout_data.get("currency", "USD"))
                 _prc  = checkout_data.get("price")
                 _fake_resp = (f"Payment Successful — {_sym}{_prc:.2f} {checkout_data.get('currency','USD')}"
                               if _prc else "Payment Successful")
+                # Show "Bypassing..." state briefly before resolving
+                card_statuses[i] = f"3DS → Bypassing... {EMOJI['3ds']}"
+                await _safe_edit(
+                    loading_msg,
+                    await _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, i, email=user_email, trial_info=trial_info),
+                    parse_mode=ParseMode.HTML, reply_markup=stop_keyboard
+                )
+                import asyncio as _fakeio
+                await _fakeio.sleep(1.2)
                 result = {
-                    "status":       "CHARGED",
-                    "response":     _fake_resp,
-                    "decline_code": "N/A",
-                    "code":         "succeeded",
-                    "success_url":  checkout_data.get("success_url", ""),
-                    "time":         result.get("time", 2.1),
+                    "status":        "CHARGED",
+                    "response":      _fake_resp,
+                    "decline_code":  "N/A",
+                    "code":          "succeeded",
+                    "success_url":   checkout_data.get("success_url", ""),
+                    "time":          result.get("time", 2.1),
+                    "_fake_bypass":  True,
                 }
 
             status = result.get("status", "ERROR")
@@ -14300,7 +14310,11 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
             decline_code = result.get("decline_code", "")
 
             if status == "CHARGED":
-                card_statuses[i] = f"CHARGED {EMOJI['charged']}"
+                if result.get("_fake_bypass"):
+                    _fb_resp = html.escape(result.get("response", "")[:60])
+                    card_statuses[i] = f"✅ 3DS BYPASSED — {_fb_resp}" if _fb_resp else "✅ 3DS BYPASSED"
+                else:
+                    card_statuses[i] = f"CHARGED {EMOJI['charged']}"
                 results["charged"].append(card_str)
                 try:
                     from modules.bin_lookup import lookup_bin
