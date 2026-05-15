@@ -4337,7 +4337,7 @@ def user_required(f):
                 })
                 resp.status_code = 401
                 return resp
-            return redirect('/user/login')
+            return redirect(f'/user/login?next={request.path}')
         return f(*args, **kwargs)
     return decorated_function
 
@@ -5128,7 +5128,10 @@ def telegram_webapp_login():
     
     session.permanent = True
     session['user_id'] = user_id
-    return jsonify({'ok': True, 'redirect': '/user'})
+    next_url = (request.form.get('next') or '').strip()
+    if not next_url or not next_url.startswith('/'):
+        next_url = '/user'
+    return jsonify({'ok': True, 'redirect': next_url})
 
 @app.route('/user/telegram_callback')
 def telegram_callback():
@@ -5517,6 +5520,8 @@ def user_login():
                 overlay.style.display = 'flex';
                 var fd = new FormData();
                 fd.append('initData', tg.initData);
+                var nextParam = new URLSearchParams(window.location.search).get('next') || '';
+                if (nextParam) fd.append('next', nextParam);
                 fetch('/user/telegram_webapp_login', {{method:'POST', body:fd}})
                 .then(function(r){{ return r.json(); }})
                 .then(function(d){{
@@ -5904,6 +5909,8 @@ def user_register():
                 overlay.style.display = 'flex';
                 var fd = new FormData();
                 fd.append('initData', tg.initData);
+                var nextParam = new URLSearchParams(window.location.search).get('next') || '';
+                if (nextParam) fd.append('next', nextParam);
                 fetch('/user/telegram_webapp_login', {{method:'POST', body:fd}})
                 .then(function(r){{ return r.json(); }})
                 .then(function(d){{
@@ -16144,6 +16151,7 @@ def api_wallet_withdraw():
 
 
 @app.route('/user/wallet')
+@user_required
 def user_wallet_page():
     bot_username = os.environ.get('BOT_USERNAME', 'Onichanbabybot')
     try:
