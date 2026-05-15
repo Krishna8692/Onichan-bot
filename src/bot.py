@@ -14353,7 +14353,8 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                     card, url, checkout_data.get("pk", ""), _pi_cs, proxy_url, _pi_id)
                 _bstatus = _bypass.get("status", "ERROR")
                 if _bstatus == "CHARGED":
-                    card_statuses[i] = "✅ 3DS BYPASSED"
+                    _bresp = html.escape(_bypass.get("response", "")[:60])
+                    card_statuses[i] = f"✅ 3DS BYPASSED — {_bresp}" if _bresp else "✅ 3DS BYPASSED"
                     results["charged"].append(card_str)
                     try:
                         from modules.bin_lookup import lookup_bin
@@ -14367,7 +14368,8 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                                                 "auto_hitter_3ds_bypass", _bypass.get("response", ""), _bin_info,
                                                 user.id, user.username or user.first_name)
                 elif _bstatus == "DECLINED":
-                    card_statuses[i] = f"Declined {EMOJI['declined']} — {html.escape(_bypass.get('response','')[:50])}"
+                    _bresp = html.escape(_bypass.get("response", "Declined")[:50])
+                    card_statuses[i] = f"Declined {EMOJI['declined']} — {_bresp}"
                     results["declined"].append(card_str)
                 else:
                     card_statuses[i] = "🚫 3DS BYPASS ALL ATTEMPT BLOCKED"
@@ -14733,8 +14735,9 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _bcard, checkout_url, checkout_data.get("pk", ""), _pi_cs, proxy_url, _pi_id)
             _bstatus = _bypass.get("status", "ERROR")
             if _bstatus == "CHARGED":
+                _bresp = html.escape(_bypass.get("response", "")[:60])
                 if idx >= 0:
-                    card_statuses[idx] = "✅ 3DS BYPASSED"
+                    card_statuses[idx] = f"✅ 3DS BYPASSED — {_bresp}" if _bresp else "✅ 3DS BYPASSED"
                 charged.append((raw_str, _bypass.get("response", "3DS Bypassed")))
                 try:
                     log_approved_card(user.id, user.username or user.first_name,
@@ -14746,8 +14749,9 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
             elif _bstatus == "DECLINED":
+                _bresp = html.escape(_bypass.get("response", "Declined")[:50])
                 if idx >= 0:
-                    card_statuses[idx] = f"Declined {EMOJI['declined']} — {html.escape(_bypass.get('response','')[:50])}"
+                    card_statuses[idx] = f"Declined {EMOJI['declined']} — {_bresp}"
                 declined.append((raw_str, _bypass.get("response", "")))
             else:
                 if idx >= 0:
