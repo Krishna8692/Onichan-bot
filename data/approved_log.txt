@@ -3010,3 +3010,37 @@ Bank: USAA SAVINGS BANK
 Country: UNITED STATES 
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-05-15 07:12:42
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355123221596|03|27|8568
+Gateway: auto_hitter
+Response: Payment Successful — $250.00 USD
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-05-15 07:12:48
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355125949525|10|28|6081
+Gateway: auto_hitter
+Response: Payment Successful — $250.00 USD
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+
