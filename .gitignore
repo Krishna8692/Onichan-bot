@@ -53,3 +53,18 @@ data/*.session
 data/*.session-journal
 *.session
 *.session-journal
+
+# Runtime data files — generated at startup / written at runtime, never commit
+data/approved_cards.txt
+data/approved_log.txt
+data/check_log.txt
+data/crypto_pending.txt
+data/crypto_transactions.txt
+data/invoices.txt
+data/payments.txt
+data/pending.txt
+data/proxies.json
+data/saved_bins.json
+data/gate_status.json
+data/user_credentials.json
+src/data/proxies.json
