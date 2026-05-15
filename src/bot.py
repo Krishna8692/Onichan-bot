@@ -14184,7 +14184,16 @@ async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "",
             return {"status": "3DS_REQUIRED", "response": "3DS still required"}
         if code in _HARD_DECLINES or decline in _HARD_DECLINES:
             return {"status": "DECLINED", "response": f"[{tag}] {msg}" if tag else msg}
-        # anything else (invalid param, etc.) is an error not a card result
+        # Stripe blocks direct PI confirms for PIs owned by a Checkout Session.
+        # This is not a card decline — report as 3DS so it counts correctly.
+        _msg_low = msg.lower()
+        if ("cannot perform this action" in _msg_low
+                or "unexpected_state" in code
+                or "payment_intent_unexpected_state" in code):
+            return {"status": "3DS_REQUIRED", "response": "3DS (bypass n/a for checkout session)"}
+        # Other invalid_request_error / unknown errors — not a card decline
+        if err_obj.get("type") == "invalid_request_error" and not decline:
+            return {"status": "ERROR", "response": msg}
         return {"status": "DECLINED", "response": f"[{tag or code}] {msg}" if (tag or code) else msg}
 
     # Clean PaymentIntent response
