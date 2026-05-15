@@ -319,6 +319,35 @@ def parse_recipient(
     return {"error": "Could not interpret recipient. Use @username, Telegram ID, or a valid wallet address."}
 
 
+# --- Withdrawal fee estimates -----------------------------------------------
+#
+# Conservative estimates for network/gas fees per chain.
+# Shown to users at withdrawal time so they know what to expect.
+# These are static estimates — actual fees fluctuate with network congestion.
+
+WITHDRAWAL_FEES: dict[str, dict] = {
+    "ethereum":  {"fee": "0.001",    "symbol": "ETH",  "note": "≈ $2–5 (gas, varies)"},
+    "bsc":       {"fee": "0.0005",   "symbol": "BNB",  "note": "≈ $0.15–0.40 (gas)"},
+    "polygon":   {"fee": "0.02",     "symbol": "POL",  "note": "≈ $0.01 (gas)"},
+    "arbitrum":  {"fee": "0.0003",   "symbol": "ETH",  "note": "≈ $0.50–1 (L2 gas)"},
+    "optimism":  {"fee": "0.0003",   "symbol": "ETH",  "note": "≈ $0.50–1 (L2 gas)"},
+    "avalanche": {"fee": "0.005",    "symbol": "AVAX", "note": "≈ $0.10 (gas)"},
+    "tron":      {"fee": "5",        "symbol": "TRX",  "note": "≈ 5 TRX (≈ $0.60)"},
+    "solana":    {"fee": "0.000005", "symbol": "SOL",  "note": "≈ $0.001 (flat)"},
+    "ton":       {"fee": "0.05",     "symbol": "TON",  "note": "≈ $0.05–0.10 (flat)"},
+    "bitcoin":   {"fee": "0.00003",  "symbol": "BTC",  "note": "≈ $2–5 (varies)"},
+}
+
+
+def withdrawal_fee(chain: str) -> tuple[str, str, str]:
+    """
+    Return (fee_amount, fee_symbol, fee_note) for the given chain.
+    Returns ('', '', '') when the chain is unknown.
+    """
+    c = WITHDRAWAL_FEES.get((chain or "").lower(), {})
+    return c.get("fee", ""), c.get("symbol", ""), c.get("note", "")
+
+
 # --- Front-end serialization ------------------------------------------------
 
 def to_frontend_json() -> str:

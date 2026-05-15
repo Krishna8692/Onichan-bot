@@ -18407,7 +18407,7 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         from modules.chain_config import (
             parse_recipient, chain_label, explorer_addr_url,
-            chain_supports_asset, asset_compatible_chains,
+            chain_supports_asset, asset_compatible_chains, withdrawal_fee,
         )
         from keep_alive import (
             _wallet_txn, _resolve_recipient, _credit_balance,
@@ -18538,12 +18538,16 @@ async def cmd_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔍 View Address on Explorer", url=addr_url)
         ]])
+    fee_amt, fee_sym, fee_note = withdrawal_fee(chain)
+    fee_line = (f"\n⛽ <b>Network fee:</b> ~{fee_amt} {fee_sym} ({fee_note})"
+                if fee_amt else "")
     await update.message.reply_text(
         f"⏳ <b>Withdrawal Queued #{wid}</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💎 {amount} {asset}\n"
         f"🔗 {chain_label(chain)}\n"
-        f"📤 To: <code>{short}</code>\n"
+        f"📤 To: <code>{short}</code>"
+        f"{fee_line}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"⌛ Broadcasting on the next worker tick (≤45s).",
         parse_mode=ParseMode.HTML, reply_markup=keyboard)
@@ -18835,7 +18839,7 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             from modules.chain_config import (
                 chain_label, explorer_addr_url, chain_supports_asset,
-                asset_compatible_chains,
+                asset_compatible_chains, withdrawal_fee,
             )
             from keep_alive import _wallet_txn, _debit_balance, _log_wallet_tx
         except Exception as e:
@@ -18878,13 +18882,17 @@ async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔍 View Address on Explorer", url=addr_url)
             ]])
+        fee_amt, fee_sym, fee_note = withdrawal_fee(picked_chain)
+        fee_line = (f"\n⛽ <b>Network fee:</b> ~{fee_amt} {fee_sym} ({fee_note})"
+                    if fee_amt else "")
         try:
             await q.edit_message_text(
                 f"⏳ <b>Withdrawal Queued #{wid}</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"💎 {amount} {asset}\n"
                 f"🔗 {chain_label(picked_chain)}\n"
-                f"📤 To: <code>{short}</code>\n"
+                f"📤 To: <code>{short}</code>"
+                f"{fee_line}\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"⌛ Broadcasting on the next worker tick (≤45s).",
                 parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -21372,22 +21380,65 @@ def main():
                         print(f"[Wallet] 📡 Broadcast #{wid} → {tx_hash} (awaiting receipt)")
                         continue
 
-                    # Soft failures: leave row pending, ping owner once.
+                    # Soft failures: refund user immediately and notify owner.
                     if err in ('insufficient_hot_balance', 'hd_unavailable'):
-                        # CAS guard prevents clobbering a concurrent admin
-                        # action (see manual-fallback comment above).
-                        _execute_with_retry(
-                            "UPDATE wallet_transactions SET status='pending' "
-                            "WHERE id=%s AND status='broadcasting'",
-                            (wid,),
-                        )
-                        if _claim_notify_slot(wid):
-                            _send_owner(
-                                f"🚨 <b>Withdrawal #{wid} blocked: {err}</b>\n"
-                                f"💎 {amount} {asset} on {chain_label(chain)}\n"
-                                f"Refill the hot wallet and it will retry automatically."
+                        refunded_soft = False
+                        try:
+                            from keep_alive import _wallet_txn
+                            with _wallet_txn() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute(
+                                        """UPDATE wallet_transactions
+                                              SET status='failed', note=%s
+                                            WHERE id=%s AND status='broadcasting'
+                                            RETURNING telegram_id""",
+                                        (err[:200], wid),
+                                    )
+                                    if cur.fetchone():
+                                        cur.execute(
+                                            """INSERT INTO wallet_balances
+                                                   (telegram_id, asset, balance, updated_at)
+                                               VALUES (%s, %s, %s, NOW())
+                                               ON CONFLICT (telegram_id, asset) DO UPDATE
+                                                 SET balance = wallet_balances.balance + EXCLUDED.balance,
+                                                     updated_at = NOW()""",
+                                            (user_id, asset, str(amount)),
+                                        )
+                                        refunded_soft = True
+                        except Exception as e:
+                            print(f"[Wallet] Soft-refund of #{wid} failed: {e}")
+                        if refunded_soft:
+                            _send_user(
+                                user_id,
+                                (f"↩️ <b>Withdrawal Refunded</b>\n"
+                                 f"━━━━━━━━━━━━━━━━━━\n"
+                                 f"💎 {amount} {asset} returned to your wallet.\n"
+                                 f"📝 Reason: Hot wallet has insufficient funds "
+                                 f"to cover this withdrawal.\n"
+                                 f"Please try again later or contact support."),
                             )
-                        print(f"[Wallet] ⏸ #{wid} parked: {err}")
+                            _send_owner(
+                                f"↩️ <b>Withdrawal #{wid} auto-refunded ({err})</b>\n"
+                                f"💎 {amount} {asset} on {chain_label(chain)}\n"
+                                f"👤 User: <code>{user_id}</code>\n"
+                                f"Refund reason: hot wallet lacked funds — "
+                                f"top up the hot wallet to avoid future refunds."
+                            )
+                        else:
+                            # Refund write failed — fall back to parking so we
+                            # don't lose the funds.
+                            _execute_with_retry(
+                                "UPDATE wallet_transactions SET status='pending' "
+                                "WHERE id=%s AND status='broadcasting'",
+                                (wid,),
+                            )
+                            if _claim_notify_slot(wid):
+                                _send_owner(
+                                    f"🚨 <b>Withdrawal #{wid} blocked: {err}</b>\n"
+                                    f"💎 {amount} {asset} on {chain_label(chain)}\n"
+                                    f"⚠️ Auto-refund also failed — investigate manually."
+                                )
+                        print(f"[Wallet] ↩️ #{wid} refunded ({err})")
                         continue
 
                     # Indeterminate: broadcast was attempted but the RPC call
