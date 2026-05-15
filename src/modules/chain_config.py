@@ -370,4 +370,8 @@ def to_frontend_json() -> str:
         }
         for k, v in ASSETS.items()
     }
-    return json.dumps({"chains": chains_out, "assets": assets_out})
+    fees_out = {
+        k: {"fee": v["fee"], "symbol": v["symbol"], "note": v["note"]}
+        for k, v in WITHDRAWAL_FEES.items()
+    }
+    return json.dumps({"chains": chains_out, "assets": assets_out, "fees": fees_out})

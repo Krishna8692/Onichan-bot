@@ -16011,7 +16011,7 @@ def api_wallet_withdraw():
     from modules.chain_config import (
         parse_recipient as _pr, chain_label as _cl,
         explorer_addr_url as _eau, asset_compatible_chains as _aac,
-        chain_supports_asset as _csa,
+        chain_supports_asset as _csa, withdrawal_fee as _wfee,
     )
     tg_id = int(session.get('user_id'))
     data = request.get_json(silent=True) or {}
@@ -16117,15 +16117,37 @@ def api_wallet_withdraw():
                       f"Compatible networks: {', '.join(compat) if compat else '(none)'}.")
         }), 400
 
+    # Look up network fee for this chain
+    fee_str, fee_sym, fee_note = _wfee(chain)
+    net_fee = float(fee_str) if fee_str else 0.0
+    total_debit = amount + net_fee
+
+    owner_id = int(OWNER_ID)
+
     try:
         with _wallet_txn() as conn:
-            if not _debit_balance(tg_id, asset, amount, conn=conn):
-                return jsonify({"error": f"Insufficient {asset} balance"}), 400
+            if not _debit_balance(tg_id, asset, total_debit, conn=conn):
+                bal_msg = (
+                    f"Insufficient {asset} balance — you need {total_debit:.8g} "
+                    f"({amount:.8g} + {net_fee:.8g} {fee_sym} network fee)"
+                    if net_fee else f"Insufficient {asset} balance"
+                )
+                return jsonify({"error": bal_msg}), 400
             tx_id = _log_wallet_tx(
                 conn=conn, telegram_id=tg_id, tx_type='withdraw',
                 chain=chain, asset=asset, amount=amount,
-                address=address, status='pending',
+                fee=net_fee, address=address, status='pending',
             )
+            # Credit network fee to the platform (owner) wallet
+            if net_fee > 0:
+                _credit_balance(owner_id, asset, net_fee, conn=conn)
+                _log_wallet_tx(
+                    conn=conn, telegram_id=owner_id,
+                    counterparty_id=tg_id, tx_type='fee_income',
+                    chain=chain, asset=asset, amount=net_fee,
+                    status='confirmed',
+                    note=f'Network fee — withdrawal #{tx_id}',
+                )
     except Exception as e:
         return jsonify({"error": f"Withdraw failed: {e}"}), 500
 
@@ -16134,11 +16156,13 @@ def api_wallet_withdraw():
     keyboard = {"inline_keyboard": [[
         {"text": "🔍 View Address on Explorer", "url": addr_url}
     ]]} if addr_url else None
+    fee_line = f"⛽ <b>Network Fee:</b> {net_fee:.8g} {fee_sym}\n" if net_fee else ""
     _wallet_notify_user(
         tg_id,
         f"⏳ <b>Withdrawal Queued #{tx_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"💎 <b>Amount:</b> {amount} {asset}\n"
+        f"{fee_line}"
         f"🔗 <b>Network:</b> {_cl(chain)}\n"
         f"📤 <b>To:</b> <code>{short}</code>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -16147,7 +16171,8 @@ def api_wallet_withdraw():
     )
 
     return jsonify({"ok": True, "tx_id": tx_id, "kind": "onchain",
-                    "chain": chain, "status": "pending"})
+                    "chain": chain, "status": "pending",
+                    "fee": net_fee, "fee_symbol": fee_sym})
 
 
 @app.route('/user/wallet')
@@ -16369,6 +16394,7 @@ def user_wallet_page():
         <label>Amount</label>
         <input type="number" id="wd-amount" placeholder="0.00" step="any" min="0">
         <div id="wd-balance-info" style="font-size:.78em;color:rgba(255,255,255,.5);margin-top:5px"></div>
+        <div id="wd-fee-info" style="font-size:.78em;margin-top:4px;display:none"></div>
       </div>
       <div class="form-group" id="wd-note-group" style="display:none">
         <label>Note (optional, internal transfers only)</label>
@@ -16755,6 +16781,28 @@ function updateBalanceInfo() {{
   document.getElementById('send-balance-info').textContent = 'Available: ' + (balances[sa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + st;
   var wa = selectedAsset('wd'), wt = document.getElementById('wd-asset').value;
   document.getElementById('wd-balance-info').textContent = 'Available: ' + (balances[wa]||0).toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + wt;
+  // Fee display for on-chain withdrawals
+  var feeEl = document.getElementById('wd-fee-info');
+  var chainPicker = document.getElementById('wd-network-group');
+  var isOnChain = wdParsed && wdParsed.kind === 'address';
+  var chain = (chainPicker && chainPicker.style.display !== 'none')
+    ? document.getElementById('wd-chain').value : '';
+  if (isOnChain && chain && CHAIN_CFG.fees && CHAIN_CFG.fees[chain]) {{
+    var f = CHAIN_CFG.fees[chain];
+    var feeAmt = parseFloat(f.fee) || 0;
+    var amtVal = parseFloat(document.getElementById('wd-amount').value) || 0;
+    var feeColor = '#fcd34d';
+    var feeHtml = '⛽ Network fee: <b style="color:' + feeColor + '">' + feeAmt.toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + f.symbol + '</b>';
+    if (amtVal > 0) {{
+      var total = amtVal + feeAmt;
+      feeHtml += ' &nbsp;|&nbsp; Total deducted: <b style="color:#f87171">' + total.toLocaleString('en-US',{{maximumFractionDigits:8}}) + ' ' + wt + '</b>';
+    }}
+    feeHtml += ' &nbsp;<span style="opacity:.5;font-size:.9em">(' + f.note + ')</span>';
+    feeEl.innerHTML = feeHtml;
+    feeEl.style.display = 'block';
+  }} else {{
+    feeEl.style.display = 'none';
+  }}
 }}
 
 // === Smart withdraw recipient parser ===
@@ -16959,6 +17007,7 @@ document.addEventListener('DOMContentLoaded', function(){{
   document.getElementById('wd-asset').addEventListener('change', function(){{ populateChainSelect('wd', null); updateBalanceInfo(); reparseWithdrawRecipient(); }});
   document.getElementById('wd-chain').addEventListener('change', updateBalanceInfo);
   document.getElementById('wd-recipient').addEventListener('input', reparseWithdrawRecipient);
+  document.getElementById('wd-amount').addEventListener('input', updateBalanceInfo);
 }});
 
 // === Send (P2P) ===
@@ -17022,7 +17071,14 @@ async function doWithdraw() {{
   }} else {{
     var shortAddr = recipient.length > 18 ? recipient.slice(0,10)+'…'+recipient.slice(-6) : recipient;
     var net = chain ? (CHAIN_CFG.chains[chain] && CHAIN_CFG.chains[chain].label || chain) : '(auto)';
-    confirmMsg = 'Withdraw ' + amount + ' ' + token + ' to ' + shortAddr + ' on ' + net + '?\\n\\nThis is irreversible.';
+    var feeInfo = '';
+    if (chain && CHAIN_CFG.fees && CHAIN_CFG.fees[chain]) {{
+      var feeData = CHAIN_CFG.fees[chain];
+      var feeNum = parseFloat(feeData.fee) || 0;
+      var totalNum = parseFloat(amount) + feeNum;
+      feeInfo = '\\n\\nNetwork fee: ' + feeNum + ' ' + feeData.symbol + '\\nTotal deducted: ' + totalNum.toFixed(8).replace(/\.?0+$/,'') + ' ' + token;
+    }}
+    confirmMsg = 'Withdraw ' + amount + ' ' + token + ' to ' + shortAddr + ' on ' + net + '?' + feeInfo + '\\n\\nThis is irreversible.';
   }}
   if (!confirm(confirmMsg)) return;
   btn.disabled = true; btn.textContent = 'Submitting…';
