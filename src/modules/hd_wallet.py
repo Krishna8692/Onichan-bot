@@ -261,6 +261,10 @@ def get_or_create_addresses(telegram_id: int) -> dict:
             addr = derive_address(chain, index)
             if not addr:
                 continue
+            # Always add to existing so the caller can return the address even if
+            # the DB write fails — prevents the address from being shown in the UI
+            # without being saved (the "phantom deposit address" bug).
+            existing[chain] = addr
             try:
                 _execute_with_retry(
                     """INSERT INTO wallet_deposit_addresses
@@ -269,9 +273,21 @@ def get_or_create_addresses(telegram_id: int) -> dict:
                        ON CONFLICT (telegram_id, chain) DO NOTHING""",
                     (int(telegram_id), chain, addr, index)
                 )
-                existing[chain] = addr
             except Exception as e:
                 print(f"[HD Wallet] persist {chain} for {telegram_id} failed: {e}")
+                # Retry once — transient DB hiccups are common on cold start
+                try:
+                    import time as _t; _t.sleep(1)
+                    _execute_with_retry(
+                        """INSERT INTO wallet_deposit_addresses
+                               (telegram_id, chain, address, derivation_index)
+                           VALUES (%s, %s, %s, %s)
+                           ON CONFLICT (telegram_id, chain) DO NOTHING""",
+                        (int(telegram_id), chain, addr, index)
+                    )
+                    print(f"[HD Wallet] retry succeeded for {chain} / {telegram_id}")
+                except Exception as e2:
+                    print(f"[HD Wallet] retry also failed for {chain} / {telegram_id}: {e2}")
 
         return existing
     except Exception as e:

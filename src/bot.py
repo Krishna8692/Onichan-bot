@@ -18652,6 +18652,92 @@ async def cmd_rejectwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ae(f"❌ Error: {e}"), parse_mode=ParseMode.HTML)
 
 
+async def cmd_creditdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Owner only: /creditdeposit <tg_id> <amount> <asset> <chain> <tx_hash> [address]
+    Manually credits a missed on-chain deposit and registers the deposit address.
+    Example: /creditdeposit 123456789 0.445 TON ton AbcTxHash... UQC-XFN...
+    """
+    user = update.effective_user
+    if user.id != _WALLET_OWNER_UID:
+        return
+    if len(context.args) < 5:
+        await update.message.reply_text(
+            "Usage: /creditdeposit <tg_id> <amount> <asset> <chain> <tx_hash> [deposit_address]\n\n"
+            "Example:\n<code>/creditdeposit 123456789 0.445 TON ton AbcTxHash UQCxxx</code>",
+            parse_mode=ParseMode.HTML)
+        return
+    try:
+        tg_id   = int(context.args[0])
+        amount  = context.args[1]
+        asset   = context.args[2].upper()
+        chain   = context.args[3].lower()
+        tx_hash = context.args[4]
+        dep_addr = context.args[5] if len(context.args) > 5 else None
+        float(amount)  # validate
+    except Exception:
+        await update.message.reply_text(ae("❌ Invalid args — check tg_id and amount"), parse_mode=ParseMode.HTML)
+        return
+    try:
+        from keep_alive import _wallet_txn
+        with _wallet_txn() as conn:
+            with conn.cursor() as cur:
+                # Idempotent deposit record
+                cur.execute(
+                    """INSERT INTO wallet_transactions
+                           (telegram_id, tx_type, chain, asset, amount, address, tx_hash, status, note)
+                       VALUES (%s, 'deposit', %s, %s, %s, %s, %s, 'confirmed', 'Manual credit by owner')
+                       ON CONFLICT (chain, tx_hash)
+                         WHERE tx_type = 'deposit' AND tx_hash IS NOT NULL
+                         DO NOTHING
+                       RETURNING id""",
+                    (tg_id, chain, asset, amount, dep_addr, tx_hash)
+                )
+                inserted = cur.fetchone()
+                if inserted is None:
+                    await update.message.reply_text(
+                        ae(f"⚠️ tx_hash already recorded — no duplicate credit issued."),
+                        parse_mode=ParseMode.HTML)
+                    return
+                # Credit balance
+                cur.execute(
+                    """INSERT INTO wallet_balances (telegram_id, asset, balance, updated_at)
+                       VALUES (%s, %s, %s, NOW())
+                       ON CONFLICT (telegram_id, asset) DO UPDATE
+                         SET balance = wallet_balances.balance + EXCLUDED.balance,
+                             updated_at = NOW()""",
+                    (tg_id, asset, amount)
+                )
+                # Register deposit address if provided and not already there
+                if dep_addr:
+                    cur.execute(
+                        """INSERT INTO wallet_deposit_addresses (telegram_id, chain, address, derivation_index)
+                           VALUES (%s, %s, %s, (SELECT COALESCE(MAX(derivation_index), 0) + 1
+                                                 FROM wallet_deposit_addresses))
+                           ON CONFLICT (telegram_id, chain) DO NOTHING""",
+                        (tg_id, chain, dep_addr)
+                    )
+        await update.message.reply_text(
+            ae(f"✅ Credited {amount} {asset} to user {tg_id}\n"
+               f"🔗 Chain: {chain}\n"
+               f"🔑 TX: <code>{tx_hash}</code>"),
+            parse_mode=ParseMode.HTML)
+        # Notify the user
+        try:
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=(f"💰 <b>Deposit Credited!</b>\n"
+                      f"━━━━━━━━━━━━━━━━━━━━\n\n"
+                      f"🔗 <b>Network:</b> {chain.upper()}\n"
+                      f"💎 <b>Amount:</b> {amount} {asset}\n\n"
+                      f"━━━━━━━━━━━━━━━━━━━━\n"
+                      f"✅ <b>Your balance has been updated!</b>"),
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+    except Exception as e:
+        await update.message.reply_text(ae(f"❌ Error: {e}"), parse_mode=ParseMode.HTML)
+
+
 async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle wlt:*, wdrej:*, and wdpick:* callbacks."""
     q = update.callback_query
@@ -20150,6 +20236,7 @@ def main():
     application.add_handler(CommandHandler("withdraw", cmd_withdraw))
     application.add_handler(CommandHandler("confirmwd", cmd_confirmwd))
     application.add_handler(CommandHandler("rejectwd", cmd_rejectwd))
+    application.add_handler(CommandHandler("creditdeposit", cmd_creditdeposit))
     application.add_handler(CallbackQueryHandler(wallet_callback, pattern="^(wlt:|wdrej:|wdpick:)"))
 
     application.add_handler(CommandHandler("start", start))
@@ -20680,10 +20767,25 @@ def main():
             ("TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", "USDT", 6),
         ]
 
+        # Seed seen_txs from the DB — any deposit already in wallet_transactions
+        # is already credited, so we skip it even across restarts. This fixes
+        # the "first_run cache" bug where deposits that arrived while the bot was
+        # down would be permanently swallowed on the next startup.
         seen_txs = set()
-        first_run = True
-
-        print("[Wallet] 💰 Crypto deposit notifier started")
+        try:
+            from modules.database import _execute_with_retry as _seed_exec
+            _known = _seed_exec(
+                "SELECT chain, tx_hash FROM wallet_transactions WHERE tx_type = 'deposit' AND tx_hash IS NOT NULL",
+                fetch=True
+            ) or []
+            for _kr in _known:
+                _kc = _kr.get('chain') if hasattr(_kr, 'get') else _kr[0]
+                _kh = _kr.get('tx_hash') if hasattr(_kr, 'get') else _kr[1]
+                if _kc and _kh:
+                    seen_txs.add(f"{_kc}:{_kh}")
+            print(f"[Wallet] 💰 Crypto deposit notifier started — {len(seen_txs)} already-credited deposits pre-loaded from DB")
+        except Exception as _seed_err:
+            print(f"[Wallet] 💰 Crypto deposit notifier started — DB seed skipped: {_seed_err}")
 
         while True:
             try:
@@ -20937,9 +21039,6 @@ def main():
                                 continue
                             seen_txs.add(tx_key)
 
-                            if first_run:
-                                continue
-
                             val = tx_info.get("value")
                             sym = tx_info.get("symbol", _CHAIN_SYMBOLS.get(chain, ""))
                             sender = tx_info.get("from", "")
@@ -21022,10 +21121,6 @@ def main():
 
                     except Exception:
                         pass
-
-                if first_run:
-                    first_run = False
-                    print(f"[Wallet] First scan done — cached {len(seen_txs)} existing txs")
 
                 if len(seen_txs) > 50000:
                     oldest = list(seen_txs)[:25000]
