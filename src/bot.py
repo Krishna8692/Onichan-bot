@@ -2851,18 +2851,18 @@ async def _reply_with_gif(message, category: str, text: str, parse_mode=ParseMod
     await message.reply_text(text=text, parse_mode=parse_mode, reply_markup=reply_markup)
 
 async def _build_hit_status_text(merchant, price_str, success_url, cards, card_statuses, progress_done, email=None, trial_info=None, hit_details=None):
-    """Build SEMEX-style card-by-card status message."""
+    """Build card-by-card status message matching the target format."""
     is_done = progress_done >= len(cards)
-    done_text = "Done" if is_done else "Running..."
+    done_text = "✅ Done" if is_done else "🔄 Running..."
 
     safe_url = html.escape(str(success_url or "N/A"))
     url_short = safe_url[:60] + "..." if len(safe_url) > 60 else safe_url
 
     text = (
-        f"[ STRIPE HITTER — /hit ]\n\n"
+        f"「 STRIPE HITTER — /hit 」\n\n"
         f"🔗 <b>Link</b> → <code>{url_short}</code>\n"
-        f"🏪 <b>Merchant</b> → {html.escape(str(merchant))} — {html.escape(str(price_str))}\n"
-        f"📊 <b>Processed</b> → {progress_done}/{len(cards)} — {done_text}\n"
+        f"📊 <b>Merchant</b> → {html.escape(str(merchant))} — {html.escape(str(price_str))}\n"
+        f"🔄 <b>Processed</b> → {progress_done}/{len(cards)} — {done_text}\n"
     )
     if trial_info:
         text += f"🔐 <b>Trial</b> → {html.escape(str(trial_info))}\n"
@@ -2873,27 +2873,36 @@ async def _build_hit_status_text(merchant, price_str, success_url, cards, card_s
         masked = f"{cc[:6]}xxxxx{cc[-4:]}|{card['month']}|{card['year']}"
         raw = card_statuses[idx]
 
-        if "CHARGED" in raw or ("Charged" in raw and "—" not in raw[:14]):
-            icon, note = "✅", "Payment Successful"
-        elif "LIVE" in raw or ("Live" in raw and "—" not in raw[:10]):
-            icon, note = "🟡", "Live"
+        if "CHARGED" in raw:
+            if "3DS Bypassed" in raw:
+                status_line = "Charged (3DS Bypassed) ✅"
+            else:
+                status_line = "Charged ✅"
+        elif "LIVE" in raw:
+            status_line = "LIVE 🔥"
         elif "Hitting" in raw or "Pending" in raw:
-            icon, note = "⚡", "Hitting..."
+            status_line = "Hitting... ⏳"
+        elif "Bypassing" in raw:
+            status_line = "3DS → Bypassing... 🔐"
         elif "Declined" in raw or "DECLINED" in raw:
-            extra = raw.split("—", 1)[-1].strip()[:45] if "—" in raw else "Declined"
-            icon, note = "❌", extra
+            detail = raw.split("—", 1)[-1].strip() if "—" in raw else "Declined"
+            status_line = f"{detail} ❌"
+        elif "Expired" in raw or "EXPIRED" in raw:
+            status_line = "Expired ♻️"
         elif "3DS" in raw:
-            icon, note = "🔐", "3DS Required"
+            status_line = raw
         elif "Stopped" in raw:
-            icon, note = "🛑", "Stopped"
+            status_line = "Stopped 🛑"
         else:
-            note = raw.split("—", 1)[-1].strip()[:45] if "—" in raw else raw[:45]
-            icon = "⚠️"
+            status_line = raw
 
-        text += f"{icon} <code>{html.escape(masked)}</code> — {html.escape(str(note))}\n"
+        text += (
+            f"💳 <b>CC</b> → <code>{html.escape(masked)}</code>\n"
+            f"⚡️ <b>Status</b> → {html.escape(str(status_line))}\n\n"
+        )
 
     if hit_details:
-        text += f"\n⚡ <b>Hits:</b>\n"
+        text += f"⚡ <b>Hits:</b>\n"
         for block in hit_details:
             text += f"\n{block}\n"
 
@@ -14364,12 +14373,12 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
             email=user_email, trial_info=trial_info,
             hit_details=hit_detail_blocks if hit_detail_blocks else None
         )
+        _live_part = f" | 🟡 Live: {len(results['live'])}" if results['live'] else ""
         summary = (
-            f"\n─────────────────────\n"
-            f"✅ Charged: {len(results['charged'])}  "
-            f"🟡 Live: {len(results['live'])}  "
-            f"❌ Declined: {len(results['declined'])}  "
-            f"🔐 3DS: {len(results['3ds'])}\n"
+            f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"✅ Charged: {len(results['charged'])}{_live_part}"
+            f" | ❌ Declined: {len(results['declined'])}"
+            f" | 🔐 3DS: {len(results['3ds'])}\n"
         )
         await _safe_edit(loading_msg, final_text + summary, parse_mode=ParseMode.HTML)
 
@@ -14741,13 +14750,13 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
+    _live_part = f" | 🟡 Live: {len(live)}" if live else ""
+    _err_part  = f" | ⚠️ Errors: {len(errors)}" if errors else ""
     summary = (
-        f"\n─────────────────────\n"
-        f"{EMOJI['charged']} Charged: {len(charged)}  "
-        f"{EMOJI['live']} Live: {len(live)}  "
-        f"{EMOJI['declined']} Declined: {len(declined)}  "
-        f"{EMOJI['3ds']} 3DS: {len(tds)}  "
-        f"{EMOJI['error']} Errors: {len(errors)}\n"
+        f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"✅ Charged: {len(charged)}{_live_part}"
+        f" | ❌ Declined: {len(declined)}"
+        f" | 🔐 3DS: {len(tds)}{_err_part}\n"
     )
     final_text = await _build_hit_status_text(
         merchant, price_str, success_url, display_cards, card_statuses,
