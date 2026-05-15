@@ -14240,7 +14240,7 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
         proxy_url = ah_get_proxy_url(user_proxy) if user_proxy else None
         checkout_data = await tls_get_checkout_info(url, proxy_url)
         if not checkout_data.get("pk") or not checkout_data.get("cs"):
-            await loading_msg.edit_text(f"{PE_CROSS} <b>Could not parse checkout URL.</b>", parse_mode=ParseMode.HTML)
+            await loading_msg.edit_text(ae(f"{PE_CROSS} <b>Could not parse checkout URL.</b>"), parse_mode=ParseMode.HTML)
             return
 
         merchant = html.escape(str(checkout_data.get('merchant') or 'Unknown'))
@@ -14253,7 +14253,7 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
 
         if not cards:
             await loading_msg.edit_text(
-                f"{PE_CROSS} <b>No cards to hit.</b> Provide a card with the URL.",
+                ae(f"{PE_CROSS} <b>No cards to hit.</b> Provide a card with the URL."),
                 parse_mode=ParseMode.HTML
             )
             return
@@ -14454,7 +14454,7 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
             hit_details=hit_detail_blocks if hit_detail_blocks else None
         )
         _live_part = f" | 🟡 Live: {len(results['live'])}" if results['live'] else ""
-        summary = (
+        summary = ae(
             f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
             f"✅ Charged: {len(results['charged'])}{_live_part}"
             f" | ❌ Declined: {len(results['declined'])}"
@@ -14464,7 +14464,7 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
 
     except Exception as e:
         try:
-            await loading_msg.edit_text(f"{PE_CROSS} <b>Error:</b> {str(e)[:150]}", parse_mode=ParseMode.HTML)
+            await loading_msg.edit_text(ae(f"{PE_CROSS} <b>Error:</b> {str(e)[:150]}"), parse_mode=ParseMode.HTML)
         except:
             pass
 
@@ -14593,7 +14593,7 @@ async def auto_hitter_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-    loading_msg = await message.reply_text(f"{PE_BOLT} <b>Fetching checkout...</b>", parse_mode=ParseMode.HTML)
+    loading_msg = await message.reply_text(ae(f"{PE_BOLT} <b>Fetching checkout...</b>"), parse_mode=ParseMode.HTML)
     await _run_auto_hit(update, context, url, cards, loading_msg)
 
 

