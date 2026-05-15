@@ -2976,3 +2976,37 @@ Bank: BANK
 Country: Singapore 🇸🇬
 ================================================================================
 
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-05-15 07:09:34
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355121724138|08|27|7621
+Gateway: auto_hitter
+Response: Payment Successful — $250.00 USD
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+
+
+================================================================================
+APPROVED CARD FOUND
+================================================================================
+Time: 2026-05-15 07:09:42
+User ID: 1857417752
+Username: @tu_bkl_hai
+Card: 374355121673871|12|30|9344
+Gateway: auto_hitter
+Response: Payment Successful — $250.00 USD
+BIN: 374355
+Brand: AMERICAN EXPRESS
+Type: CREDIT
+Bank: USAA SAVINGS BANK
+Country: UNITED STATES 
+================================================================================
+

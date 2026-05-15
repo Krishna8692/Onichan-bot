@@ -14340,7 +14340,6 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                     )
                 except:
                     pass
-                await send_hit_to_user_pm(context.bot, user.id, card, checkout_data, result, check_time)
             elif status == "LIVE":
                 card_statuses[i] = f"LIVE {EMOJI['live']} — {response_text[:50]}"
                 results["live"].append(card_str)
