@@ -843,6 +843,9 @@ def _parse_confirm_response(conf: dict, checkout_data: dict, result: dict, start
             result["response"] = "3D Secure Required"
             result["decline_code"] = "N/A"
             result["code"] = "requires_action"
+            _pi_src = pi if isinstance(pi, dict) else (si if isinstance(si, dict) else {})
+            result["pi_id"]            = _pi_src.get("id", "")
+            result["pi_client_secret"] = _pi_src.get("client_secret", "")
         elif st == "requires_payment_method":
             result["status"] = "DECLINED"
             result["response"] = "Card Declined"
@@ -908,6 +911,8 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
             result["response"] = "3D Secure Required"
             result["decline_code"] = "N/A"
             result["code"] = "requires_action"
+            result["pi_id"]            = tls_result.get("pi_id", "")
+            result["pi_client_secret"] = tls_result.get("pi_client_secret", "")
             result["time"] = tls_result.get("time", round(time.perf_counter() - start, 2))
             return result
         elif tls_status == "DECLINED":
