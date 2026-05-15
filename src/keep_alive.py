@@ -16144,7 +16144,6 @@ def api_wallet_withdraw():
 
 
 @app.route('/user/wallet')
-@user_required
 def user_wallet_page():
     bot_username = os.environ.get('BOT_USERNAME', 'Onichanbabybot')
     try:
@@ -16159,6 +16158,8 @@ def user_wallet_page():
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Wallet - Onichan</title>
 {USER_CSS}
+<!-- Telegram WebApp SDK — must load before any initData access -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <!-- QR codes are generated server-side via /api/wallet/qr (Telegram in-app
      webviews can block third-party script CDNs, leaving qrcode.js dead). -->
 <script src="https://unpkg.com/@tonconnect/ui@2.0.5/dist/tonconnect-ui.min.js"></script>
@@ -16594,6 +16595,18 @@ function loginRedirectHtml(extra) {{
     +' <a href="/user/login" style="color:#fcd34d;text-decoration:underline">Log in again</a>.</div>';
 }}
 
+async function tryTelegramAutoLogin() {{
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (!tg || !tg.initData || !tg.initData.length) return false;
+  try {{
+    var fd = new FormData();
+    fd.append('initData', tg.initData);
+    var r = await fetch('/user/telegram_webapp_login', {{method:'POST', body:fd}});
+    var d = await r.json();
+    return !!d.ok;
+  }} catch(_) {{ return false; }}
+}}
+
 async function loadBalances() {{
   document.getElementById('assets-list').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Loading…</div>';
   try {{
@@ -16604,6 +16617,17 @@ async function loadBalances() {{
     populateAssetSelects();
   }} catch(e) {{
     if (e.unauthorized) {{
+      var loggedIn = await tryTelegramAutoLogin();
+      if (loggedIn) {{
+        try {{
+          var d2 = await walletApi('/api/wallet/internal-balance');
+          balances = {{}};
+          (d2.balances || []).forEach(function(b){{ balances[b.asset] = parseFloat(b.balance) || 0; }});
+          renderBalances();
+          populateAssetSelects();
+          return;
+        }} catch(_) {{}}
+      }}
       document.getElementById('assets-list').innerHTML = loginRedirectHtml('You are signed out.');
     }} else {{
       document.getElementById('assets-list').innerHTML = '<div class="wlt-empty">Failed to load: '+e.message+'</div>';
@@ -17033,8 +17057,7 @@ function showResult(el, type, msg) {{
 async function loadHistory() {{
   document.getElementById('history-list').innerHTML = '<div class="wlt-empty"><span class="spin">⏳</span> Loading…</div>';
   try {{
-    var r = await fetch('/api/wallet/transactions?limit=100');
-    var d = await r.json();
+    var d = await walletApi('/api/wallet/transactions?limit=100');
     var txs = d.transactions || [];
     if (!txs.length) {{ document.getElementById('history-list').innerHTML = '<div class="wlt-empty">No transactions yet</div>'; return; }}
     var html = '';
@@ -17072,7 +17095,53 @@ async function loadHistory() {{
     }});
     document.getElementById('history-list').innerHTML = html;
   }} catch(e) {{
-    document.getElementById('history-list').innerHTML = '<div class="wlt-empty">Failed: '+e.message+'</div>';
+    if (e.unauthorized) {{
+      var loggedIn = await tryTelegramAutoLogin();
+      if (loggedIn) {{
+        try {{
+          var d2 = await walletApi('/api/wallet/transactions?limit=100');
+          var txs2 = d2.transactions || [];
+          if (!txs2.length) {{ document.getElementById('history-list').innerHTML = '<div class="wlt-empty">No transactions yet</div>'; return; }}
+          var html2 = '';
+          txs2.forEach(function(tx){{
+            var isIn = tx.tx_type === 'transfer_in' || tx.tx_type === 'deposit';
+            var iconCls = tx.tx_type === 'deposit' ? 'dep' : (isIn ? 'in' : 'out');
+            var icon = tx.tx_type === 'deposit' ? '↓' : (tx.tx_type === 'withdraw' ? '↑' : (isIn ? '←' : '→'));
+            var sign = isIn ? '+' : '−';
+            var amtCls = isIn ? 'in' : 'out';
+            var label = ({{deposit:'Deposit', withdraw:'Withdraw', transfer_in:'Received', transfer_out:'Sent'}})[tx.tx_type] || tx.tx_type;
+            var detail = '';
+            if (tx.tx_type === 'transfer_in') detail = 'From user #' + tx.counterparty_id;
+            else if (tx.tx_type === 'transfer_out') detail = 'To user #' + tx.counterparty_id;
+            else if (tx.tx_type === 'deposit') detail = (tx.chain || '') + ' • ' + (tx.address ? tx.address.slice(0,12)+'…' : '');
+            else if (tx.tx_type === 'withdraw') detail = 'To ' + (tx.address ? tx.address.slice(0,12)+'…'+tx.address.slice(-6) : '');
+            if (tx.note) detail += ' • ' + tx.note;
+            var dt = tx.created_at ? new Date(tx.created_at).toLocaleString() : '';
+            var expHtml = '';
+            if (tx.chain) {{
+              var txUrl = tx.tx_hash ? explorerTxUrl(tx.chain, tx.tx_hash) : '';
+              var addrUrl = tx.address ? explorerAddrUrl(tx.chain, tx.address) : '';
+              var link = txUrl || addrUrl;
+              if (link) {{
+                var title = txUrl ? 'View transaction on explorer' : 'View address on explorer';
+                expHtml = ' <a href="'+link+'" target="_blank" rel="noopener" title="'+title+'" style="text-decoration:none;opacity:.75;margin-left:4px">🔍</a>';
+              }}
+            }}
+            html2 += '<div class="wlt-tx-row">'
+              + '<div class="wlt-tx-icon '+iconCls+'">'+icon+'</div>'
+              + '<div class="wlt-tx-info"><div class="t">'+label+' '+tx.asset+expHtml+'</div><div class="d">'+detail+' • '+dt+'</div></div>'
+              + '<div><div class="wlt-tx-amt '+amtCls+'">'+sign+parseFloat(tx.amount).toLocaleString('en-US',{{maximumFractionDigits:8}})+'</div>'
+              + '<div class="wlt-tx-status '+tx.status+'">'+tx.status+'</div></div>'
+              + '</div>';
+          }});
+          document.getElementById('history-list').innerHTML = html2;
+          return;
+        }} catch(_) {{}}
+      }}
+      document.getElementById('history-list').innerHTML = loginRedirectHtml('You are signed out.');
+    }} else {{
+      document.getElementById('history-list').innerHTML = '<div class="wlt-empty">Failed: '+e.message+'</div>';
+    }}
   }}
 }}
 
@@ -17127,6 +17196,16 @@ async function tonQuickDeposit() {{
 }}
 
 (async function init(){{
+  // Initialize Telegram WebApp if available
+  try {{
+    var tgApp = window.Telegram && window.Telegram.WebApp;
+    if (tgApp) {{
+      tgApp.ready();
+      tgApp.expand();
+      try {{ tgApp.setHeaderColor('#1a0a2e'); }} catch(_) {{}}
+      try {{ tgApp.setBackgroundColor('#1a0a2e'); }} catch(_) {{}}
+    }}
+  }} catch(_) {{}}
   await loadPrices();
   await loadBalances();
   setTimeout(initTonConnect, 400);
