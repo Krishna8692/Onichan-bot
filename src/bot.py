@@ -14353,7 +14353,7 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                     card, url, checkout_data.get("pk", ""), _pi_cs, proxy_url, _pi_id)
                 _bstatus = _bypass.get("status", "ERROR")
                 if _bstatus == "CHARGED":
-                    card_statuses[i] = f"CHARGED (3DS Bypassed) {EMOJI['charged']}"
+                    card_statuses[i] = "✅ 3DS BYPASSED"
                     results["charged"].append(card_str)
                     try:
                         from modules.bin_lookup import lookup_bin
@@ -14369,12 +14369,8 @@ async def _run_auto_hit(update, context, url, cards, loading_msg):
                 elif _bstatus == "DECLINED":
                     card_statuses[i] = f"Declined {EMOJI['declined']} — {html.escape(_bypass.get('response','')[:50])}"
                     results["declined"].append(card_str)
-                elif _bstatus == "ERROR":
-                    _berr = html.escape(_bypass.get("response", "bypass failed")[:45])
-                    card_statuses[i] = f"3DS ⚠️ {_berr}"
-                    results["3ds"].append(card_str)
                 else:
-                    card_statuses[i] = f"3DS Required {EMOJI['3ds']}"
+                    card_statuses[i] = "🚫 3DS BYPASS ALL ATTEMPT BLOCKED"
                     results["3ds"].append(card_str)
             elif status == "DECLINED":
                 card_statuses[i] = f"Declined {EMOJI['declined']} — {response_text[:50]}"
@@ -14738,7 +14734,7 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _bstatus = _bypass.get("status", "ERROR")
             if _bstatus == "CHARGED":
                 if idx >= 0:
-                    card_statuses[idx] = f"CHARGED (3DS Bypassed) {EMOJI['charged']}"
+                    card_statuses[idx] = "✅ 3DS BYPASSED"
                 charged.append((raw_str, _bypass.get("response", "3DS Bypassed")))
                 try:
                     log_approved_card(user.id, user.username or user.first_name,
@@ -14753,14 +14749,9 @@ async def bulkhit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if idx >= 0:
                     card_statuses[idx] = f"Declined {EMOJI['declined']} — {html.escape(_bypass.get('response','')[:50])}"
                 declined.append((raw_str, _bypass.get("response", "")))
-            elif _bstatus == "ERROR":
-                if idx >= 0:
-                    _berr = html.escape(_bypass.get("response", "bypass failed")[:45])
-                    card_statuses[idx] = f"3DS ⚠️ {_berr}"
-                tds.append(raw_str)
             else:
                 if idx >= 0:
-                    card_statuses[idx] = f"3DS Required {EMOJI['3ds']}"
+                    card_statuses[idx] = "🚫 3DS BYPASS ALL ATTEMPT BLOCKED"
                 tds.append(raw_str)
         elif status == "DECLINED":
             if idx >= 0:
