@@ -160,6 +160,36 @@ def get_receipt_status(chain: str, tx_hash: str) -> str:
             return "pending"
         except Exception:
             return "pending"
+    if (chain or "").lower() == "ton":
+        # tx_hash here is the external-message hash returned by sendBocReturnHash.
+        # TonCenter's getTransactionsByMessageHash looks up the resulting
+        # transaction by incoming-message hash.
+        if not tx_hash or tx_hash == "pending_ton":
+            # No hash available — keep pending until manual reconciliation.
+            return "pending"
+        try:
+            rpc = cc.CHAINS["ton"]["rpc"][0]
+            r = _req.get(
+                f"{rpc}/getTransactionsByMessageHash",
+                params={"msg_hash": tx_hash, "direction": "in"},
+                timeout=15,
+            )
+            d = r.json()
+            if not d.get("ok"):
+                return "pending"
+            txs = d.get("result", [])
+            if not txs:
+                return "pending"
+            # Transaction was found on-chain — examine compute phase exit code.
+            tx = txs[0]
+            desc = tx.get("description") or {}
+            compute = desc.get("compute_ph") or {}
+            exit_code = compute.get("exit_code", 0)
+            if exit_code != 0:
+                return "reverted"
+            return "success"
+        except Exception:
+            return "pending"
     return "pending"
 
 
@@ -362,11 +392,234 @@ def _broadcast_tron(
         return ("", f"rpc_indeterminate: {e}")
 
 
+# ─── TON ────────────────────────────────────────────────────────────────────
+
+# Wallet V4R2 contract code (from bip_utils.ton.addr.ton_v4_addr_encoder)
+# This matches the addresses derived by bip_utils Bip44Coins.TON
+_TON_V4_CODE_B64 = (
+    "te6ccgECFAEAAtQAART/APSkE/S88sgLAQIBIAIDAgFIBAUE+PKDCNcYINMf0x/THwL4I7vyZO1E0NMf0x/T"
+    "//QE0VFDuvKhUVG68qIF+QFUEGT5EPKj+AAkpMjLH1JAyx9SMMv/UhD0AMntVPgPAdMHIcAAn2xRkyDXSpb"
+    "TB9QC+wDoMOAhwAHjACHAAuMAAcADkTDjDQOkyMsfEssfy/8QERITAubQAdDTAyFxsJJfBOAi10nBIJJfBO"
+    "AC0x8hghBwbHVnvSKCEGRzdHK9sJJfBeAD+kAwIPpEAcjKB8v/ydDtRNCBAUDXIfQEMFyBAQj0Cm+hMbOS"
+    "XwfgBdM/yCWCEHBsdWe6kjgw4w0DghBkc3RyupJfBuMNBgcCASAICQB4AfoA9AQw+CdvIjBQCqEhvvLgUI"
+    "IQcGx1Z4MesXCAGFAEywUmzxZY+gIZ9ADLaRfLH1Jgyz8gyYBA+wAGAIpQBIEBCPRZMO1E0IEBQNcgyAHP"
+    "FvQAye1UAXKwjiOCEGRzdHKDHrFwgBhQBcsFUAPPFiP6AhPLassfyz/JgED7AJJfA+ICASAKCwBZvSQrb2o"
+    "mhAgKBrkPoCGEcNQICEekk30pkQzmkD6f+YN4EoAbeBAUiYcVnzGEAgFYDA0AEbjJftRNDXCx+AA9sp37UT"
+    "QgQFA1yH0BDACyMoHy//J0AGBAQj0Cm+hMYAIBIA4PABmtznaiaEAga5Drhf/AABmvHfaiaEAQa5DrhY/AA"
+    "G7SB/oA1NQi+QAFyMoHFcv/ydB3dIAYyMsFywIizxZQBfoCFMtrEszMyXP7AMhAFIEBCPRR8qcCAHCBAQjX"
+    "GPoA0z/IVCBHgQEI9FHyp4IQbm90ZXB0gBjIywXLAlAGzxZQBPoCFMtqEssfyz/Jc/sAAgBsgQEI1xj6ANM"
+    "/MFIkgQEI9Fnyp4IQZHN0cnB0gBjIywXLAlAFzxZQA/oCE8tqyx8Syz/Jc/sAAAr0AMntVA=="
+)
+_TON_WALLET_ID = 698983191  # subwallet_id for mainnet workchain 0
+
+
+def _broadcast_ton(
+    asset: str,
+    to_address: str,
+    amount_decimal: Decimal,
+) -> tuple[str, Optional[str]]:
+    """
+    Broadcast a native TON transfer using Wallet V4R2 external message.
+
+    USDT_TON (Jetton transfers) return unsupported_asset until a Jetton
+    broadcaster is wired up.
+    """
+    import base64 as _b64
+
+    try:
+        import nacl.signing  # type: ignore
+        from pytoniq_core import Cell, begin_cell, Address  # type: ignore
+    except Exception as e:
+        return ("", f"rpc_error: missing ton deps: {e}")
+
+    if asset.upper() == "USDT_TON":
+        return ("", "unsupported_asset")
+    if asset.upper() != "TON":
+        return ("", "unsupported_asset")
+
+    # ── Keys ──────────────────────────────────────────────────────────────────
+    pk_hex = hd_wallet.get_private_key("ton", HOT_WALLET_INDEX)
+    if not pk_hex:
+        return ("", "hd_unavailable")
+    try:
+        priv_bytes = bytes.fromhex(pk_hex)[:32]
+        signing_key = nacl.signing.SigningKey(priv_bytes)
+        pub_bytes = bytes(signing_key.verify_key)
+    except Exception as e:
+        return ("", f"rpc_error: key error: {e}")
+
+    hot_addr_str = hd_wallet.derive_address("ton", HOT_WALLET_INDEX)
+    if not hot_addr_str:
+        return ("", "hd_unavailable")
+
+    rpc = cc.CHAINS["ton"]["rpc"][0]
+
+    # ── 1. Account state + balance check ─────────────────────────────────────
+    try:
+        r = _req.get(
+            f"{rpc}/getAddressInformation",
+            params={"address": hot_addr_str},
+            timeout=15,
+        )
+        d = r.json()
+        if not d.get("ok"):
+            return ("", f"rpc_error: getAddressInformation: {d.get('error', d)}")
+        result = d["result"]
+        acct_state = result.get("state", "uninitialized")
+        raw_balance = int(result.get("balance", 0) or 0)
+    except Exception as e:
+        return ("", f"rpc_error: balance check: {e}")
+
+    amount_nano = int(amount_decimal * Decimal(10**9))
+    FEE_NANO = 15_000_000  # 0.015 TON gas buffer
+    if raw_balance < amount_nano + FEE_NANO:
+        return ("", "insufficient_hot_balance")
+
+    # ── 2. Current seqno ─────────────────────────────────────────────────────
+    seqno = 0
+    if acct_state == "active":
+        try:
+            r = _req.post(
+                f"{rpc}/runGetMethod",
+                json={"address": hot_addr_str, "method": "seqno", "stack": []},
+                timeout=15,
+            )
+            d = r.json()
+            if d.get("ok") and d.get("result", {}).get("exit_code") == 0:
+                stack = d["result"].get("stack", [])
+                if stack:
+                    seqno = int(stack[0][1], 16)
+        except Exception:
+            pass  # seqno = 0 is safe for first-ever tx
+
+    # ── 3. Build internal transfer message ───────────────────────────────────
+    try:
+        dest = Address(to_address)
+    except Exception as e:
+        return ("", f"rpc_error: invalid destination address: {e}")
+
+    valid_until = int(time.time()) + 60
+    mode = 3  # pay fees separately + ignore action errors
+
+    try:
+        internal = (
+            begin_cell()
+            .store_bit(0)           # int (not ext)
+            .store_bit(1)           # ihr_disabled
+            .store_bit(0)           # bounce = False (exchange addresses may be uninit)
+            .store_bit(0)           # bounced
+            .store_uint(0, 2)       # src = addr_none
+            .store_address(dest)
+            .store_coins(amount_nano)
+            .store_uint(0, 1)       # no extra currencies dict
+            .store_coins(0)         # ihr_fee
+            .store_coins(0)         # fwd_fee
+            .store_uint(0, 64)      # created_lt
+            .store_uint(0, 32)      # created_at
+            .store_uint(0, 1)       # no state_init
+            .store_uint(0, 1)       # body inline (empty body)
+            .end_cell()
+        )
+
+        # Wallet V4 body (subwallet_id | valid_until | seqno | op=0 | mode | ref)
+        body = (
+            begin_cell()
+            .store_uint(_TON_WALLET_ID, 32)
+            .store_uint(valid_until, 32)
+            .store_uint(seqno, 32)
+            .store_uint(0, 8)       # op = 0 (simple send)
+            .store_uint(mode, 8)
+            .store_ref(internal)
+            .end_cell()
+        )
+
+        # Sign body hash with Ed25519
+        sig = bytes(signing_key.sign(body.hash))[:64]
+
+        # Signed cell: 64-byte sig prefix + body bits + body refs
+        signed = (
+            begin_cell()
+            .store_bytes(sig)
+            .store_slice(body.to_slice())
+            .end_cell()
+        )
+
+        # ── 4. State init (deploy + send in one shot for uninit wallet) ───────
+        state_init_cell = None
+        if acct_state != "active":
+            code_cell = Cell.one_from_boc(_b64.b64decode(_TON_V4_CODE_B64))
+            data_cell = (
+                begin_cell()
+                .store_uint(0, 32)              # seqno = 0
+                .store_uint(_TON_WALLET_ID, 32)
+                .store_bytes(pub_bytes)
+                .store_bit(0)                   # no plugin dict
+                .end_cell()
+            )
+            state_init_cell = (
+                begin_cell()
+                .store_bit(False)               # no split_depth
+                .store_bit(False)               # no special
+                .store_maybe_ref(code_cell)
+                .store_maybe_ref(data_cell)
+                .store_dict(None)               # no library
+                .end_cell()
+            )
+
+        # ── 5. External message ───────────────────────────────────────────────
+        hot_addr = Address(hot_addr_str)
+        ext_builder = (
+            begin_cell()
+            .store_uint(0b10, 2)    # ext_in_msg_info tag
+            .store_uint(0, 2)       # src = addr_none
+            .store_address(hot_addr)
+            .store_coins(0)         # import_fee
+        )
+        if state_init_cell is not None:
+            ext_builder = (
+                ext_builder
+                .store_bit(1)       # has state_init
+                .store_bit(1)       # state_init as ref
+                .store_ref(state_init_cell)
+            )
+        else:
+            ext_builder = ext_builder.store_bit(0)  # no state_init
+
+        ext_msg = ext_builder.store_bit(1).store_ref(signed).end_cell()
+
+        boc_b64 = _b64.b64encode(ext_msg.to_boc()).decode()
+    except Exception as e:
+        return ("", f"rpc_error: message build failed: {e}")
+
+    # ── BROADCAST BOUNDARY ────────────────────────────────────────────────────
+    # Once sendBocReturnHash is called the tx may land on-chain even if we
+    # get a network error. Caller must NOT auto-refund on rpc_indeterminate.
+    try:
+        r = _req.post(
+            f"{rpc}/sendBocReturnHash",
+            json={"boc": boc_b64},
+            timeout=30,
+        )
+        d = r.json()
+    except Exception as e:
+        return ("", f"rpc_indeterminate: sendBoc network error: {e}")
+
+    if not d.get("ok"):
+        err_msg = d.get("error", str(d))
+        # Node explicitly rejected before broadcast — safe to surface as rpc_error
+        return ("", f"rpc_error: sendBoc rejected: {err_msg}")
+
+    tx_hash = (d.get("result") or {}).get("hash", "")
+    return (tx_hash or "pending_ton", None)
+
+
 # ─── Dispatcher ─────────────────────────────────────────────────────────────
 
 def is_auto_broadcastable(chain: str) -> bool:
     c = (chain or "").lower()
-    return c in cc.CHAINS and (cc.CHAINS[c].get("is_evm") or c == "tron")
+    return c in cc.CHAINS and (
+        cc.CHAINS[c].get("is_evm") or c in ("tron", "ton")
+    )
 
 
 def broadcast(
@@ -386,6 +639,8 @@ def broadcast(
         return _broadcast_evm(chain, asset, to_address, amount_decimal)
     if chain == "tron":
         return _broadcast_tron(asset, to_address, amount_decimal)
+    if chain == "ton":
+        return _broadcast_ton(asset, to_address, amount_decimal)
     return ("", "unsupported_chain_auto")
 
 
