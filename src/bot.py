@@ -20785,16 +20785,19 @@ def main():
                                 )
                                 for tx in (r.json().get("result") or []):
                                     msg = tx.get("in_msg", {}) or {}
-                                    dest = (msg.get("destination") or "").lower()
-                                    if dest and address.lower() in dest:
-                                        val = int(msg.get("value", 0) or 0)
-                                        if val > 0:
-                                            recent_txs.append({
-                                                "hash": tx.get("transaction_id", {}).get("hash", ""),
-                                                "value": val / 1e9,
-                                                "symbol": "TON",
-                                                "from": msg.get("source", ""),
-                                            })
+                                    # TonCenter returns destination in a different
+                                    # address format than what we store (friendly
+                                    # EQ.../UQ... vs raw 0:xxxx), so just trust
+                                    # that any in_msg with value > 0 is incoming
+                                    # to the queried address.
+                                    val = int(msg.get("value", 0) or 0)
+                                    if val > 0:
+                                        recent_txs.append({
+                                            "hash": tx.get("transaction_id", {}).get("hash", ""),
+                                            "value": val / 1e9,
+                                            "symbol": "TON",
+                                            "from": msg.get("source", ""),
+                                        })
                             except Exception:
                                 pass
 
