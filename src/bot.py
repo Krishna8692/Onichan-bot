@@ -15382,17 +15382,17 @@ async def gate_sq(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ── Mass-check from file ──────────────────────────────────────────
         user_id = user.id
         if context.user_data.get(f"mass_check_running_{user_id}"):
-            await message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress.", parse_mode=ParseMode.HTML),
+            await message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress."),
                                      parse_mode=ParseMode.HTML)
             return
         cards = [c.strip() for c in txt_content.replace("\n", " ").split() if "|" in c]
         if not cards:
-            await message.reply_text(ae("❌ No valid cards found in file.\nFormat: <code>CC|MM|YY|CVV</code>", parse_mode=ParseMode.HTML),
+            await message.reply_text(ae("❌ No valid cards found in file.\nFormat: <code>CC|MM|YY|CVV</code>"),
                                      parse_mode=ParseMode.HTML)
             return
         if len(cards) > 50:
             cards = cards[:50]
-            await message.reply_text(ae("⚠️ Capped at <b>50 cards</b> for this run.", parse_mode=ParseMode.HTML),
+            await message.reply_text(ae("⚠️ Capped at <b>50 cards</b> for this run."),
                                      parse_mode=ParseMode.HTML)
 
         context.user_data[f"mass_check_running_{user_id}"] = True
