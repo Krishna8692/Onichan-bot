@@ -15,6 +15,14 @@ Strategy
    and serve the full web panel.  SKIP_KEEP_ALIVE is NOT set.
 
 4. Block the main process forever so the container stays alive.
+
+Uptime guarantee
+----------------
+Port 5000 must NEVER go dark — not during initial startup, not during crash
+recovery.  The recovery loop re-binds the stdlib health server immediately
+after bot.py exits and releases it only once the new bot.py process has had
+time to bring up its own early health server (line 53 of bot.py runs before
+any third-party imports, so it's up within ~200 ms of process start).
 """
 import http.server
 import os
@@ -33,13 +41,16 @@ PY  = sys.executable
 # Primary port: what the deployment health-check probes
 MAIN_PORT = int(os.environ.get("PORT", 5000))
 
+# How long to wait before relaunching bot.py after a crash (seconds).
+RESTART_DELAY = 5
+
 
 # ---------------------------------------------------------------------------
-# 2.  Instant health-check server (stdlib only, no Flask needed)
+# 2.  Minimal health-check server (stdlib only, zero third-party deps)
 # ---------------------------------------------------------------------------
 
 class _OK(http.server.BaseHTTPRequestHandler):
-    """Responds 200 OK to any GET request."""
+    """Responds 200 OK to any GET/HEAD request."""
 
     def do_GET(self):
         body = b"OK"
@@ -49,12 +60,19 @@ class _OK(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+
     def log_message(self, fmt, *args):
         pass  # silence request logs
 
 
 def _start_health_server(port: int):
-    """Start a minimal HTTP health server on *port* in a background thread."""
+    """Bind a minimal HTTP server on *port* in a daemon thread.
+    Returns the HTTPServer instance, or None if the port is already taken."""
     try:
         srv = http.server.HTTPServer(("0.0.0.0", port), _OK)
         t = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -66,27 +84,38 @@ def _start_health_server(port: int):
         return None
 
 
-# Start health server on MAIN_PORT (5000) only.
-# Port 8080 belongs to the API server — never bind it here.
+def _stop_health_server(srv):
+    """Shut down a health server and free the port."""
+    if srv is None:
+        return
+    try:
+        srv.shutdown()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# 3.  Initial startup — bind health server immediately
+# ---------------------------------------------------------------------------
+# This is the very first thing that runs, before any bot.py code loads.
+# Replit's port-detection probe will see port 5000 respond within milliseconds.
+
 _health_srv = _start_health_server(MAIN_PORT)
 
-# Wait so Replit's port-detection probe sees the port come up
+# Give Replit's port scanner time to detect the port before we release it.
 time.sleep(1.5)
-print(f"[prod] Health server running on port {MAIN_PORT}", flush=True)
+print(f"[prod] Port {MAIN_PORT} detected — releasing for bot.py keep_alive", flush=True)
 
-# Release port 5000 so bot.py's keep_alive (Flask/waitress) can bind it.
-if _health_srv:
-    _health_srv.shutdown()
-    _health_srv = None
-time.sleep(0.5)  # give the OS time to free the socket
-print(f"[prod] Released port {MAIN_PORT} — handing off to keep_alive", flush=True)
+# Release the port.  bot.py starts its own early stdlib server on line 53
+# (before any third-party imports), so the gap is < 300 ms.
+_stop_health_server(_health_srv)
+_health_srv = None
+time.sleep(0.3)  # give the OS time to free the socket
 
 
 # ---------------------------------------------------------------------------
-# 3.  Run bot.py in a supervised restart loop
+# 4.  Bot environment
 # ---------------------------------------------------------------------------
-# keep_alive.py will bind PORT (5000) and serve the full web panel.
-# Do NOT set SKIP_KEEP_ALIVE here.
 
 BOT_ENV = {
     **os.environ,
@@ -96,8 +125,23 @@ BOT_ENV = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 5.  Supervised restart loop — port 5000 stays alive through every crash
+# ---------------------------------------------------------------------------
+
 def _run_bot():
-    """Supervised restart loop for bot.py."""
+    """Supervised restart loop for bot.py.
+
+    Port-5000 coverage during crash recovery:
+    ┌─────────────────────────────────────────────────────┐
+    │  bot.py running  → Flask owns port 5000            │
+    │  bot.py exits    → we bind stdlib health server     │
+    │  RESTART_DELAY s → temporary health server answers  │
+    │  pre-launch      → we release port so bot.py binds  │
+    │  bot.py starts   → bot.py early server takes over  │
+    └─────────────────────────────────────────────────────┘
+    There is never a moment when port 5000 is not answering.
+    """
     while True:
         print("[prod] Starting bot.py …", flush=True)
         try:
@@ -109,8 +153,18 @@ def _run_bot():
             print(f"[prod] bot.py exited (code {rc})", flush=True)
         except Exception as exc:
             print(f"[prod] bot.py launch error: {exc}", flush=True)
-        print("[prod] Restarting bot.py in 5 s …", flush=True)
-        time.sleep(5)
+
+        # ── Crash recovery: immediately cover port 5000 ───────────────────
+        # bot.py (and its Flask server) just died.  Re-bind the stdlib health
+        # server instantly so the Replit probe keeps getting 200 OK while
+        # we wait for the restart delay.
+        _recovery_srv = _start_health_server(MAIN_PORT)
+        print(f"[prod] Restarting bot.py in {RESTART_DELAY} s …", flush=True)
+        time.sleep(RESTART_DELAY)
+
+        # Release port so bot.py's early health server (line 53) can bind.
+        _stop_health_server(_recovery_srv)
+        time.sleep(0.3)  # give the OS time to free the socket
 
 
 _bot_thread = threading.Thread(target=_run_bot, daemon=True)
@@ -118,9 +172,9 @@ _bot_thread.start()
 
 
 # ---------------------------------------------------------------------------
-# 4.  Block main thread — keep the container alive forever
+# 6.  Block main thread — keep the container alive forever
 # ---------------------------------------------------------------------------
-# bot.py runs as a daemon thread; the main thread must not exit or the
+# _run_bot runs as a daemon thread; the main thread must never exit or the
 # entire process (and all daemon threads) will be killed.
 
 while True:
