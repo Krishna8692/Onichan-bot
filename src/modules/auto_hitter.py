@@ -844,8 +844,25 @@ def _parse_confirm_response(conf: dict, checkout_data: dict, result: dict, start
             result["decline_code"] = "N/A"
             result["code"] = "requires_action"
             _pi_src = pi if isinstance(pi, dict) else (si if isinstance(si, dict) else {})
-            result["pi_id"]            = _pi_src.get("id", "")
-            result["pi_client_secret"] = _pi_src.get("client_secret", "")
+            # When the confirm response returns payment_intent as a bare string ID
+            # (unexpanded), grab the id from it and fall back to init_data for
+            # the client_secret (init_data always has the fully-expanded PI).
+            _raw_pi = conf.get("payment_intent")
+            _pi_id_str = _raw_pi if isinstance(_raw_pi, str) else ""
+            _init_pi = init_data.get("payment_intent") if isinstance(init_data, dict) else None
+            if not isinstance(_init_pi, dict):
+                _init_pi = {}
+            result["pi_id"] = (
+                _pi_src.get("id")
+                or _pi_id_str
+                or _init_pi.get("id")
+                or ""
+            )
+            result["pi_client_secret"] = (
+                _pi_src.get("client_secret")
+                or _init_pi.get("client_secret")
+                or ""
+            )
         elif st == "requires_payment_method":
             result["status"] = "DECLINED"
             result["response"] = "Card Declined"

@@ -789,9 +789,17 @@ def _parse_confirm_result(
             result["response"] = resp
             result["decline_code"] = dc
     else:
-        # Check for payment_intent, setup_intent, or direct status
-        pi = conf.get("payment_intent") or {}
-        si = conf.get("setup_intent") or {}
+        # Check for payment_intent, setup_intent, or direct status.
+        # For Stripe-hosted checkout sessions the confirm response sometimes
+        # returns payment_intent as a bare string ID (not expanded), so we
+        # must guard against that before calling .get().
+        _raw_pi = conf.get("payment_intent")
+        _raw_si = conf.get("setup_intent")
+        pi = _raw_pi if isinstance(_raw_pi, dict) else {}
+        si = _raw_si if isinstance(_raw_si, dict) else {}
+        # pi_id_str holds the bare-string PI id when the object isn't expanded
+        _pi_id_str = _raw_pi if isinstance(_raw_pi, str) else ""
+
         st = pi.get("status", "") or si.get("status", "") or conf.get("status", "")
         
         if st == "succeeded":
@@ -813,9 +821,23 @@ def _parse_confirm_result(
         elif st == "requires_action":
             result["status"] = "3DS"
             result["response"] = "3DS Required"
-            # Pass PI client_secret + pk so callers can attempt a 3DS bypass
-            result["pi_client_secret"] = pi.get("client_secret", "")
-            result["pi_id"] = pi.get("id", "")
+            # Prefer expanded PI fields; fall back to init_data's payment_intent
+            # when the confirm response only returned the bare PI id string.
+            _init_pi = checkout_data.get("init_data") or {}
+            _init_pi = _init_pi.get("payment_intent") if isinstance(_init_pi, dict) else None
+            if not isinstance(_init_pi, dict):
+                _init_pi = {}
+            result["pi_client_secret"] = (
+                pi.get("client_secret")
+                or _init_pi.get("client_secret")
+                or ""
+            )
+            result["pi_id"] = (
+                pi.get("id")
+                or _pi_id_str
+                or _init_pi.get("id")
+                or ""
+            )
         elif st == "requires_payment_method":
             result["status"] = "DECLINED"
             result["response"] = "Card Declined"
