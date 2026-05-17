@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-set -e
 
 DIST="/home/runner/workspace/artifacts/api-server/dist/index.mjs"
+
+if ss -tlnp 2>/dev/null | grep -q ':8080 '; then
+  echo "[Deploy] Port 8080 already in use — dev workflow is running, skipping."
+  exit 0
+fi
 
 if [ ! -f "$DIST" ]; then
   echo "[Deploy] Building API server..."
