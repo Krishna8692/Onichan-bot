@@ -670,13 +670,9 @@ def _sweep_ton_to_hot(from_hd_index: int) -> tuple[str, Optional[str]]:
     if src_addr == hot_addr:
         return ("", None)  # already the hot wallet; nothing to sweep
 
-    rpc = cc.CHAINS["ton"]["rpc"][0]
-
     # 1. Balance check
     try:
-        r = _req.get(f"{rpc}/getAddressInformation",
-                     params={"address": src_addr}, timeout=15)
-        d = r.json()
+        d = _ton_get("getAddressInformation", {"address": src_addr})
         if not d.get("ok"):
             return ("", f"rpc_error: {d.get('error', d)}")
         result = d["result"]
@@ -695,10 +691,8 @@ def _sweep_ton_to_hot(from_hd_index: int) -> tuple[str, Optional[str]]:
     seqno = 0
     if acct_state == "active":
         try:
-            r2 = _req.post(f"{rpc}/runGetMethod",
-                           json={"address": src_addr, "method": "seqno", "stack": []},
-                           timeout=15)
-            d2 = r2.json()
+            d2 = _ton_post("runGetMethod",
+                           {"address": src_addr, "method": "seqno", "stack": []})
             if d2.get("ok") and d2.get("result", {}).get("exit_code") == 0:
                 stack = d2["result"].get("stack", [])
                 if stack:

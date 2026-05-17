@@ -18811,6 +18811,7 @@ async def cmd_sweepall(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     skipped += 1
             except Exception as se:
                 failed.append(f"{chain}#{idx}: {se}")
+            import time as _t; _t.sleep(1)  # avoid RPC rate-limit (429)
 
         lines = [f"✅ Swept: {ok}", f"⏭ Skipped (empty/unsupported): {skipped}"]
         if failed:
@@ -21280,6 +21281,7 @@ def main():
                         print(f"[StartupSweep] ⚠️  {chain} idx={idx}: {s_err}")
                 except Exception as _se:
                     print(f"[StartupSweep] error {chain} idx={idx}: {_se}")
+                import time as _t2; _t2.sleep(1)  # avoid RPC rate-limit (429)
             if swept:
                 print(f"[StartupSweep] ✅ Done — swept {swept} address(es) to hot wallet")
             else:
