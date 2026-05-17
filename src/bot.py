@@ -18754,6 +18754,74 @@ async def cmd_creditdeposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ae(f"❌ Error: {e}"), parse_mode=ParseMode.HTML)
 
 
+async def cmd_sweepall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/sweepall — owner only: sweep all known deposit addresses → hot wallet.
+
+    Useful for recovering funds deposited before the auto-sweep was added.
+    Optionally restrict to one chain: /sweepall ton
+    """
+    user = update.effective_user
+    if user.id != _WALLET_OWNER_UID:
+        return
+    chain_filter = context.args[0].lower() if context.args else None
+
+    await update.message.reply_text(
+        ae(f"⏳ Sweeping {'all chains' if not chain_filter else chain_filter.upper()} — this may take a minute…"),
+        parse_mode=ParseMode.HTML)
+
+    try:
+        from modules.database import _execute_with_retry
+        from modules.hd_wallet import get_address_index
+        from modules.onchain_broadcaster import sweep_to_hot_wallet
+
+        rows = _execute_with_retry(
+            "SELECT telegram_id, chain, address, derivation_index "
+            "FROM wallet_deposit_addresses ORDER BY chain, telegram_id",
+            fetch=True
+        ) or []
+
+        SWEEPABLE = {"ton", "ethereum", "bsc", "polygon",
+                     "arbitrum", "optimism", "avalanche"}
+        ok, skipped, failed = 0, 0, []
+
+        for row in rows:
+            tg    = row.get("telegram_id") if hasattr(row, "get") else row[0]
+            chain = (row.get("chain") if hasattr(row, "get") else row[1] or "").lower()
+            idx   = row.get("derivation_index") if hasattr(row, "get") else row[3]
+
+            if chain_filter and chain != chain_filter:
+                skipped += 1
+                continue
+            if chain not in SWEEPABLE:
+                skipped += 1
+                continue
+            if not idx or int(idx) == 0:
+                skipped += 1
+                continue
+
+            try:
+                s_hash, s_err = sweep_to_hot_wallet(chain, int(idx))
+                if s_err and s_err not in ("insufficient_hot_balance",
+                                           "unsupported_chain_auto"):
+                    failed.append(f"{chain}#{idx}: {s_err}")
+                elif s_hash:
+                    ok += 1
+                    print(f"[SweepAll] ✅ {chain} idx={idx} tg={tg} → {s_hash[:16]}…")
+                else:
+                    skipped += 1
+            except Exception as se:
+                failed.append(f"{chain}#{idx}: {se}")
+
+        lines = [f"✅ Swept: {ok}", f"⏭ Skipped (empty/unsupported): {skipped}"]
+        if failed:
+            lines.append(f"❌ Errors ({len(failed)}):")
+            lines += [f"  • {f}" for f in failed[:10]]
+        await update.message.reply_text(
+            ae("\n".join(lines)), parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await update.message.reply_text(ae(f"❌ Sweep failed: {e}"), parse_mode=ParseMode.HTML)
+
+
 async def wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle wlt:*, wdrej:*, and wdpick:* callbacks."""
     q = update.callback_query
@@ -20257,6 +20325,7 @@ def main():
     application.add_handler(CommandHandler("confirmwd", cmd_confirmwd))
     application.add_handler(CommandHandler("rejectwd", cmd_rejectwd))
     application.add_handler(CommandHandler("creditdeposit", cmd_creditdeposit))
+    application.add_handler(CommandHandler("sweepall", cmd_sweepall))
     application.add_handler(CallbackQueryHandler(wallet_callback, pattern="^(wlt:|wdrej:|wdpick:)"))
 
     application.add_handler(CommandHandler("start", start))
@@ -21180,6 +21249,46 @@ def main():
     deposit_thread = threading.Thread(target=_crypto_deposit_notifier, daemon=True)
     deposit_thread.start()
     print("💰 Crypto deposit notifier started (checks every 2 minutes)")
+
+    # ── One-time startup sweep — recover funds deposited before auto-sweep ──
+    def _startup_sweep():
+        import time as _t
+        _t.sleep(30)  # wait for DB connection to stabilise
+        try:
+            from modules.database import _execute_with_retry
+            from modules.onchain_broadcaster import sweep_to_hot_wallet
+            rows = _execute_with_retry(
+                "SELECT telegram_id, chain, derivation_index "
+                "FROM wallet_deposit_addresses",
+                fetch=True
+            ) or []
+            SWEEPABLE = {"ton", "ethereum", "bsc", "polygon",
+                         "arbitrum", "optimism", "avalanche"}
+            swept = 0
+            for row in rows:
+                chain = (row.get("chain") if hasattr(row, "get") else row[1] or "").lower()
+                idx   = row.get("derivation_index") if hasattr(row, "get") else row[2]
+                if chain not in SWEEPABLE or not idx or int(idx) == 0:
+                    continue
+                try:
+                    s_hash, s_err = sweep_to_hot_wallet(chain, int(idx))
+                    if s_hash:
+                        swept += 1
+                        print(f"[StartupSweep] ↩️  {chain} idx={idx} → {s_hash[:16]}…")
+                    elif s_err and s_err not in ("insufficient_hot_balance",
+                                                  "unsupported_chain_auto"):
+                        print(f"[StartupSweep] ⚠️  {chain} idx={idx}: {s_err}")
+                except Exception as _se:
+                    print(f"[StartupSweep] error {chain} idx={idx}: {_se}")
+            if swept:
+                print(f"[StartupSweep] ✅ Done — swept {swept} address(es) to hot wallet")
+            else:
+                print("[StartupSweep] ✅ Done — nothing to sweep (all empty or unsupported)")
+        except Exception as _e:
+            print(f"[StartupSweep] failed: {_e}")
+
+    threading.Thread(target=_startup_sweep, daemon=True).start()
+    print("♻️  Startup deposit sweep scheduled (runs in 30s)")
 
     # ── Withdrawal worker ──────────────────────────────────────────────
     def _withdrawal_worker():
