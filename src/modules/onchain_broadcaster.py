@@ -23,6 +23,7 @@ Result tuple from `broadcast(...)`:
 from __future__ import annotations
 
 import json
+import os
 import time
 from decimal import Decimal
 from typing import Optional
@@ -38,6 +39,51 @@ except Exception:
 
 
 HOT_WALLET_INDEX = 0
+
+
+# ─── TonCenter RPC helper (API-key + 429 retry) ──────────────────────────────
+
+def _ton_headers() -> dict:
+    key = os.environ.get("TONCENTER_API_KEY", "").strip()
+    return {"X-API-Key": key} if key else {}
+
+
+def _ton_get(path: str, params: dict, retries: int = 4) -> dict:
+    """GET from TonCenter with optional API key and exponential back-off on 429."""
+    rpc = cc.CHAINS["ton"]["rpc"][0]
+    hdrs = _ton_headers()
+    last_err: Exception = RuntimeError("no attempts")
+    for attempt in range(retries):
+        try:
+            r = _req.get(f"{rpc}/{path}", params=params, headers=hdrs, timeout=15)
+            if r.status_code == 429:
+                time.sleep(2 ** attempt)
+                continue
+            return r.json()
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(1)
+    raise last_err
+
+
+def _ton_post(path: str, body: dict, retries: int = 4, timeout: int = 20) -> dict:
+    """POST to TonCenter with optional API key and exponential back-off on 429."""
+    rpc = cc.CHAINS["ton"]["rpc"][0]
+    hdrs = _ton_headers()
+    last_err: Exception = RuntimeError("no attempts")
+    for attempt in range(retries):
+        try:
+            r = _req.post(f"{rpc}/{path}", json=body, headers=hdrs, timeout=timeout)
+            if r.status_code == 429:
+                time.sleep(2 ** attempt)
+                continue
+            return r.json()
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(1)
+    raise last_err
 
 
 # ─── EVM ────────────────────────────────────────────────────────────────────
@@ -168,13 +214,8 @@ def get_receipt_status(chain: str, tx_hash: str) -> str:
             # No hash available — keep pending until manual reconciliation.
             return "pending"
         try:
-            rpc = cc.CHAINS["ton"]["rpc"][0]
-            r = _req.get(
-                f"{rpc}/getTransactionsByMessageHash",
-                params={"msg_hash": tx_hash, "direction": "in"},
-                timeout=15,
-            )
-            d = r.json()
+            d = _ton_get("getTransactionsByMessageHash",
+                         {"msg_hash": tx_hash, "direction": "in"})
             if not d.get("ok"):
                 return "pending"
             txs = d.get("result", [])
@@ -452,16 +493,9 @@ def _broadcast_ton(
     if not hot_addr_str:
         return ("", "hd_unavailable")
 
-    rpc = cc.CHAINS["ton"]["rpc"][0]
-
     # ── 1. Account state + balance check ─────────────────────────────────────
     try:
-        r = _req.get(
-            f"{rpc}/getAddressInformation",
-            params={"address": hot_addr_str},
-            timeout=15,
-        )
-        d = r.json()
+        d = _ton_get("getAddressInformation", {"address": hot_addr_str})
         if not d.get("ok"):
             return ("", f"rpc_error: getAddressInformation: {d.get('error', d)}")
         result = d["result"]
@@ -479,14 +513,10 @@ def _broadcast_ton(
     seqno = 0
     if acct_state == "active":
         try:
-            r = _req.post(
-                f"{rpc}/runGetMethod",
-                json={"address": hot_addr_str, "method": "seqno", "stack": []},
-                timeout=15,
-            )
-            d = r.json()
-            if d.get("ok") and d.get("result", {}).get("exit_code") == 0:
-                stack = d["result"].get("stack", [])
+            d2 = _ton_post("runGetMethod",
+                           {"address": hot_addr_str, "method": "seqno", "stack": []})
+            if d2.get("ok") and d2.get("result", {}).get("exit_code") == 0:
+                stack = d2["result"].get("stack", [])
                 if stack:
                     seqno = int(stack[0][1], 16)
         except Exception:
@@ -595,18 +625,12 @@ def _broadcast_ton(
     # Once sendBocReturnHash is called the tx may land on-chain even if we
     # get a network error. Caller must NOT auto-refund on rpc_indeterminate.
     try:
-        r = _req.post(
-            f"{rpc}/sendBocReturnHash",
-            json={"boc": boc_b64},
-            timeout=30,
-        )
-        d = r.json()
+        d = _ton_post("sendBocReturnHash", {"boc": boc_b64}, timeout=30)
     except Exception as e:
         return ("", f"rpc_indeterminate: sendBoc network error: {e}")
 
     if not d.get("ok"):
         err_msg = d.get("error", str(d))
-        # Node explicitly rejected before broadcast — safe to surface as rpc_error
         return ("", f"rpc_error: sendBoc rejected: {err_msg}")
 
     tx_hash = (d.get("result") or {}).get("hash", "")
