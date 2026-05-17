@@ -21124,6 +21124,31 @@ def main():
                             if not credited_now:
                                 continue
 
+                            # Auto-sweep: move deposited funds from user's
+                            # deposit address to the hot wallet so withdrawals
+                            # can be broadcast from index 0.
+                            if credited_now and chain in ("ton", "ethereum", "bsc",
+                                                          "polygon", "arbitrum",
+                                                          "optimism", "avalanche"):
+                                def _do_sweep(_chain=chain, _tg=tg_id):
+                                    import threading as _thr
+                                    try:
+                                        from modules.hd_wallet import get_address_index
+                                        from modules.onchain_broadcaster import sweep_to_hot_wallet
+                                        idx = get_address_index(int(_tg), _chain)
+                                        if idx is None or idx == 0:
+                                            return
+                                        s_hash, s_err = sweep_to_hot_wallet(_chain, idx)
+                                        if s_err and s_err not in ("unsupported_chain_auto",
+                                                                    "insufficient_hot_balance"):
+                                            print(f"[Wallet] ⚠️  Sweep {_chain} idx={idx} → hot: {s_err}")
+                                        elif s_hash:
+                                            print(f"[Wallet] ↩️  Sweep {_chain} idx={idx} → hot tx={s_hash[:16]}…")
+                                    except Exception as _se:
+                                        print(f"[Wallet] Sweep error ({_chain}/{_tg}): {_se}")
+                                import threading as _thr
+                                _thr.Thread(target=_do_sweep, daemon=True).start()
+
                             try:
                                 req.post(
                                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",

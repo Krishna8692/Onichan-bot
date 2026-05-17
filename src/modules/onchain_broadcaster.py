@@ -613,6 +613,242 @@ def _broadcast_ton(
     return (tx_hash or "pending_ton", None)
 
 
+# ─── Hot-wallet sweep (deposit address → hot wallet) ────────────────────────
+#
+# Called after each confirmed deposit. Moves funds from the user's HD deposit
+# address (index N) into the hot wallet (index 0) so withdrawals can be served.
+# Failures are logged but never raise — a failed sweep just means the operator
+# must top up the hot wallet manually.
+
+def _sweep_ton_to_hot(from_hd_index: int) -> tuple[str, Optional[str]]:
+    """Sweep all available TON from deposit address `from_hd_index` to hot wallet."""
+    import base64 as _b64
+    try:
+        import nacl.signing  # type: ignore
+        from pytoniq_core import Cell, begin_cell, Address  # type: ignore
+    except Exception as e:
+        return ("", f"rpc_error: missing ton deps: {e}")
+
+    pk_hex = hd_wallet.get_private_key("ton", from_hd_index)
+    if not pk_hex:
+        return ("", "hd_unavailable")
+    try:
+        priv_bytes = bytes.fromhex(pk_hex)[:32]
+        signing_key = nacl.signing.SigningKey(priv_bytes)
+        pub_bytes = bytes(signing_key.verify_key)
+    except Exception as e:
+        return ("", f"rpc_error: key error: {e}")
+
+    src_addr = hd_wallet.derive_address("ton", from_hd_index)
+    hot_addr = hd_wallet.derive_address("ton", HOT_WALLET_INDEX)
+    if not src_addr or not hot_addr:
+        return ("", "hd_unavailable")
+    if src_addr == hot_addr:
+        return ("", None)  # already the hot wallet; nothing to sweep
+
+    rpc = cc.CHAINS["ton"]["rpc"][0]
+
+    # 1. Balance check
+    try:
+        r = _req.get(f"{rpc}/getAddressInformation",
+                     params={"address": src_addr}, timeout=15)
+        d = r.json()
+        if not d.get("ok"):
+            return ("", f"rpc_error: {d.get('error', d)}")
+        result = d["result"]
+        acct_state = result.get("state", "uninitialized")
+        raw_balance = int(result.get("balance", 0) or 0)
+    except Exception as e:
+        return ("", f"rpc_error: balance: {e}")
+
+    GAS_NANO = 20_000_000  # 0.02 TON — slightly higher for deposit→hot sweep
+    if raw_balance <= GAS_NANO:
+        return ("", "insufficient_hot_balance")
+
+    send_nano = raw_balance - GAS_NANO
+
+    # 2. Seqno
+    seqno = 0
+    if acct_state == "active":
+        try:
+            r2 = _req.post(f"{rpc}/runGetMethod",
+                           json={"address": src_addr, "method": "seqno", "stack": []},
+                           timeout=15)
+            d2 = r2.json()
+            if d2.get("ok") and d2.get("result", {}).get("exit_code") == 0:
+                stack = d2["result"].get("stack", [])
+                if stack:
+                    seqno = int(stack[0][1], 16)
+        except Exception:
+            pass
+
+    # 3. Build & sign (reuse wallet-v4r2 logic from _broadcast_ton)
+    try:
+        from pytoniq_core import Cell, begin_cell, Address  # type: ignore
+        dest = Address(hot_addr)
+    except Exception as e:
+        return ("", f"rpc_error: bad dest: {e}")
+
+    valid_until = int(time.time()) + 60
+    mode = 128  # send all remaining balance (sweep mode)
+
+    try:
+        internal = (
+            begin_cell()
+            .store_bit(0).store_bit(1).store_bit(0).store_bit(0)
+            .store_uint(0, 2)
+            .store_address(dest)
+            .store_coins(send_nano)
+            .store_uint(0, 1).store_coins(0).store_coins(0)
+            .store_uint(0, 64).store_uint(0, 32)
+            .store_uint(0, 1).store_uint(0, 1)
+            .end_cell()
+        )
+        body = (
+            begin_cell()
+            .store_uint(_TON_WALLET_ID, 32)
+            .store_uint(valid_until, 32)
+            .store_uint(seqno, 32)
+            .store_uint(0, 8)  # op = simple send
+            .store_uint(mode, 8)
+            .store_ref(internal)
+            .end_cell()
+        )
+    except Exception as e:
+        return ("", f"rpc_error: cell build: {e}")
+
+    # Sign
+    try:
+        body_hash = body.hash
+        sig = bytes(signing_key.sign(body_hash).signature)
+        ext_msg = (
+            begin_cell()
+            .store_bytes(sig)
+            .store_slice(body.begin_parse())
+            .end_cell()
+        )
+    except Exception as e:
+        return ("", f"rpc_error: sign: {e}")
+
+    # Wrap in external message (with state_init when not yet active)
+    try:
+        if acct_state == "uninitialized":
+            code_cell = Cell.one_from_boc(_b64.b64decode(_TON_V4_CODE_B64))
+            data_cell = (
+                begin_cell()
+                .store_uint(0, 32)
+                .store_uint(_TON_WALLET_ID, 32)
+                .store_bytes(pub_bytes)
+                .store_bit(0)
+                .end_cell()
+            )
+            state_init = (
+                begin_cell()
+                .store_bit(0).store_bit(1).store_maybe_ref(code_cell)
+                .store_maybe_ref(data_cell).store_bit(0)
+                .end_cell()
+            )
+            ext = (
+                begin_cell()
+                .store_uint(0b10, 2).store_uint(0, 2)
+                .store_address(Address(src_addr))
+                .store_coins(0)
+                .store_bit(1).store_ref(state_init)
+                .store_bit(1).store_ref(ext_msg)
+                .end_cell()
+            )
+        else:
+            ext = (
+                begin_cell()
+                .store_uint(0b10, 2).store_uint(0, 2)
+                .store_address(Address(src_addr))
+                .store_coins(0)
+                .store_bit(0)
+                .store_bit(1).store_ref(ext_msg)
+                .end_cell()
+            )
+        boc_b64 = _b64.b64encode(ext.to_boc()).decode()
+    except Exception as e:
+        return ("", f"rpc_error: ext msg build: {e}")
+
+    try:
+        r3 = _req.post(f"{rpc}/sendBocReturnHash",
+                       json={"boc": boc_b64}, timeout=20)
+        d3 = r3.json()
+        if d3.get("ok"):
+            tx_hash = (d3.get("result") or {}).get("hash", "sweep_ton")
+            return (tx_hash or "sweep_ton", None)
+        return ("", f"rpc_error: sendBoc: {d3.get('error', d3)}")
+    except Exception as e:
+        return ("", f"rpc_indeterminate: {e}")
+
+
+def _sweep_evm_to_hot(chain: str, from_hd_index: int) -> tuple[str, Optional[str]]:
+    """Sweep all native-coin balance from EVM deposit address to hot wallet."""
+    try:
+        from eth_account import Account  # type: ignore
+    except Exception as e:
+        return ("", f"rpc_error: eth_account not available: {e}")
+
+    pk_hex = hd_wallet.get_private_key(chain, from_hd_index)
+    if not pk_hex:
+        return ("", "hd_unavailable")
+    if not pk_hex.startswith("0x"):
+        pk_hex = "0x" + pk_hex
+
+    acct = Account.from_key(pk_hex)
+    src_addr = acct.address
+    hot_addr = hd_wallet.derive_address(chain, HOT_WALLET_INDEX)
+    if not hot_addr:
+        return ("", "hd_unavailable")
+    if src_addr.lower() == hot_addr.lower():
+        return ("", None)
+
+    try:
+        balance = _evm_get_balance(chain, src_addr)
+        gas_price = _evm_get_gas_price(chain)
+        gas_limit = 21000  # simple native transfer
+        gas_cost = gas_price * gas_limit
+        if balance <= gas_cost:
+            return ("", "insufficient_hot_balance")
+        send_wei = balance - gas_cost
+        chain_id = cc.CHAINS[chain]["chain_id"]
+        nonce = _evm_get_nonce(chain, src_addr)
+        signed = Account.sign_transaction({
+            "to": hot_addr,
+            "value": send_wei,
+            "data": b"",
+            "gas": gas_limit,
+            "gasPrice": gas_price,
+            "nonce": nonce,
+            "chainId": chain_id,
+        }, pk_hex)
+        res = _evm_rpc(chain, "eth_sendRawTransaction",
+                       [signed.raw_transaction.hex()])
+        return (res or "sweep_evm", None)
+    except Exception as e:
+        return ("", f"rpc_error: evm sweep: {e}")
+
+
+def sweep_to_hot_wallet(chain: str, from_hd_index: int) -> tuple[str, Optional[str]]:
+    """
+    Sweep all available native-coin balance from the deposit address at
+    `from_hd_index` to the hot wallet (index 0).
+
+    Returns (tx_hash, error) — same convention as broadcast().
+    Idempotent: if from_hd_index == HOT_WALLET_INDEX, returns ("", None).
+    """
+    chain = (chain or "").lower()
+    if from_hd_index == HOT_WALLET_INDEX:
+        return ("", None)
+    if chain == "ton":
+        return _sweep_ton_to_hot(from_hd_index)
+    if chain in cc.CHAINS and cc.CHAINS[chain].get("is_evm"):
+        return _sweep_evm_to_hot(chain, from_hd_index)
+    # TRON, SOL, BTC sweeps not yet implemented — operator tops up manually
+    return ("", "unsupported_chain_auto")
+
+
 # ─── Dispatcher ─────────────────────────────────────────────────────────────
 
 def is_auto_broadcastable(chain: str) -> bool:
