@@ -103,6 +103,7 @@ from telegram import LabeledPrice
 from telegram.constants import ParseMode
 from telegram.error import RetryAfter, TimedOut, NetworkError, BadRequest, Forbidden, TelegramError
 import html
+import io
 from html import escape as html_escape
 from config import *
 
@@ -3984,6 +3985,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔧 <b>TOOLS</b>
 /gen · /bin · /fake · /web · /proxy
 /scr · /tmail · /cmail · /sk · /config
+/conv &lt;sym&gt; [amt] [cur] — live price + chart
 {sep}
 🧹 <b>CLEANER</b>
 /clean · /filter
@@ -4877,6 +4879,114 @@ from modules.downloader import download_media, get_available_qualities, upload_t
 from modules import pyro_uploader
 from modules.user_config import get_delivery_pref, set_delivery_pref
 import secrets as _py_secrets
+
+async def cmd_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Convert an amount of any crypto/stock into a fiat value and send a live chart.
+
+    Usage:
+        /conv <symbol> [amount] [target_currency]
+        /conv ton 1            → 1 TON in USD + 7d chart
+        /conv btc 0.5 eur      → 0.5 BTC in EUR + chart
+        /conv aapl 10          → 10 AAPL shares in USD + chart
+    """
+    from modules import price_converter as pc
+
+    args = list(context.args or [])
+    if not args:
+        await update.message.reply_text(
+            "💱 <b>Price Converter</b>\n\n"
+            "<b>Usage:</b>\n"
+            "<code>/conv &lt;symbol&gt; [amount] [target]</code>\n\n"
+            "<b>Examples:</b>\n"
+            "<code>/conv ton 1</code>  ← 1 TON → USD\n"
+            "<code>/conv btc 0.5 eur</code>  ← 0.5 BTC → EUR\n"
+            "<code>/conv aapl 10</code>  ← 10 AAPL shares → USD\n"
+            "<code>/conv pepe 1000000</code>\n\n"
+            "Works with most crypto (BTC, ETH, TON, SOL, DOGE, …) "
+            "and stock tickers (AAPL, TSLA, MSFT, NVDA, …).\n"
+            "Default amount is <b>1</b>, default target is <b>USD</b>.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    symbol = args[0].strip().lstrip("$").lower()
+    amount = 1.0
+    target = "usd"
+    if len(args) >= 2:
+        # second arg may be amount OR target currency
+        try:
+            amount = float(args[1].replace(",", ""))
+        except ValueError:
+            cand = args[1].strip().lower()
+            if cand in pc.VS_CURRENCIES:
+                target = cand
+            else:
+                await update.message.reply_text(
+                    f"❌ Couldn't read <code>{html.escape(args[1])}</code> as an amount or currency.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+    if len(args) >= 3:
+        cand = args[2].strip().lower()
+        if cand in pc.VS_CURRENCIES:
+            target = cand
+        else:
+            await update.message.reply_text(
+                f"❌ Unsupported target currency: <code>{html.escape(args[2])}</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+    if amount <= 0:
+        await update.message.reply_text("❌ Amount must be positive.", parse_mode=ParseMode.HTML)
+        return
+
+    loading = await update.message.reply_text(
+        f"⏳ Fetching live price for <b>{html.escape(symbol.upper())}</b>…",
+        parse_mode=ParseMode.HTML,
+    )
+
+    try:
+        data = await pc.fetch_quote(symbol, target)
+    except Exception as e:
+        print(f"[/conv] fetch_quote error: {e}")
+        data = None
+
+    if not data:
+        try:
+            await loading.edit_text(
+                f"❌ Couldn't find <b>{html.escape(symbol.upper())}</b>.\n"
+                "Try a ticker like <code>BTC</code>, <code>TON</code>, <code>AAPL</code>, <code>TSLA</code>.",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+        return
+
+    caption = pc.format_caption(amount, target, data)
+    try:
+        chart_bytes = await pc.render_chart(data)
+    except Exception as e:
+        print(f"[/conv] render_chart error: {e}")
+        chart_bytes = None
+
+    try:
+        await loading.delete()
+    except Exception:
+        pass
+
+    if chart_bytes:
+        try:
+            await update.message.reply_photo(
+                photo=io.BytesIO(chart_bytes),
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        except Exception as e:
+            print(f"[/conv] send_photo error: {e}")
+    # Fallback: text only
+    await update.message.reply_text(caption, parse_mode=ParseMode.HTML)
+
 
 @require_approval
 async def download_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -13089,6 +13199,7 @@ cc2|mm|yy|cvv</code>
 🔧 <b>TOOLS</b>
 /gen · /bin · /fake · /web · /proxy
 /scr · /tmail · /cmail · /sk · /config
+/conv &lt;sym&gt; [amt] [cur] — live price + chart
 {sep}
 🧹 <b>CLEANER</b>
 /clean · /filter
@@ -20341,6 +20452,8 @@ def main():
     application.add_handler(CommandHandler("fake", fake_address_generator))
     application.add_handler(CommandHandler("download", download_command))
     application.add_handler(CommandHandler("dl", download_command))
+    application.add_handler(CommandHandler("conv", cmd_conv))
+    application.add_handler(CommandHandler("c", cmd_conv))
     application.add_handler(CommandHandler("dlpref", dlpref_command))
     application.add_handler(CommandHandler("tmail", tempmail_generate))
     application.add_handler(CommandHandler("tpno", temp_phone_command))
