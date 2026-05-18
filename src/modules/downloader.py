@@ -511,6 +511,192 @@ async def download_instagram_all(url: str, download_dir: str) -> Optional[Dict[s
 
 
 # ---------------------------------------------------------------------------
+# Generic webpage video extractor — works on ANY site
+# ---------------------------------------------------------------------------
+
+# Patterns that reveal a playable media URL inside page HTML / JS
+_MEDIA_URL_RE = re.compile(
+    r'(?:file|src|source|url|videoUrl|video_url|stream|hls|dash|mp4|playbackUrl|contentUrl|downloadUrl)'
+    r'\s*[=:]\s*["\']'
+    r'(https?://[^"\'<>\s]{10,}\.(?:mp4|m3u8|webm|mov|mkv|avi|flv|ts|m4v|mpd)[^"\'<>\s]*)',
+    re.IGNORECASE,
+)
+_JSON_URL_RE = re.compile(
+    r'"(?:url|src|file|source|videoUrl|video_url|hls_url|stream_url|playback_url|content_url)"'
+    r'\s*:\s*"(https?://[^"]+\.(?:mp4|m3u8|webm|mov|mkv|ts|m4v|mpd)[^"]*)"',
+    re.IGNORECASE,
+)
+# Bare URL in JS — less specific but catches player configs
+_BARE_MP4_RE = re.compile(
+    r'["\' ](https?://[^"\'<>\s]+\.(?:mp4|webm|m3u8|mov)[^"\'<>\s]{0,200})["\' ]',
+    re.IGNORECASE,
+)
+
+
+def _score_media_url(url: str) -> int:
+    """Higher score = more likely to be the main video. Used to rank candidates."""
+    score = 0
+    u = url.lower()
+    if ".mp4" in u: score += 10
+    if ".m3u8" in u: score += 8
+    if ".webm" in u: score += 6
+    if "1080" in u: score += 5
+    if "720" in u: score += 4
+    if "480" in u: score += 3
+    if "cdn" in u or "media" in u or "video" in u: score += 2
+    if "thumb" in u or "preview" in u or "poster" in u or "img" in u: score -= 10
+    if len(u) < 30: score -= 5
+    return score
+
+
+async def download_via_generic_scrape(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
+    """
+    Universal fallback: fetch the page HTML and hunt for any playable media URL.
+    Works on news sites, adult platforms, blogs, custom video hosts — anything
+    that embeds a video via <video>, <source>, og:video, or a JS player config.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        BeautifulSoup = None
+
+    page_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+        "Referer": url,
+    }
+
+    candidates: list[tuple[int, str]] = []  # (score, url)
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(
+                url, headers=page_headers,
+                timeout=aiohttp.ClientTimeout(total=20),
+                allow_redirects=True,
+                max_redirects=5,
+            ) as resp:
+                if resp.status != 200:
+                    print(f"[generic-scrape] HTTP {resp.status} for {url}")
+                    return None
+                html = await resp.text(errors="replace")
+        except Exception as e:
+            print(f"[generic-scrape] fetch error: {e}")
+            return None
+
+        # --- 1. BeautifulSoup structured extraction ---
+        if BeautifulSoup:
+            try:
+                soup = BeautifulSoup(html, "lxml")
+
+                # <video src="..."> and <video><source src="...">
+                for tag in soup.find_all(["video", "source"]):
+                    for attr in ("src", "data-src", "data-url", "data-video-src"):
+                        v = tag.get(attr, "")
+                        if v and v.startswith("http"):
+                            candidates.append((_score_media_url(v), v))
+
+                # Open Graph / Twitter card
+                for meta in soup.find_all("meta"):
+                    prop = (meta.get("property") or meta.get("name") or "").lower()
+                    if "video" in prop or "stream" in prop:
+                        v = meta.get("content", "")
+                        if v and v.startswith("http"):
+                            candidates.append((_score_media_url(v) + 5, v))
+
+                # JSON-LD structured data
+                for script in soup.find_all("script", type="application/ld+json"):
+                    try:
+                        data = json.loads(script.string or "")
+                        for key in ("contentUrl", "embedUrl", "url"):
+                            v = data.get(key, "")
+                            if isinstance(v, str) and v.startswith("http"):
+                                candidates.append((_score_media_url(v) + 8, v))
+                    except Exception:
+                        pass
+
+                # data-* attributes on any element
+                for tag in soup.find_all(True):
+                    for attr, val in tag.attrs.items():
+                        if isinstance(val, str) and attr.startswith("data-") and "video" in attr:
+                            if val.startswith("http"):
+                                candidates.append((_score_media_url(val), val))
+            except Exception as e:
+                print(f"[generic-scrape] bs4 parse error: {e}")
+
+        # --- 2. Regex on raw HTML / inline JS ---
+        for pattern in (_MEDIA_URL_RE, _JSON_URL_RE, _BARE_MP4_RE):
+            for m in pattern.finditer(html):
+                v = m.group(1)
+                candidates.append((_score_media_url(v), v))
+
+        if not candidates:
+            print(f"[generic-scrape] no media URLs found in page")
+            return None
+
+        # Deduplicate, sort by score, take top candidates
+        seen = set()
+        ranked = []
+        for score, v in sorted(candidates, key=lambda x: x[0], reverse=True):
+            if v not in seen:
+                seen.add(v)
+                ranked.append((score, v))
+
+        print(f"[generic-scrape] found {len(ranked)} candidate URLs")
+
+        # Try to download top 5 candidates
+        for score, media_url in ranked[:5]:
+            print(f"[generic-scrape] trying score={score} → {media_url[:80]}")
+            ext = media_url.lower().split("?")[0].rsplit(".", 1)[-1]
+            filename = os.path.join(download_dir, f"scraped.{ext}")
+
+            if ext == "m3u8":
+                # Use yt-dlp for HLS
+                opts = {
+                    "outtmpl": os.path.join(download_dir, "scraped_hls.mp4"),
+                    "quiet": True,
+                    "no_warnings": True,
+                    "nocheckcertificate": True,
+                    "merge_output_format": "mp4",
+                    "http_headers": {"Referer": url},
+                }
+                try:
+                    loop = asyncio.get_running_loop()
+                    def _dl(u=media_url, o=opts):
+                        with yt_dlp.YoutubeDL(o) as ydl:
+                            ydl.download([u])
+                    await asyncio.wait_for(loop.run_in_executor(None, _dl), timeout=120)
+                    for f in os.listdir(download_dir):
+                        fp = os.path.join(download_dir, f)
+                        if f.endswith(".mp4") and os.path.getsize(fp) > 100_000:
+                            return {"file_path": fp, "title": "Video", "duration": None, "type": "video"}
+                except Exception as e:
+                    print(f"[generic-scrape] HLS error: {e}")
+                continue
+
+            dl_headers = {**page_headers, "Referer": url}
+            try:
+                async with session.get(
+                    media_url, headers=dl_headers,
+                    timeout=aiohttp.ClientTimeout(total=120),
+                ) as r:
+                    if r.status == 200:
+                        with open(filename, "wb") as f:
+                            f.write(await r.read())
+                        if os.path.getsize(filename) > 100_000:
+                            ftype = "audio" if ext in ("mp3", "m4a", "ogg", "wav", "aac") else "video"
+                            print(f"[generic-scrape] ✓ downloaded {os.path.getsize(filename)//1024}KB")
+                            return {"file_path": filename, "title": "Video", "duration": None, "type": ftype}
+            except Exception as e:
+                print(f"[generic-scrape] download error for {media_url[:60]}: {e}")
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Core downloader class
 # ---------------------------------------------------------------------------
 
@@ -670,7 +856,7 @@ class SocialMediaDownloader:
                     return result
 
             if not ydl_success:
-                # Universal fallback: cobalt
+                # Fallback 1: cobalt (100+ known platforms)
                 cobalt_result = await download_via_cobalt(url, self.download_dir)
                 if cobalt_result:
                     result["success"] = True
@@ -678,6 +864,19 @@ class SocialMediaDownloader:
                     result["title"] = cobalt_result.get("title", "Video")
                     result["duration"] = cobalt_result.get("duration")
                     result["type"] = cobalt_result.get("type", "video")
+                    return result
+
+                # Fallback 2: generic webpage scraper — works on ANY site
+                # Fetches the page HTML and extracts <video>, <source>, og:video,
+                # JSON-LD contentUrl, JW Player / VideoJS configs, and any .mp4/.m3u8
+                # URL embedded in inline JS. No site whitelist needed.
+                scrape_result = await download_via_generic_scrape(url, self.download_dir)
+                if scrape_result:
+                    result["success"] = True
+                    result["file_path"] = scrape_result["file_path"]
+                    result["title"] = scrape_result.get("title", "Video")
+                    result["duration"] = scrape_result.get("duration")
+                    result["type"] = scrape_result.get("type", "video")
                     return result
 
                 if platform == "instagram":
@@ -688,13 +887,14 @@ class SocialMediaDownloader:
                 elif platform == "tiktok":
                     result["error"] = (
                         "TikTok is blocking downloads from this server's IP. "
-                        "Try again in a few minutes, or use a YouTube / Reddit / Vimeo link."
+                        "Try again in a few minutes."
                     )
                 else:
                     result["error"] = (
-                        f"Could not download from {platform.title()}. "
-                        f"The link may be private, deleted, region-locked, or behind a login. "
-                        f"Try a public YouTube / TikTok / Twitter / Reddit / Vimeo / direct .mp4 link."
+                        f"Could not find a downloadable video on {platform.title()}. "
+                        f"The content may be DRM-protected, behind a login, or loaded "
+                        f"dynamically by JavaScript (which requires a real browser). "
+                        f"Direct .mp4 / .m3u8 links always work."
                     )
                 return result
 
