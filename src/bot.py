@@ -4901,10 +4901,13 @@ async def cmd_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<code>/conv ton 1</code>  ← 1 TON → USD\n"
             "<code>/conv btc 0.5 eur</code>  ← 0.5 BTC → EUR\n"
             "<code>/conv aapl 10</code>  ← 10 AAPL shares → USD\n"
-            "<code>/conv pepe 1000000</code>\n\n"
+            "<code>/conv pepe 1000000</code>\n"
+            "<code>/conv stock:aapl 5</code>  ← force stock lookup\n"
+            "<code>/conv crypto:link 10</code>  ← force crypto lookup\n\n"
             "Works with most crypto (BTC, ETH, TON, SOL, DOGE, …) "
             "and stock tickers (AAPL, TSLA, MSFT, NVDA, …).\n"
-            "Default amount is <b>1</b>, default target is <b>USD</b>.",
+            "Default amount is <b>1</b>, default target is <b>USD</b>.\n"
+            "Use <code>stock:</code> or <code>crypto:</code> prefix to disambiguate.",
             parse_mode=ParseMode.HTML,
         )
         return

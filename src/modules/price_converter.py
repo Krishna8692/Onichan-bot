@@ -438,14 +438,35 @@ async def fetch_quote(symbol: str, vs: str = "usd") -> Optional[Dict[str, Any]]:
     and converts when requested target differs.
     """
     vs = (vs or "usd").lower()
-    cache_key = f"{symbol.lower()}:{vs}"
+    # Optional disambiguation prefixes for collisions: `stock:AAPL` / `crypto:btc`
+    force_stock = False
+    force_crypto = False
+    sym_in = symbol.strip()
+    if sym_in.lower().startswith("stock:"):
+        force_stock = True
+        symbol = sym_in.split(":", 1)[1].strip()
+    elif sym_in.lower().startswith("crypto:"):
+        force_crypto = True
+        symbol = sym_in.split(":", 1)[1].strip()
+    cache_key = f"{'s:' if force_stock else 'c:' if force_crypto else ''}{symbol.lower()}:{vs}"
     now = time.time()
     hit = _PRICE_CACHE.get(cache_key)
     if hit and (now - hit[0]) < _PRICE_TTL:
         return hit[1]
 
     async with aiohttp.ClientSession() as session:
-        resolved = await _resolve_crypto_id(session, symbol)
+        if force_stock:
+            data = await _fetch_stock_price(symbol)
+            if data:
+                native = (data.get("vs") or "usd").lower()
+                if vs != native:
+                    rate = await _fetch_fx_rate(session, native, vs)
+                    if rate:
+                        data = _convert_quote_currency(data, vs, rate)
+                _PRICE_CACHE[cache_key] = (now, data)
+                return data
+            return None
+        resolved = None if force_stock else await _resolve_crypto_id(session, symbol)
         if resolved:
             coin_id, sym, name = resolved
             # CoinGecko only knows a fixed vs_currencies set — for anything
