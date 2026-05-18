@@ -4912,14 +4912,18 @@ async def cmd_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     symbol = args[0].strip().lstrip("$").lower()
     amount = 1.0
     target = "usd"
+
+    def _looks_like_currency(s: str) -> bool:
+        s = s.strip().lower()
+        return s in pc.VS_CURRENCIES or (len(s) == 3 and s.isalpha())
+
     if len(args) >= 2:
         # second arg may be amount OR target currency
         try:
             amount = float(args[1].replace(",", ""))
         except ValueError:
-            cand = args[1].strip().lower()
-            if cand in pc.VS_CURRENCIES:
-                target = cand
+            if _looks_like_currency(args[1]):
+                target = args[1].strip().lower()
             else:
                 await update.message.reply_text(
                     f"❌ Couldn't read <code>{html.escape(args[1])}</code> as an amount or currency.",
@@ -4927,12 +4931,11 @@ async def cmd_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
     if len(args) >= 3:
-        cand = args[2].strip().lower()
-        if cand in pc.VS_CURRENCIES:
-            target = cand
+        if _looks_like_currency(args[2]):
+            target = args[2].strip().lower()
         else:
             await update.message.reply_text(
-                f"❌ Unsupported target currency: <code>{html.escape(args[2])}</code>",
+                f"❌ Unsupported target currency: <code>{html.escape(args[2])}</code> (expected a 3-letter code like USD, EUR, JPY).",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -4958,8 +4961,8 @@ async def cmd_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Try a ticker like <code>BTC</code>, <code>TON</code>, <code>AAPL</code>, <code>TSLA</code>.",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[/conv] edit not-found message failed: {e}")
         return
 
     caption = pc.format_caption(amount, target, data)
@@ -4971,8 +4974,8 @@ async def cmd_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         await loading.delete()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[/conv] delete loading message failed: {e}")
 
     if chart_bytes:
         try:

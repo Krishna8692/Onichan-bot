@@ -255,13 +255,30 @@ def _yf_lookup_sync(ticker: str) -> Optional[Dict[str, Any]]:
         first_24h = closes.iloc[-min(24, len(closes))] if len(closes) >= 2 else closes.iloc[0]
         change_pct = ((price - float(first_24h)) / float(first_24h)) * 100.0 if first_24h else None
         history = [(ts.timestamp(), float(v)) for ts, v in closes.items()]
+        currency = "USD"
+        name = ticker.upper()
         try:
             info = t.fast_info  # type: ignore[attr-defined]
-            currency = (getattr(info, "currency", None) or "USD").upper()
-            name = ticker.upper()
+            cur = None
+            # fast_info may behave as attribute object OR dict-like
+            try:
+                cur = info["currency"]  # dict-like
+            except Exception:
+                cur = getattr(info, "currency", None)
+            if cur:
+                currency = str(cur).upper()
         except Exception:
-            currency = "USD"
-            name = ticker.upper()
+            pass
+        if not currency or currency == "USD":
+            try:
+                meta = t.info  # type: ignore[attr-defined]
+                if isinstance(meta, dict):
+                    cur2 = meta.get("currency") or meta.get("financialCurrency")
+                    if cur2:
+                        currency = str(cur2).upper()
+                    name = meta.get("shortName") or meta.get("longName") or name
+            except Exception:
+                pass
         return {
             "kind": "stock",
             "id": ticker.upper(),
@@ -413,7 +430,13 @@ async def render_chart(data: Dict[str, Any]) -> Optional[bytes]:
 # ---------------------------------------------------------------------------
 
 async def fetch_quote(symbol: str, vs: str = "usd") -> Optional[Dict[str, Any]]:
-    """Resolve `symbol` (crypto first, then stock), return price + history dict."""
+    """Resolve `symbol` (crypto first, then stock), return price + history dict.
+
+    `vs` may be any 3-letter fiat code. Crypto path uses CoinGecko's known
+    allowlist (`VS_CURRENCIES`); for unsupported targets we fetch in USD and
+    convert via FX. Stock path always fetches in the ticker's native currency
+    and converts when requested target differs.
+    """
     vs = (vs or "usd").lower()
     cache_key = f"{symbol.lower()}:{vs}"
     now = time.time()
@@ -425,8 +448,16 @@ async def fetch_quote(symbol: str, vs: str = "usd") -> Optional[Dict[str, Any]]:
         resolved = await _resolve_crypto_id(session, symbol)
         if resolved:
             coin_id, sym, name = resolved
-            data = await _fetch_crypto_price(session, coin_id, vs, symbol=sym, name=name)
+            # CoinGecko only knows a fixed vs_currencies set — for anything
+            # outside it, fetch in USD and FX-convert afterwards.
+            fetch_vs = vs if vs in VS_CURRENCIES else "usd"
+            data = await _fetch_crypto_price(session, coin_id, fetch_vs, symbol=sym, name=name)
             if data:
+                native = (data.get("vs") or "usd").lower()
+                if vs != native:
+                    rate = await _fetch_fx_rate(session, native, vs)
+                    if rate:
+                        data = _convert_quote_currency(data, vs, rate)
                 _PRICE_CACHE[cache_key] = (now, data)
                 return data
 
