@@ -35,6 +35,9 @@ _PRICE_TTL = 60  # 60 seconds
 _CHART_CACHE: Dict[str, Tuple[float, bytes]] = {}
 _CHART_TTL = 60
 
+_FX_CACHE: Dict[str, Tuple[float, float]] = {}
+_FX_TTL = 600  # 10 minutes
+
 CG_BASE = "https://api.coingecko.com/api/v3"
 
 # Common-symbol → coingecko-id overrides for the obvious cases where the
@@ -281,6 +284,61 @@ async def _fetch_stock_price(ticker: str) -> Optional[Dict[str, Any]]:
     return await loop.run_in_executor(None, _yf_lookup_sync, ticker)
 
 
+async def _fetch_fx_rate(session: aiohttp.ClientSession, base: str, target: str) -> Optional[float]:
+    """Get FX rate: 1 unit of `base` = X units of `target`. Cached 10 min."""
+    base = base.lower()
+    target = target.lower()
+    if base == target:
+        return 1.0
+    key = f"{base}:{target}"
+    now = time.time()
+    hit = _FX_CACHE.get(key)
+    if hit and (now - hit[0]) < _FX_TTL:
+        return hit[1]
+    # Primary: open.er-api.com (free, no key)
+    try:
+        url = f"https://open.er-api.com/v6/latest/{base.upper()}"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
+            if r.status == 200:
+                d = await r.json(content_type=None)
+                rate = (d.get("rates") or {}).get(target.upper())
+                if rate:
+                    _FX_CACHE[key] = (now, float(rate))
+                    return float(rate)
+    except Exception as e:
+        log.warning("open.er-api FX fetch failed: %s", e)
+    # Fallback: exchangerate.host
+    try:
+        url = "https://api.exchangerate.host/latest"
+        async with session.get(url, params={"base": base.upper(), "symbols": target.upper()},
+                               timeout=aiohttp.ClientTimeout(total=10)) as r:
+            if r.status == 200:
+                d = await r.json(content_type=None)
+                rate = (d.get("rates") or {}).get(target.upper())
+                if rate:
+                    _FX_CACHE[key] = (now, float(rate))
+                    return float(rate)
+    except Exception as e:
+        log.warning("exchangerate.host FX fetch failed: %s", e)
+    return None
+
+
+def _convert_quote_currency(data: Dict[str, Any], target: str, rate: float) -> Dict[str, Any]:
+    """Return a new quote dict with price/history/market stats scaled by `rate`."""
+    converted = dict(data)
+    converted["price"] = float(data["price"]) * rate
+    converted["history"] = [(ts, float(p) * rate) for ts, p in (data.get("history") or [])]
+    for fld in ("market_cap", "volume_24h"):
+        v = data.get(fld)
+        if v is not None:
+            try:
+                converted[fld] = float(v) * rate
+            except Exception:
+                pass
+    converted["vs"] = target.lower()
+    return converted
+
+
 # ---------------------------------------------------------------------------
 # Chart renderer
 # ---------------------------------------------------------------------------
@@ -372,11 +430,17 @@ async def fetch_quote(symbol: str, vs: str = "usd") -> Optional[Dict[str, Any]]:
                 _PRICE_CACHE[cache_key] = (now, data)
                 return data
 
-    # Stock fallback (yfinance)
-    data = await _fetch_stock_price(symbol)
-    if data:
-        _PRICE_CACHE[cache_key] = (now, data)
-        return data
+        # Stock fallback (yfinance) — fetch in native currency, then FX-convert.
+        data = await _fetch_stock_price(symbol)
+        if data:
+            native = (data.get("vs") or "usd").lower()
+            if vs != native:
+                rate = await _fetch_fx_rate(session, native, vs)
+                if rate:
+                    data = _convert_quote_currency(data, vs, rate)
+                # If FX failed, fall through with native currency (caption will note it).
+            _PRICE_CACHE[cache_key] = (now, data)
+            return data
     return None
 
 
@@ -403,11 +467,10 @@ def format_caption(amount: float, target_vs: str, data: Dict[str, Any]) -> str:
     if vol:
         extra += f"\n💧 <b>Volume (24h):</b> {_fmt_price(float(vol), vs)}"
 
-    # If user asked for a different target than what the source returned,
-    # we already requested in target_vs for crypto; for stocks we honour
-    # the stock's native currency and just label it.
+    # If we couldn't honour the user's requested target (FX rate fetch
+    # failed) we fall back to native currency and tell them.
     if target_vs and target_vs.lower() != vs:
-        note = f"\n<i>Note: showing in {vs.upper()} (native).</i>"
+        note = f"\n<i>Note: FX unavailable — showing in {vs.upper()}.</i>"
     else:
         note = ""
 
