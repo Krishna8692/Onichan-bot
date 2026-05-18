@@ -4968,7 +4968,7 @@ async def cmd_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"[/conv] edit not-found message failed: {e}")
         return
 
-    caption = pc.format_caption(amount, target, data)
+    caption = ae(pc.format_caption(amount, target, data))
     try:
         chart_bytes = await pc.render_chart(data)
     except Exception as e:
