@@ -21,12 +21,10 @@ async def upload_to_filehost(file_path: str) -> Optional[str]:
     async with aiohttp.ClientSession() as session:
         # --- gofile.io ---
         try:
-            # Step 1: get best server
             async with session.get("https://api.gofile.io/servers", timeout=aiohttp.ClientTimeout(total=10)) as r:
                 data = await r.json(content_type=None)
                 server = data["data"]["servers"][0]["name"]
 
-            # Step 2: upload
             upload_url = f"https://{server}.gofile.io/uploadFile"
             with open(file_path, "rb") as f:
                 form = aiohttp.FormData()
@@ -88,7 +86,7 @@ async def compress_video_to_limit(input_path: str, max_mb: int = MAX_TG_MB) -> O
 
 SUPPORTED_PLATFORMS = {
     "instagram": ["instagram.com", "instagr.am"],
-    "tiktok": ["tiktok.com", "vm.tiktok.com"],
+    "tiktok": ["tiktok.com", "vm.tiktok.com", "vt.tiktok.com"],
     "youtube": ["youtube.com", "youtu.be", "youtube.shorts"],
     "twitter": ["twitter.com", "x.com", "t.co"],
     "facebook": ["facebook.com", "fb.watch", "fb.com"],
@@ -101,6 +99,13 @@ SUPPORTED_PLATFORMS = {
     "soundcloud": ["soundcloud.com"],
     "spotify": ["open.spotify.com"],
     "twitch": ["twitch.tv", "clips.twitch.tv"],
+    "streamable": ["streamable.com"],
+    "rumble": ["rumble.com"],
+    "odysee": ["odysee.com"],
+    "bitchute": ["bitchute.com"],
+    "bilibili": ["bilibili.com", "b23.tv"],
+    "niconico": ["nicovideo.jp", "nico.ms"],
+    "kick": ["kick.com"],
 }
 
 def get_platform(url: str) -> str:
@@ -109,7 +114,6 @@ def get_platform(url: str) -> str:
         for domain in domains:
             if domain in url_lower:
                 return platform
-    # Extract a readable name from the hostname for unknown sites
     try:
         import re as _re
         m = _re.search(r"https?://(?:www\.)?([^/]+)", url_lower)
@@ -136,6 +140,13 @@ def get_platform_emoji(platform: str) -> str:
         "soundcloud": "🎧",
         "spotify": "🎶",
         "twitch": "💜",
+        "streamable": "🎥",
+        "rumble": "🔵",
+        "odysee": "🌊",
+        "bitchute": "📡",
+        "bilibili": "💙",
+        "niconico": "⬜",
+        "kick": "🟢",
     }
     return emojis.get(platform, "🎥")
 
@@ -148,7 +159,7 @@ COMMON_HEADERS = {
 async def _save_file(session: aiohttp.ClientSession, url: str, path: str) -> bool:
     """Download a URL to a local file. Returns True on success."""
     try:
-        async with session.get(url, headers=COMMON_HEADERS, timeout=aiohttp.ClientTimeout(total=90)) as r:
+        async with session.get(url, headers=COMMON_HEADERS, timeout=aiohttp.ClientTimeout(total=120)) as r:
             if r.status == 200:
                 with open(path, "wb") as f:
                     f.write(await r.read())
@@ -157,30 +168,78 @@ async def _save_file(session: aiohttp.ClientSession, url: str, path: str) -> boo
         print(f"[downloader] save_file error: {e}")
     return False
 
-def _cobalt_parse_response(data: dict, session, download_dir: str):
-    """Parse cobalt API response dict — returns coroutine or None."""
-    status = data.get("status")
-    if status in ("stream", "redirect", "tunnel", "local"):
-        media_url = data.get("url")
-        return media_url
+
+# ---------------------------------------------------------------------------
+# TikTok-specific fallback via tikwm.com (handles server IP blocks)
+# ---------------------------------------------------------------------------
+
+async def download_via_tikwm(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
+    """Use tikwm.com API to download TikTok videos (bypasses IP blocks)."""
+    apis = [
+        {
+            "url": "https://www.tikwm.com/api/",
+            "data": {"url": url, "hd": 1},
+            "video_key": "play",
+            "hd_key": "hdplay",
+            "title_key": "title",
+        },
+        {
+            "url": "https://tikcdn.io/ssstik/",
+            "data": {"id": url, "locale": "en", "tt": "1"},
+            "video_key": "links",
+            "title_key": "title",
+        },
+    ]
+    async with aiohttp.ClientSession() as session:
+        for api in apis:
+            try:
+                headers = {
+                    **COMMON_HEADERS,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Referer": api["url"],
+                }
+                async with session.post(
+                    api["url"],
+                    data=api["data"],
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as resp:
+                    if resp.status != 200:
+                        continue
+                    data = await resp.json(content_type=None)
+                    # tikwm format
+                    if data.get("code") == 0 and data.get("data"):
+                        d = data["data"]
+                        video_url = d.get("hdplay") or d.get("play")
+                        title = d.get("title", "TikTok Video")
+                        if video_url:
+                            filename = os.path.join(download_dir, "tiktok_tikwm.mp4")
+                            if await _save_file(session, video_url, filename):
+                                print(f"[tikwm] ✓ downloaded via tikwm")
+                                return {"file_path": filename, "title": title, "duration": d.get("duration"), "type": "video"}
+            except Exception as e:
+                print(f"[tikwm] {api['url']} error: {e}")
     return None
 
+
+# ---------------------------------------------------------------------------
+# Cobalt API fallback — tries multiple public instances
+# ---------------------------------------------------------------------------
+
 async def download_via_cobalt(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
-    """Try all known cobalt API instances (v7 and v10 formats)."""
-    # v10 instances (new format — POST to base URL)
-    v10_instances = [
-        "https://api.cobalt.tools",
+    """Try public cobalt API instances (v10/v11 format — POST to base URL)."""
+    instances = [
+        "https://cobalt.ataraxy.eu",
+        "https://cobalt.catvibers.me",
+        "https://cobalt.darkness.services",
+        "https://co.wuk.sh",
+        "https://cobalt.frontendfriendly.xyz",
         "https://cobalt.api.timelessnesses.me",
-        "https://cobalt.drgato.fr",
+        "https://dl.cgm.rs",
         "https://cob.oboro.moe",
     ]
-    # v7 instances (old /api/json endpoint)
-    v7_instances = [
-        "https://cobalt.vin",
-        "https://cobalt.tools.nadeko.net",
-    ]
 
-    v10_payload = {
+    payload = {
         "url": url,
         "videoQuality": "1080",
         "audioFormat": "mp3",
@@ -188,38 +247,26 @@ async def download_via_cobalt(url: str, download_dir: str) -> Optional[Dict[str,
         "downloadMode": "auto",
         "youtubeVideoCodec": "h264",
     }
-    v10_headers = {
+    headers = {
         **COMMON_HEADERS,
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
 
-    v7_payload = {
-        "url": url,
-        "vCodec": "h264",
-        "vQuality": "1080",
-        "aFormat": "mp3",
-        "isAudioOnly": False,
-        "isNoTTWatermark": True,
-        "isTTFullAudio": True,
-    }
-
     async with aiohttp.ClientSession() as session:
-        # Try v10
-        for base_url in v10_instances:
+        for base_url in instances:
             try:
                 async with session.post(
                     base_url,
-                    json=v10_payload,
-                    headers=v10_headers,
-                    timeout=aiohttp.ClientTimeout(total=25),
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=20),
                 ) as resp:
                     if resp.status not in (200, 201):
-                        print(f"[cobalt-v10] {base_url} status={resp.status}")
                         continue
                     data = await resp.json(content_type=None)
                     status = data.get("status")
-                    print(f"[cobalt-v10] {base_url} → status={status}")
+                    print(f"[cobalt] {base_url} → status={status}")
 
                     if status in ("stream", "redirect", "tunnel", "local"):
                         media_url = data.get("url")
@@ -247,53 +294,76 @@ async def download_via_cobalt(url: str, download_dir: str) -> Optional[Dict[str,
                         if saved_files:
                             return {"file_path": saved_files[0]["path"], "files": saved_files, "audio_path": audio_path, "title": "Instagram Post", "duration": None, "type": "picker"}
             except Exception as e:
-                print(f"[cobalt-v10] {base_url} error: {e}")
-
-        # Try v7
-        v7_headers = {**COMMON_HEADERS, "Content-Type": "application/json", "Accept": "application/json"}
-        for base_url in v7_instances:
-            try:
-                async with session.post(
-                    f"{base_url}/api/json",
-                    json=v7_payload,
-                    headers=v7_headers,
-                    timeout=aiohttp.ClientTimeout(total=25),
-                ) as resp:
-                    if resp.status != 200:
-                        continue
-                    data = await resp.json(content_type=None)
-                    status = data.get("status")
-                    print(f"[cobalt-v7] {base_url} → status={status}")
-                    if status in ("stream", "redirect", "tunnel"):
-                        media_url = data.get("url")
-                        if not media_url:
-                            continue
-                        filename = os.path.join(download_dir, "cobalt_v7_video.mp4")
-                        if await _save_file(session, media_url, filename):
-                            return {"file_path": filename, "title": "Video", "duration": None, "type": "video"}
-            except Exception as e:
-                print(f"[cobalt-v7] {base_url} error: {e}")
+                print(f"[cobalt] {base_url} error: {e}")
 
     return None
 
 
+# ---------------------------------------------------------------------------
+# Direct URL download (bare .mp4 / .m3u8 / .webm / .mov links)
+# ---------------------------------------------------------------------------
+
+async def download_direct_url(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
+    """Download a direct media URL (mp4, webm, mov, m3u8, mp3, etc.)."""
+    direct_exts = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".flv", ".m4v",
+                   ".mp3", ".m4a", ".ogg", ".wav", ".aac",
+                   ".m3u8", ".ts")
+    url_lower = url.lower().split("?")[0]
+    is_direct = any(url_lower.endswith(ext) for ext in direct_exts)
+    if not is_direct:
+        return None
+
+    ext = url_lower.rsplit(".", 1)[-1]
+    filename = os.path.join(download_dir, f"direct_download.{ext}")
+
+    if ext == "m3u8":
+        # Use yt-dlp for HLS streams
+        opts = {
+            "outtmpl": os.path.join(download_dir, "direct_hls.mp4"),
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+            "merge_output_format": "mp4",
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            def _dl():
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.download([url])
+            await asyncio.wait_for(loop.run_in_executor(None, _dl), timeout=180)
+            for f in os.listdir(download_dir):
+                fp = os.path.join(download_dir, f)
+                if f.endswith(".mp4") and os.path.getsize(fp) > 1000:
+                    return {"file_path": fp, "title": "HLS Stream", "duration": None, "type": "video"}
+        except Exception as e:
+            print(f"[direct] HLS download error: {e}")
+        return None
+
+    async with aiohttp.ClientSession() as session:
+        ok = await _save_file(session, url, filename)
+        if ok:
+            ftype = "audio" if ext in ("mp3", "m4a", "ogg", "wav", "aac") else "video"
+            return {"file_path": filename, "title": os.path.basename(url.split("?")[0]), "duration": None, "type": ftype}
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Instagram-specific scrapers
+# ---------------------------------------------------------------------------
+
 async def download_via_rapidapi_ig(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
-    """Use instagram-downloader-download-instagram-videos-stories1 style public endpoints."""
-    # Extract shortcode from URL
+    """Use public Instagram download APIs."""
     sc_match = re.search(r'/(?:reel|p|tv)/([A-Za-z0-9_-]+)', url)
     if not sc_match:
         return None
-    shortcode = sc_match.group(1)
 
     apis = [
-        # igdownloader public API
         {
             "method": "GET",
             "url": f"https://igdownloader.app/api/instagramGetUrl?postUrl={url}&abc=1",
             "headers": {**COMMON_HEADERS, "Referer": "https://igdownloader.app/"},
             "parse": lambda d: (d.get("url") or (d.get("media", [{}])[0].get("url") if d.get("media") else None)),
         },
-        # reelsaver
         {
             "method": "POST",
             "url": "https://reelsaver.net/api/ajax",
@@ -301,7 +371,6 @@ async def download_via_rapidapi_ig(url: str, download_dir: str) -> Optional[Dict
             "headers": {**COMMON_HEADERS, "Content-Type": "application/x-www-form-urlencoded", "Referer": "https://reelsaver.net/"},
             "parse": lambda d: (d.get("links", [{}])[0].get("url") if d.get("links") else None),
         },
-        # fastdl
         {
             "method": "POST",
             "url": "https://fastdl.app/api/convert",
@@ -309,7 +378,6 @@ async def download_via_rapidapi_ig(url: str, download_dir: str) -> Optional[Dict
             "headers": {**COMMON_HEADERS, "Content-Type": "application/x-www-form-urlencoded", "Referer": "https://fastdl.app/"},
             "parse": lambda d: (d.get("url") or (d.get("medias", [{}])[0].get("url") if d.get("medias") else None)),
         },
-        # instagramsave
         {
             "method": "POST",
             "url": "https://instagramsave.com/api/",
@@ -330,7 +398,6 @@ async def download_via_rapidapi_ig(url: str, download_dir: str) -> Optional[Dict
 
                 async with resp_ctx as resp:
                     if resp.status != 200:
-                        print(f"[rapidapi-ig] {api['url']} status={resp.status}")
                         continue
                     try:
                         data = await resp.json(content_type=None)
@@ -389,7 +456,6 @@ async def download_via_instafix(url: str, download_dir: str) -> Optional[Dict[st
                     timeout=aiohttp.ClientTimeout(total=25),
                 ) as resp:
                     if resp.status != 200:
-                        print(f"[instafix] {api['url']} status={resp.status}")
                         continue
                     text = await resp.text()
                     try:
@@ -429,8 +495,7 @@ async def download_via_instafix(url: str, download_dir: str) -> Optional[Dict[st
 
 
 async def download_instagram_all(url: str, download_dir: str) -> Optional[Dict[str, Any]]:
-    """Try all Instagram fallbacks in order."""
-    # Run cobalt and rapidapi concurrently
+    """Try all Instagram fallbacks concurrently then sequentially."""
     cobalt_task = asyncio.create_task(download_via_cobalt(url, download_dir))
     rapidapi_task = asyncio.create_task(download_via_rapidapi_ig(url, download_dir))
 
@@ -442,8 +507,12 @@ async def download_instagram_all(url: str, download_dir: str) -> Optional[Dict[s
         except Exception as e:
             print(f"[instagram_all] task error: {e}")
 
-    # Last resort: instafix scrapers
     return await download_via_instafix(url, download_dir)
+
+
+# ---------------------------------------------------------------------------
+# Core downloader class
+# ---------------------------------------------------------------------------
 
 class SocialMediaDownloader:
     def __init__(self):
@@ -461,7 +530,9 @@ class SocialMediaDownloader:
             "geo_bypass": True,
             "geo_bypass_country": "US",
             "socket_timeout": 30,
-            "retries": 3,
+            "retries": 5,
+            "fragment_retries": 5,
+            "extractor_retries": 3,
             "age_limit": None,
             "skip_age_gate": True,
             "http_headers": {
@@ -485,23 +556,32 @@ class SocialMediaDownloader:
             if quality and quality.isdigit():
                 h = int(quality)
                 opts["format"] = (
+                    f"bestvideo[height<={h}][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/"
                     f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]/"
                     f"bestvideo[height<={h}]+bestaudio/"
                     f"best[height<={h}]/best"
                 )
             else:
-                opts["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
+                opts["format"] = (
+                    "bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/"
+                    "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+                    "bestvideo+bestaudio/best"
+                )
             opts["merge_output_format"] = "mp4"
 
         return opts
 
     def _find_downloaded_file(self) -> Optional[str]:
-        for file in os.listdir(self.download_dir):
-            if file.endswith((".mp4", ".webm", ".mkv", ".mp3", ".m4a", ".wav", ".jpg", ".jpeg", ".png")):
-                fp = os.path.join(self.download_dir, file)
+        files = []
+        for f in os.listdir(self.download_dir):
+            if f.endswith((".mp4", ".webm", ".mkv", ".mp3", ".m4a", ".wav", ".jpg", ".jpeg", ".png")):
+                fp = os.path.join(self.download_dir, f)
                 if os.path.getsize(fp) > 1000:
-                    return fp
-        return None
+                    files.append(fp)
+        if not files:
+            return None
+        # Return largest file (most likely the video)
+        return max(files, key=os.path.getsize)
 
     async def download(self, url: str, audio_only: bool = False, quality: str = "best") -> Dict[str, Any]:
         result = {
@@ -522,7 +602,17 @@ class SocialMediaDownloader:
             platform = get_platform(url)
             result["platform"] = platform
 
-            loop = asyncio.get_event_loop()
+            # --- Direct URL shortcut ---
+            direct = await download_direct_url(url, self.download_dir)
+            if direct:
+                result["success"] = True
+                result["file_path"] = direct["file_path"]
+                result["title"] = direct.get("title", "Download")
+                result["duration"] = direct.get("duration")
+                result["type"] = direct.get("type", "video")
+                return result
+
+            loop = asyncio.get_running_loop()
             opts = self._get_ydl_opts(audio_only, quality=quality)
             ydl_success = False
             info = None
@@ -531,18 +621,28 @@ class SocialMediaDownloader:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     return ydl.extract_info(url, download=True)
 
+            # For TikTok, try tikwm first (server IP is often blocked by TikTok)
+            if platform == "tiktok" and not audio_only:
+                tikwm = await download_via_tikwm(url, self.download_dir)
+                if tikwm:
+                    result["success"] = True
+                    result["file_path"] = tikwm["file_path"]
+                    result["title"] = tikwm.get("title", "TikTok Video")
+                    result["duration"] = tikwm.get("duration")
+                    result["type"] = "video"
+                    return result
+
             try:
                 info = await asyncio.wait_for(
                     loop.run_in_executor(None, do_download),
-                    timeout=120,
+                    timeout=180,
                 )
-                ydl_success = True
+                ydl_success = bool(info)
             except Exception as ydl_error:
                 print(f"[yt-dlp] failed for {platform}: {ydl_error}")
                 ydl_success = False
 
-            # For Instagram — try Instagram-specific API scrapers first (they
-            # handle private/embed content yt-dlp can't reach without cookies)
+            # Instagram: try dedicated scrapers when yt-dlp fails
             if platform == "instagram" and not audio_only:
                 file_from_ydl = self._find_downloaded_file() if ydl_success else None
                 if not file_from_ydl:
@@ -556,14 +656,21 @@ class SocialMediaDownloader:
                         result["duration"] = api_result.get("duration")
                         result["type"] = api_result.get("type", "video")
                         return result
-                    # Instagram API scrapers failed too — fall through to cobalt
                     ydl_success = False
 
+            # TikTok yt-dlp fail → tikwm fallback (audio-only path or secondary)
+            if platform == "tiktok" and not ydl_success:
+                tikwm = await download_via_tikwm(url, self.download_dir)
+                if tikwm:
+                    result["success"] = True
+                    result["file_path"] = tikwm["file_path"]
+                    result["title"] = tikwm.get("title", "TikTok Video")
+                    result["duration"] = tikwm.get("duration")
+                    result["type"] = "video"
+                    return result
+
             if not ydl_success:
-                # Universal fallback: cobalt supports 100+ platforms including
-                # Instagram, YouTube, TikTok, Twitter/X, Reddit, Vimeo, Twitch,
-                # Pinterest, Tumblr, SoundCloud, and more. Try it for *every*
-                # platform when yt-dlp fails.
+                # Universal fallback: cobalt
                 cobalt_result = await download_via_cobalt(url, self.download_dir)
                 if cobalt_result:
                     result["success"] = True
@@ -572,18 +679,22 @@ class SocialMediaDownloader:
                     result["duration"] = cobalt_result.get("duration")
                     result["type"] = cobalt_result.get("type", "video")
                     return result
+
                 if platform == "instagram":
                     result["error"] = (
-                        "Instagram is currently blocking anonymous downloads from this server. "
-                        "This usually means the post is private, deleted, or Instagram is rate-limiting. "
-                        "Try a different post, or paste a YouTube / TikTok / Twitter / Reddit / Vimeo / "
-                        "Twitch / Pinterest / SoundCloud / direct .mp4 URL — those work without restrictions."
+                        "Instagram is blocking downloads from this server. "
+                        "The post may be private, deleted, or rate-limited."
+                    )
+                elif platform == "tiktok":
+                    result["error"] = (
+                        "TikTok is blocking downloads from this server's IP. "
+                        "Try again in a few minutes, or use a YouTube / Reddit / Vimeo link."
                     )
                 else:
                     result["error"] = (
-                        f"Download failed for {platform.title()}. The link may be private, deleted, "
-                        f"region-locked, or behind a login wall. Try a public link, or paste any "
-                        f"YouTube / TikTok / Twitter / Reddit / Vimeo / direct .mp4 URL."
+                        f"Could not download from {platform.title()}. "
+                        f"The link may be private, deleted, region-locked, or behind a login. "
+                        f"Try a public YouTube / TikTok / Twitter / Reddit / Vimeo / direct .mp4 link."
                     )
                 return result
 
@@ -599,21 +710,25 @@ class SocialMediaDownloader:
                 result["error"] = "Download completed but file not found"
 
         except asyncio.TimeoutError:
-            result["error"] = "Download timed out (120s limit)"
+            result["error"] = "Download timed out (3 minute limit exceeded)"
         except yt_dlp.utils.DownloadError as e:
             error_msg = str(e)
             if "private" in error_msg.lower():
                 result["error"] = "This content is private"
             elif "unavailable" in error_msg.lower():
-                result["error"] = "This content is unavailable"
+                result["error"] = "This content is unavailable or has been removed"
             elif "age" in error_msg.lower():
-                result["error"] = "Age-restricted content cannot be downloaded"
-            elif "login" in error_msg.lower():
-                result["error"] = "Login required to download this content"
+                result["error"] = "Age-restricted content requires login"
+            elif "login" in error_msg.lower() or "sign in" in error_msg.lower():
+                result["error"] = "Login required — this content is behind a paywall or account wall"
+            elif "blocked" in error_msg.lower() or "ip" in error_msg.lower():
+                result["error"] = "Server IP is blocked by this platform. Try again later."
+            elif "copyright" in error_msg.lower():
+                result["error"] = "This content has been blocked due to copyright"
             else:
-                result["error"] = f"Download failed: {error_msg[:150]}"
+                result["error"] = f"Download failed: {error_msg[:200]}"
         except Exception as e:
-            result["error"] = f"Error: {str(e)[:150]}"
+            result["error"] = f"Error: {str(e)[:200]}"
 
         return result
 
@@ -662,7 +777,7 @@ async def get_available_qualities(url: str) -> List[Dict[str, Any]]:
         },
     }
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _extract():
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -676,7 +791,6 @@ async def get_available_qualities(url: str) -> List[Dict[str, Any]]:
         seen_heights = set()
         qualities = []
 
-        # Collect unique video resolutions
         for fmt in reversed(formats):
             height = fmt.get("height")
             vcodec = fmt.get("vcodec", "none")
@@ -689,13 +803,8 @@ async def get_available_qualities(url: str) -> List[Dict[str, Any]]:
                 size_str = f" (~{size_bytes // (1024*1024)}MB)" if size_bytes else ""
                 qualities.append({"label": f"📹 {label}{size_str}", "value": str(height), "height": height})
 
-        # Sort highest first
         qualities.sort(key=lambda x: x["height"], reverse=True)
-
-        # Limit to top 5 resolutions
         qualities = qualities[:5]
-
-        # Always add audio-only
         qualities.append({"label": "🎵 Audio only (MP3)", "value": "audio", "height": 0})
 
         return qualities
