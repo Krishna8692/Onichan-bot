@@ -451,7 +451,11 @@ async def fetch_quote(symbol: str, vs: str = "usd") -> Optional[Dict[str, Any]]:
             # CoinGecko only knows a fixed vs_currencies set — for anything
             # outside it, fetch in USD and FX-convert afterwards.
             fetch_vs = vs if vs in VS_CURRENCIES else "usd"
+            # One quick retry on transient CoinGecko failure (rate-limit, etc.)
             data = await _fetch_crypto_price(session, coin_id, fetch_vs, symbol=sym, name=name)
+            if not data:
+                await asyncio.sleep(1.2)
+                data = await _fetch_crypto_price(session, coin_id, fetch_vs, symbol=sym, name=name)
             if data:
                 native = (data.get("vs") or "usd").lower()
                 if vs != native:
@@ -460,8 +464,13 @@ async def fetch_quote(symbol: str, vs: str = "usd") -> Optional[Dict[str, Any]]:
                         data = _convert_quote_currency(data, vs, rate)
                 _PRICE_CACHE[cache_key] = (now, data)
                 return data
+            # Resolved as crypto but fetch failed — do NOT cross-fall back to a
+            # stock with the same ticker (would silently return a different
+            # asset, e.g. BTCC ETF instead of BTC spot). Surface failure.
+            log.warning("crypto fetch failed for resolved symbol %s (id=%s); skipping stock fallback", symbol, coin_id)
+            return None
 
-        # Stock fallback (yfinance) — fetch in native currency, then FX-convert.
+        # Stock fallback (yfinance) — only when symbol did not resolve as crypto.
         data = await _fetch_stock_price(symbol)
         if data:
             native = (data.get("vs") or "usd").lower()
