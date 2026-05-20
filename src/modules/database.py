@@ -585,6 +585,25 @@ def _create_tables():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_bin_shop_listings_status ON bin_shop_listings(status)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_bin_shop_purchases_user ON bin_shop_purchases(user_id, purchased_at DESC)")
 
+            # Signal feedback table — stores profit/loss outcomes with indicator snapshots
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS signal_feedback (
+                    id SERIAL PRIMARY KEY,
+                    telegram_id BIGINT NOT NULL,
+                    asset TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    timeframe_minutes INTEGER NOT NULL,
+                    rsi FLOAT,
+                    macd_cross TEXT,
+                    bb_position TEXT,
+                    ema_trend TEXT,
+                    patterns TEXT,
+                    outcome TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_sfb_asset ON signal_feedback(asset, direction, created_at DESC)")
+
         # Casino tables
         from modules.casino import _init_casino_tables, start_cleanup_scheduler
         _init_casino_tables()

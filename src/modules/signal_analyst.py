@@ -34,7 +34,8 @@ def _gen_code() -> str:
 
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
-def _build_prompt(asset: str, interval: str, price_info: Optional[Dict], ind: Dict[str, Any]) -> str:
+def _build_prompt(asset: str, interval: str, price_info: Optional[Dict], ind: Dict[str, Any],
+                  recent_losses: Optional[list] = None) -> str:
     price_str = f"{price_info['price']:.6f}" if price_info else "N/A"
     chg_str   = f"{price_info['change_pct']:+.2f}%" if price_info else "N/A"
 
@@ -45,6 +46,21 @@ def _build_prompt(asset: str, interval: str, price_info: Optional[Dict], ind: Di
     ) or "  (no data)"
 
     patterns = ", ".join(ind.get("patterns", [])) or "None detected"
+
+    loss_block = ""
+    if recent_losses:
+        lines = []
+        for i, loss in enumerate(recent_losses[:5], 1):
+            lines.append(
+                f"  {i}. RSI={loss.get('rsi','?')} | MACD cross={loss.get('macd_cross','?')} "
+                f"| BB position={loss.get('bb_position','?')} | EMA trend={loss.get('ema_trend','?')} "
+                f"| Patterns={loss.get('patterns','none')}"
+            )
+        loss_block = (
+            "\n\nRECENT LOSING PATTERNS FOR THIS ASSET TO AVOID (do not replicate these setups):\n"
+            + "\n".join(lines)
+            + "\n"
+        )
 
     return f"""You are a professional binary options trading signal analyst for the Pocket Option platform.
 
@@ -64,7 +80,7 @@ TECHNICAL INDICATORS:
 - Candlestick patterns: {patterns}
 
 LAST 5 CANDLES (oldest → newest):
-{recent_str}
+{recent_str}{loss_block}
 
 VALID POCKET OPTION EXPIRY TIMES (minutes): 1, 2, 3, 5, 10, 15
 
@@ -91,7 +107,8 @@ Return ONLY valid JSON, no other text:
 
 # ── Claude call ────────────────────────────────────────────────────────────────
 async def analyse(asset: str, interval: str,
-                  price_info: Optional[Dict], indicators: Dict[str, Any]) -> Optional[Dict]:
+                  price_info: Optional[Dict], indicators: Dict[str, Any],
+                  recent_losses: Optional[list] = None) -> Optional[Dict]:
     """
     Call Claude and return a signal dict:
     {direction, expiry_minutes, accuracy_low, accuracy_high,
@@ -102,21 +119,25 @@ async def analyse(asset: str, interval: str,
     Results are cached for 60 seconds per (asset, interval) pair to avoid
     duplicate API calls when multiple users request the same signal.
     enc_code and token_code are always freshly generated per serve.
+    If recent_losses is provided, the prompt will include a section warning
+    Claude to avoid those indicator setups.
     """
     cache_key = (asset, interval)
     now = time.monotonic()
-    cached = _CACHE.get(cache_key)
-    if cached is not None:
-        cached_at, cached_signal = cached
-        if now - cached_at < _CACHE_TTL:
-            log.debug("Cache hit for %s/%s — skipping Claude call", asset, interval)
-            return {**cached_signal, "enc_code": _gen_code(), "token_code": _gen_code()}
+    # Only use cache when there are no loss patterns to inject (cache is shared across users)
+    if not recent_losses:
+        cached = _CACHE.get(cache_key)
+        if cached is not None:
+            cached_at, cached_signal = cached
+            if now - cached_at < _CACHE_TTL:
+                log.debug("Cache hit for %s/%s — skipping Claude call", asset, interval)
+                return {**cached_signal, "enc_code": _gen_code(), "token_code": _gen_code()}
 
     if not _ANTHROPIC_BASE_URL or not _ANTHROPIC_API_KEY:
         log.error("Anthropic env vars not set — cannot generate signal")
         return None
 
-    prompt = _build_prompt(asset, interval, price_info, indicators)
+    prompt = _build_prompt(asset, interval, price_info, indicators, recent_losses)
 
     try:
         import anthropic

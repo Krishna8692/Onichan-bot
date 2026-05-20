@@ -5008,6 +5008,86 @@ import modules.signal_feed    as _sfeed
 import modules.indicators     as _ind
 import modules.signal_analyst as _sa
 
+# ── Signal context store — holds indicator snapshot per user between signal and outcome tap ──
+# Key: (user_id, asset, direction, minutes_str)  →  {indicator dict}
+# Entries expire after 30 minutes (cleaned lazily on writes).
+import time as _time_mod
+_SIGNAL_CTX: dict = {}
+_SIGNAL_CTX_TTL = 1800  # 30 minutes
+
+def _signal_ctx_set(user_id: int, asset: str, direction: str, minutes: int, ind: dict):
+    """Store indicator snapshot for a pending signal outcome."""
+    _signal_ctx_cleanup()
+    _SIGNAL_CTX[(user_id, asset, direction, str(minutes))] = (_time_mod.monotonic(), ind)
+
+def _signal_ctx_get(user_id: int, asset: str, direction: str, minutes: str) -> dict:
+    """Retrieve (and remove) indicator snapshot; returns {} if expired/missing."""
+    key = (user_id, asset, direction, minutes)
+    entry = _SIGNAL_CTX.pop(key, None)
+    if entry is None:
+        return {}
+    stored_at, ind = entry
+    if _time_mod.monotonic() - stored_at > _SIGNAL_CTX_TTL:
+        return {}
+    return ind
+
+def _signal_ctx_cleanup():
+    """Remove expired entries from the context store."""
+    now = _time_mod.monotonic()
+    expired = [k for k, (t, _) in _SIGNAL_CTX.items() if now - t > _SIGNAL_CTX_TTL]
+    for k in expired:
+        _SIGNAL_CTX.pop(k, None)
+
+def _query_recent_losses(asset: str, direction: str, limit: int = 5) -> list:
+    """Return up to `limit` recent losing indicator snapshots for asset+direction."""
+    from modules.database import get_connection
+    conn = get_connection()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT rsi, macd_cross, bb_position, ema_trend, patterns
+                   FROM signal_feedback
+                   WHERE asset = %s AND direction = %s AND outcome = 'loss'
+                   ORDER BY created_at DESC
+                   LIMIT %s""",
+                (asset, direction, limit),
+            )
+            rows = cur.fetchall()
+        return [
+            {"rsi": r[0], "macd_cross": r[1], "bb_position": r[2],
+             "ema_trend": r[3], "patterns": r[4]}
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"[signal] query_recent_losses error: {e}")
+        return []
+
+def _insert_signal_feedback(telegram_id: int, asset: str, direction: str,
+                             minutes: int, ind: dict, outcome: str):
+    """Insert a signal feedback row into the DB."""
+    from modules.database import get_connection
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        patterns_val = ", ".join(ind.get("patterns", [])) if isinstance(ind.get("patterns"), list) else str(ind.get("patterns", ""))
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO signal_feedback
+                   (telegram_id, asset, direction, timeframe_minutes,
+                    rsi, macd_cross, bb_position, ema_trend, patterns, outcome)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    telegram_id, asset, direction, minutes,
+                    ind.get("rsi"), ind.get("macd_cross"), ind.get("bb_position"),
+                    ind.get("ema_trend"), patterns_val or None, outcome,
+                ),
+            )
+    except Exception as e:
+        print(f"[signal] insert_signal_feedback error: {e}")
+
 _SIG_CATEGORIES = [
     ("📊 OTC Classic",  "otc_classic"),
     ("🪙 OTC Crypto",   "otc_crypto"),
@@ -5208,9 +5288,21 @@ async def sig_tf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"[/signal] indicator error: {e}")
         ind = {}
 
-    # Call Claude
+    # Query recent losses for this asset+direction to feed into Claude
     try:
-        sig = await _sa.analyse(display_name, interval, price_info, ind)
+        recent_losses = _query_recent_losses(display_name, "UP")  # placeholder; updated below after direction known
+    except Exception:
+        recent_losses = []
+
+    # Call Claude (with loss history injected after we know direction — pre-query both)
+    recent_losses_up   = _query_recent_losses(display_name, "UP")
+    recent_losses_down = _query_recent_losses(display_name, "DOWN")
+
+    try:
+        # Pass whichever loss list is relevant; we'll do a second pass if direction flips
+        combined_losses = recent_losses_up + recent_losses_down
+        sig = await _sa.analyse(display_name, interval, price_info, ind,
+                                recent_losses=combined_losses or None)
     except Exception as e:
         print(f"[/signal] analyst error: {e}")
         sig = None
@@ -5244,18 +5336,86 @@ async def sig_tf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Token generation: <code>{token_code}</code>"
     )
 
-    back_kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔙 Back", callback_data=f"sig_back:{cat}")
-    ]])
+    # Store indicator snapshot so the outcome callback can persist it
+    user_id = query.from_user.id
+    _signal_ctx_set(user_id, display_name, direction, minutes, ind)
+
+    # Build keyboard: [✅ Profit] [❌ Loss] / [🔙 Back]
+    outcome_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Profit", callback_data=f"sig_out:{display_name}:{direction}:{minutes}:profit"),
+            InlineKeyboardButton("❌ Loss",   callback_data=f"sig_out:{display_name}:{direction}:{minutes}:loss"),
+        ],
+        [InlineKeyboardButton("🔙 Back", callback_data=f"sig_back:{cat}")],
+    ])
 
     try:
         await query.edit_message_text(
             ae(signal_text),
             parse_mode=ParseMode.HTML,
-            reply_markup=back_kb,
+            reply_markup=outcome_kb,
         )
     except Exception as e:
         print(f"[/signal] edit signal message failed: {e}")
+
+
+async def sig_outcome_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User tapped ✅ Profit or ❌ Loss after a signal — record it and update the message."""
+    query = update.callback_query
+
+    # Format: sig_out:{asset}:{direction}:{minutes}:{outcome}
+    # Use maxsplit=4 so asset names with colons don't break parsing
+    parts = query.data.split(":", 4)
+    if len(parts) < 5:
+        await query.answer("⚠️ Invalid feedback data.")
+        return
+
+    _, asset, direction, minutes_str, outcome = parts
+
+    # Acknowledge with a popup immediately
+    label = "Profit ✅" if outcome == "profit" else "Loss ❌"
+    await query.answer(f"📊 Recorded as {label} — thanks for the feedback!", show_alert=False)
+
+    user_id = query.from_user.id
+
+    # Retrieve stored indicator snapshot (consumed — prevents double-submit from context side)
+    ind = _signal_ctx_get(user_id, asset, direction, minutes_str)
+
+    # Persist to DB (fire-and-forget; errors logged but don't break UX)
+    try:
+        _insert_signal_feedback(
+            telegram_id=user_id,
+            asset=asset,
+            direction=direction,
+            minutes=int(minutes_str),
+            ind=ind,
+            outcome=outcome,
+        )
+    except Exception as e:
+        print(f"[sig_outcome] DB insert error: {e}")
+
+    # Edit the message: remove outcome buttons, keep Back button, append result line
+    # Determine the category for Back button
+    cat = "otc_classic"
+    for c, assets in _SIG_ASSET_LISTS.items():
+        if any(e[0] == asset for e in assets):
+            cat = c
+            break
+
+    back_only_kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔙 Back", callback_data=f"sig_back:{cat}")
+    ]])
+
+    try:
+        original = query.message.text or ""
+        updated_text = original + f"\n\n📊 <b>Result recorded:</b> {label}"
+        await query.edit_message_text(
+            ae(updated_text),
+            parse_mode=ParseMode.HTML,
+            reply_markup=back_only_kb,
+        )
+    except Exception as e:
+        print(f"[sig_outcome] edit message error: {e}")
 
 
 @require_approval
@@ -13167,7 +13327,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
 
     # Let dedicated handlers process signal callbacks — don't consume them here
-    if query.data and query.data.startswith(("sig_cat:", "sig_pair:", "sig_back:", "sig_home", "sig_tf:")):
+    if query.data and query.data.startswith(("sig_cat:", "sig_pair:", "sig_back:", "sig_home", "sig_tf:", "sig_out:")):
         return
 
     await query.answer()
@@ -21027,11 +21187,12 @@ def main():
     application.add_handler(CallbackQueryHandler(download_delivery_callback, pattern="^dldel_"))
     application.add_handler(CallbackQueryHandler(cb_magic, pattern="^magic:"))
     # Pocket Option signal callbacks — must be before the catch-all button_callback
-    application.add_handler(CallbackQueryHandler(sig_home_callback, pattern="^sig_home$"))
-    application.add_handler(CallbackQueryHandler(sig_cat_callback,  pattern="^sig_cat:"))
-    application.add_handler(CallbackQueryHandler(sig_back_callback, pattern="^sig_back:"))
-    application.add_handler(CallbackQueryHandler(sig_pair_callback, pattern="^sig_pair:"))
-    application.add_handler(CallbackQueryHandler(sig_tf_callback,   pattern="^sig_tf:"))
+    application.add_handler(CallbackQueryHandler(sig_home_callback,    pattern="^sig_home$"))
+    application.add_handler(CallbackQueryHandler(sig_cat_callback,     pattern="^sig_cat:"))
+    application.add_handler(CallbackQueryHandler(sig_back_callback,    pattern="^sig_back:"))
+    application.add_handler(CallbackQueryHandler(sig_pair_callback,    pattern="^sig_pair:"))
+    application.add_handler(CallbackQueryHandler(sig_tf_callback,      pattern="^sig_tf:"))
+    application.add_handler(CallbackQueryHandler(sig_outcome_callback, pattern="^sig_out:"))
     application.add_handler(CallbackQueryHandler(button_callback))
     
     application.add_handler(CommandHandler("address", cmd_address))
