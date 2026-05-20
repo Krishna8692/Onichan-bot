@@ -357,7 +357,13 @@ async def _yf_candles(ticker: str, interval: str) -> List[Dict]:
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 async def get_candles(display_name: str, interval: str = "5m") -> List[Dict]:
-    """Return up to 50 OHLCV candles for the given Pocket Option display name."""
+    """Return up to 100 OHLCV candles for the given Pocket Option display name.
+
+    Source priority:
+      crypto  → Binance (real-time) → CoinGecko (fallback)
+      forex   → Yahoo Finance v8 JSON API (fast, no library) → yfinance (fallback)
+      stock   → Yahoo Finance v8 JSON API → yfinance (fallback)
+    """
     cache_key = f"{display_name}:{interval}"
     now = time.time()
     hit = _CANDLE_CACHE.get(cache_key)
@@ -370,28 +376,40 @@ async def get_candles(display_name: str, interval: str = "5m") -> List[Dict]:
     _, _, ticker, kind = entry
 
     if kind == "crypto":
-        candles = await _cg_candles(ticker, interval)
+        # Primary: Binance (real-time 1-second delayed)
+        candles = await _binance_candles(ticker, interval)
         if not candles:
-            # Fallback: use yfinance with Binance-style ticker
-            yf_ticker = ticker.upper().replace("bitcoin", "BTC").replace("ethereum", "ETH") + "-USD"
-            try:
-                coin_map = {"bitcoin": "BTC-USD", "ethereum": "ETH-USD", "litecoin": "LTC-USD",
-                            "ripple": "XRP-USD", "cardano": "ADA-USD", "solana": "SOL-USD",
-                            "dogecoin": "DOGE-USD", "binancecoin": "BNB-USD",
-                            "avalanche-2": "AVAX-USD", "polkadot": "DOT-USD"}
-                yf_ticker = coin_map.get(ticker, ticker.upper() + "-USD")
-            except Exception:
-                pass
+            # Fallback: CoinGecko OHLC
+            candles = await _cg_candles(ticker, interval)
+        if not candles:
+            # Last resort: yfinance via library
+            coin_map = {
+                "bitcoin": "BTC-USD", "ethereum": "ETH-USD", "litecoin": "LTC-USD",
+                "ripple": "XRP-USD", "cardano": "ADA-USD", "solana": "SOL-USD",
+                "dogecoin": "DOGE-USD", "binancecoin": "BNB-USD",
+                "avalanche-2": "AVAX-USD", "polkadot": "DOT-USD",
+            }
+            yf_ticker = coin_map.get(ticker, ticker.upper() + "-USD")
             candles = await _yf_candles(yf_ticker, interval)
     else:
-        candles = await _yf_candles(ticker, interval)
+        # Primary: Yahoo Finance v8 JSON API (faster than yfinance library)
+        candles = await _yahoo_candles(ticker, interval)
+        if not candles:
+            # Fallback: yfinance library
+            candles = await _yf_candles(ticker, interval)
 
     _CANDLE_CACHE[cache_key] = (now, candles)
     return candles
 
 
 async def get_price(display_name: str) -> Optional[Dict]:
-    """Return {price, change_pct} for the given asset. Cached 15 s."""
+    """Return {price, change_pct} for the given asset. Cached 15 s.
+
+    Source priority:
+      crypto → Binance 24hr ticker → CoinGecko
+      forex  → Yahoo Finance v8 JSON API (fast)
+      stock  → Yahoo Finance v8 JSON API (fast)
+    """
     now = time.time()
     hit = _PRICE_CACHE.get(display_name)
     if hit and (now - hit[0]) < _PRICE_TTL:
@@ -403,9 +421,11 @@ async def get_price(display_name: str) -> Optional[Dict]:
     _, _, ticker, kind = entry
 
     if kind == "crypto":
-        data = await _cg_price(ticker)
+        data = await _binance_price(ticker)
+        if not data:
+            data = await _cg_price(ticker)
     else:
-        data = await _yf_price(ticker)
+        data = await _yahoo_price(ticker)
 
     if data:
         _PRICE_CACHE[display_name] = (now, data)

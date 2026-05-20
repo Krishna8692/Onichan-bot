@@ -5452,11 +5452,20 @@ async def sig_tf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dir_word  = "UP" if direction == "UP" else "DOWN"
 
     # Format live price line
+    # OTC pairs are *synthetic* instruments on Pocket Option — their price is
+    # created by PO and always differs from the real market price we show here.
+    is_otc = display_name.upper().endswith(" OTC")
     if price_info:
         price_val = price_info.get("price", 0)
         price_chg = price_info.get("change_pct", 0)
         chg_sign  = "+" if price_chg >= 0 else ""
-        price_line = f"💰 <b>Live price:</b> <code>{price_val:.5f}</code>  <i>({chg_sign}{price_chg:.2f}%)</i>\n"
+        if is_otc:
+            price_line = (
+                f"💰 <b>Market ref price:</b> <code>{price_val:.5f}</code>  "
+                f"<i>({chg_sign}{price_chg:.2f}%) — PO OTC quote differs (synthetic)</i>\n"
+            )
+        else:
+            price_line = f"💰 <b>Live price:</b> <code>{price_val:.5f}</code>  <i>({chg_sign}{price_chg:.2f}%)</i>\n"
     else:
         price_line = ""
 
