@@ -169,6 +169,92 @@ def detect_patterns(candles: List[Dict]) -> List[str]:
     return patterns
 
 
+# ── Quick strategy backtest ────────────────────────────────────────────────────
+def backtest_signal(candles: List[Dict], timeframe_candles: int = 1) -> Dict[str, Any]:
+    """
+    Replay the current indicator strategy over historical candles to measure
+    how often RSI+MACD+EMA alignment correctly predicted the next move.
+
+    For each test window (needs at least 50 candles of history), we look at
+    the indicator state at that point and predict UP/DOWN using simple rules,
+    then check whether close[i+timeframe_candles] > close[i] (UP) or not.
+
+    Returns:
+        {win_rate: float, wins: int, tested: int, grade: str}
+        grade: "Strong" / "Moderate" / "Weak" / "Insufficient data"
+    """
+    # Need enough history: 50 for indicators + at least 10 test windows + lookahead
+    min_candles = 50 + timeframe_candles + 10
+    if len(candles) < min_candles:
+        return {"win_rate": 0.0, "wins": 0, "tested": 0, "grade": "Insufficient data"}
+
+    closes = _closes(candles)
+
+    # Test windows: every candle from index 49 up to len-timeframe_candles-1
+    wins = 0
+    tested = 0
+    test_start = 49
+    test_end = len(candles) - timeframe_candles - 1
+
+    for i in range(test_start, test_end):
+        sub = closes[:i + 1]
+        if len(sub) < 30:
+            continue
+
+        # Simple rule-based prediction at point i
+        signals_up = 0
+        signals_down = 0
+
+        # RSI signal
+        r = rsi(sub)
+        if r is not None:
+            if r < 40:
+                signals_up += 1
+            elif r > 60:
+                signals_down += 1
+
+        # MACD signal
+        m, s, _ = macd(sub)
+        if m is not None and s is not None:
+            if m > s:
+                signals_up += 1
+            else:
+                signals_down += 1
+
+        # EMA trend (9 vs 21)
+        e9  = ema(sub, 9)
+        e21 = ema(sub, 21)
+        if e9 and e21:
+            if e9[-1] > e21[-1]:
+                signals_up += 1
+            else:
+                signals_down += 1
+
+        if signals_up == signals_down:
+            continue  # no clear signal — skip
+
+        predicted_up = signals_up > signals_down
+        actual_up = closes[i + timeframe_candles] > closes[i]
+
+        if predicted_up == actual_up:
+            wins += 1
+        tested += 1
+
+    if tested == 0:
+        return {"win_rate": 0.0, "wins": 0, "tested": 0, "grade": "Insufficient data"}
+
+    win_rate = round(wins / tested * 100, 1)
+
+    if win_rate >= 65:
+        grade = "Strong"
+    elif win_rate >= 55:
+        grade = "Moderate"
+    else:
+        grade = "Weak"
+
+    return {"win_rate": win_rate, "wins": wins, "tested": tested, "grade": grade}
+
+
 # ── Main compute function ──────────────────────────────────────────────────────
 def compute(candles: List[Dict]) -> Dict[str, Any]:
     """Compute all indicators from OHLCV candle list. Returns flat dict."""

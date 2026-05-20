@@ -5273,36 +5273,44 @@ async def sig_tf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    # Fetch candles + price
+    # Fetch candles + price in parallel for speed
     try:
-        candles    = await _sfeed.get_candles(display_name, interval)
-        price_info = await _sfeed.get_price(display_name)
+        candles, price_info = await asyncio.gather(
+            _sfeed.get_candles(display_name, interval),
+            _sfeed.get_price(display_name),
+        )
     except Exception as e:
         print(f"[/signal] data fetch error for {display_name}: {e}")
         candles, price_info = [], None
 
-    # Compute indicators
+    # Compute indicators + run quick strategy backtest in parallel
     try:
         ind = _ind.compute(candles) if candles else {}
     except Exception as e:
         print(f"[/signal] indicator error: {e}")
         ind = {}
 
-    # Query recent losses for this asset+direction to feed into Claude
     try:
-        recent_losses = _query_recent_losses(display_name, "UP")  # placeholder; updated below after direction known
+        bt = _ind.backtest_signal(candles, timeframe_candles=minutes) if candles else {}
+    except Exception as e:
+        print(f"[/signal] backtest error: {e}")
+        bt = {}
+
+    # Query recent user-reported losses for this asset (both directions)
+    try:
+        losses_up   = _query_recent_losses(display_name, "UP")
+        losses_down = _query_recent_losses(display_name, "DOWN")
+        combined_losses = losses_up + losses_down
     except Exception:
-        recent_losses = []
+        combined_losses = []
 
-    # Call Claude (with loss history injected after we know direction — pre-query both)
-    recent_losses_up   = _query_recent_losses(display_name, "UP")
-    recent_losses_down = _query_recent_losses(display_name, "DOWN")
-
+    # Call Claude with full context: live indicators, backtest result, loss history
     try:
-        # Pass whichever loss list is relevant; we'll do a second pass if direction flips
-        combined_losses = recent_losses_up + recent_losses_down
-        sig = await _sa.analyse(display_name, interval, price_info, ind,
-                                recent_losses=combined_losses or None)
+        sig = await _sa.analyse(
+            display_name, interval, price_info, ind,
+            recent_losses=combined_losses or None,
+            backtest=bt or None,
+        )
     except Exception as e:
         print(f"[/signal] analyst error: {e}")
         sig = None
@@ -5322,9 +5330,30 @@ async def sig_tf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dir_arrow = "↑" if direction == "UP" else "↓"
     dir_word  = "UP" if direction == "UP" else "DOWN"
 
+    # Format live price line
+    if price_info:
+        price_val = price_info.get("price", 0)
+        price_chg = price_info.get("change_pct", 0)
+        chg_sign  = "+" if price_chg >= 0 else ""
+        price_line = f"💰 <b>Live price:</b> <code>{price_val:.5f}</code>  <i>({chg_sign}{price_chg:.2f}%)</i>\n"
+    else:
+        price_line = ""
+
+    # Format backtest line
+    if bt and bt.get("tested", 0) >= 5:
+        bt_emoji = "🟢" if bt["grade"] == "Strong" else ("🟡" if bt["grade"] == "Moderate" else "🔴")
+        bt_line = (
+            f"{bt_emoji} <b>Strategy test:</b> {bt['win_rate']}% win rate "
+            f"over {bt['tested']} historical setups ({bt['grade']})\n"
+        )
+    else:
+        bt_line = ""
+
     signal_text = (
-        f"<b>{html.escape(display_name)} | {minutes} min | {dir_word} {dir_arrow}</b>\n\n"
-        f"<b>Rules for the signal:</b>\n\n"
+        f"<b>{html.escape(display_name)} | {minutes} min | {dir_word} {dir_arrow}</b>\n"
+        f"{price_line}"
+        f"{bt_line}"
+        f"\n<b>Rules for the signal:</b>\n\n"
         f"{_SIGNAL_RULES}\n\n"
         f"<b>AI report:</b>\n"
         f"{html.escape(data_note)} Chart analyzed via SnipeSpy 1.42 system "

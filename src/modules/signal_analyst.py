@@ -35,7 +35,8 @@ def _gen_code() -> str:
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 def _build_prompt(asset: str, interval: str, price_info: Optional[Dict], ind: Dict[str, Any],
-                  recent_losses: Optional[list] = None) -> str:
+                  recent_losses: Optional[list] = None,
+                  backtest: Optional[Dict] = None) -> str:
     price_str = f"{price_info['price']:.6f}" if price_info else "N/A"
     chg_str   = f"{price_info['change_pct']:+.2f}%" if price_info else "N/A"
 
@@ -46,6 +47,14 @@ def _build_prompt(asset: str, interval: str, price_info: Optional[Dict], ind: Di
     ) or "  (no data)"
 
     patterns = ", ".join(ind.get("patterns", [])) or "None detected"
+
+    backtest_block = ""
+    if backtest and backtest.get("tested", 0) >= 5:
+        backtest_block = (
+            f"\n\nHISTORICAL STRATEGY BACKTEST (RSI+MACD+EMA rules on this asset, last {backtest['tested']} windows):\n"
+            f"  Win rate: {backtest['win_rate']}% ({backtest['wins']}/{backtest['tested']}) — {backtest['grade']}\n"
+            f"  {'Use this to calibrate your confidence range.' if backtest['win_rate'] >= 55 else 'Low historical accuracy — be conservative with confidence range.'}"
+        )
 
     loss_block = ""
     if recent_losses:
@@ -80,7 +89,7 @@ TECHNICAL INDICATORS:
 - Candlestick patterns: {patterns}
 
 LAST 5 CANDLES (oldest → newest):
-{recent_str}{loss_block}
+{recent_str}{backtest_block}{loss_block}
 
 VALID POCKET OPTION EXPIRY TIMES (minutes): 1, 2, 3, 5, 10, 15
 
@@ -108,7 +117,8 @@ Return ONLY valid JSON, no other text:
 # ── Claude call ────────────────────────────────────────────────────────────────
 async def analyse(asset: str, interval: str,
                   price_info: Optional[Dict], indicators: Dict[str, Any],
-                  recent_losses: Optional[list] = None) -> Optional[Dict]:
+                  recent_losses: Optional[list] = None,
+                  backtest: Optional[Dict] = None) -> Optional[Dict]:
     """
     Call Claude and return a signal dict:
     {direction, expiry_minutes, accuracy_low, accuracy_high,
@@ -119,13 +129,13 @@ async def analyse(asset: str, interval: str,
     Results are cached for 60 seconds per (asset, interval) pair to avoid
     duplicate API calls when multiple users request the same signal.
     enc_code and token_code are always freshly generated per serve.
-    If recent_losses is provided, the prompt will include a section warning
-    Claude to avoid those indicator setups.
+    If recent_losses or backtest is provided the cache is bypassed so each
+    call gets personalised context.
     """
     cache_key = (asset, interval)
     now = time.monotonic()
-    # Only use cache when there are no loss patterns to inject (cache is shared across users)
-    if not recent_losses:
+    # Only use cache for plain requests with no extra context
+    if not recent_losses and not backtest:
         cached = _CACHE.get(cache_key)
         if cached is not None:
             cached_at, cached_signal = cached
@@ -137,7 +147,7 @@ async def analyse(asset: str, interval: str,
         log.error("Anthropic env vars not set — cannot generate signal")
         return None
 
-    prompt = _build_prompt(asset, interval, price_info, indicators, recent_losses)
+    prompt = _build_prompt(asset, interval, price_info, indicators, recent_losses, backtest)
 
     try:
         import anthropic
