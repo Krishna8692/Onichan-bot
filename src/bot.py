@@ -5088,6 +5088,126 @@ def _insert_signal_feedback(telegram_id: int, asset: str, direction: str,
     except Exception as e:
         print(f"[signal] insert_signal_feedback error: {e}")
 
+
+def _query_user_signal_stats(telegram_id: int) -> Optional[dict]:
+    """Return stats and recent history for a user from signal_feedback.
+
+    Returns None if the user has no rows, otherwise a dict with:
+      total, profits, losses, win_rate, recent (list of up to 10 dicts).
+    """
+    from modules.database import get_connection
+    conn = get_connection()
+    if not conn:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN outcome = 'profit' THEN 1 ELSE 0 END) AS profits,
+                       SUM(CASE WHEN outcome = 'loss'   THEN 1 ELSE 0 END) AS losses
+                   FROM signal_feedback
+                   WHERE telegram_id = %s""",
+                (telegram_id,),
+            )
+            row = cur.fetchone()
+            if not row or row[0] == 0:
+                return None
+            total, profits, losses = int(row[0]), int(row[1] or 0), int(row[2] or 0)
+            win_rate = round(profits / total * 100, 1) if total else 0.0
+
+            cur.execute(
+                """SELECT asset, direction, timeframe_minutes, outcome, created_at
+                   FROM signal_feedback
+                   WHERE telegram_id = %s
+                   ORDER BY created_at DESC
+                   LIMIT 10""",
+                (telegram_id,),
+            )
+            recent = [
+                {
+                    "asset":    r[0],
+                    "direction": r[1],
+                    "minutes":  r[2],
+                    "outcome":  r[3],
+                    "date":     r[4],
+                }
+                for r in cur.fetchall()
+            ]
+        return {"total": total, "profits": profits, "losses": losses,
+                "win_rate": win_rate, "recent": recent}
+    except Exception as e:
+        print(f"[signal] query_user_signal_stats error: {e}")
+        return None
+
+
+def _format_mysignals_text(stats: dict) -> str:
+    """Build the HTML message body for /mysignals."""
+    bar_filled = round(stats["win_rate"] / 10)
+    bar = "🟩" * bar_filled + "⬜" * (10 - bar_filled)
+    lines = [
+        "📊 <b>My Signal Stats</b>\n",
+        f"Total signals:  <b>{stats['total']}</b>",
+        f"Profits ✅:     <b>{stats['profits']}</b>",
+        f"Losses ❌:      <b>{stats['losses']}</b>",
+        f"Win rate:       <b>{stats['win_rate']}%</b>",
+        f"{bar}",
+        "",
+        "<b>Recent trades:</b>",
+    ]
+    outcome_icons = {"profit": "✅", "loss": "❌"}
+    for r in stats["recent"]:
+        icon = outcome_icons.get(r["outcome"], "❓")
+        tf = f"{r['minutes']}m"
+        date_str = r["date"].strftime("%b %d") if hasattr(r["date"], "strftime") else str(r["date"])[:10]
+        d = (r["direction"] or "").upper()
+        arrow = "⬆️" if d in ("UP", "CALL") else "⬇️"
+        lines.append(f"  {icon} {r['asset']} {arrow} {tf}  —  {date_str}")
+    return "\n".join(lines)
+
+
+async def cmd_mysignals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show the user their personal signal win-rate and recent trade history."""
+    user_id = update.effective_user.id
+    stats = _query_user_signal_stats(user_id)
+    if stats is None:
+        await update.message.reply_text(
+            ae("📊 <b>No signal history yet.</b>\n\n"
+               "Use /signal to get a trading signal, then tap ✅ Profit or ❌ Loss "
+               "after your trade to start building your stats."),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    text = ae(_format_mysignals_text(stats))
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔙 Back to Signals", callback_data="sig_home")
+    ]])
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+
+async def sig_mystats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inline button — show the user's stats from inside the signal menu."""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    stats = _query_user_signal_stats(user_id)
+    if stats is None:
+        text = ae(
+            "📊 <b>No signal history yet.</b>\n\n"
+            "Get a signal and tap ✅ Profit or ❌ Loss after your trade to "
+            "start building your stats."
+        )
+    else:
+        text = ae(_format_mysignals_text(stats))
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔙 Back to Signals", callback_data="sig_home")
+    ]])
+    try:
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+    except Exception:
+        pass
+
+
 _SIG_CATEGORIES = [
     ("📊 OTC Classic",  "otc_classic"),
     ("🪙 OTC Crypto",   "otc_crypto"),
@@ -5114,6 +5234,7 @@ def _sig_category_keyboard() -> InlineKeyboardMarkup:
     rows = []
     for label, cat in _SIG_CATEGORIES:
         rows.append([InlineKeyboardButton(label, callback_data=f"sig_cat:{cat}")])
+    rows.append([InlineKeyboardButton("📊 My Stats", callback_data="sig_mystats:")])
     rows.append([InlineKeyboardButton("🔙 Back", callback_data="sig_home")])
     return InlineKeyboardMarkup(rows)
 
@@ -13356,7 +13477,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
 
     # Let dedicated handlers process signal callbacks — don't consume them here
-    if query.data and query.data.startswith(("sig_cat:", "sig_pair:", "sig_back:", "sig_home", "sig_tf:", "sig_out:")):
+    if query.data and query.data.startswith(("sig_cat:", "sig_pair:", "sig_back:", "sig_home", "sig_tf:", "sig_out:", "sig_mystats:")):
         return
 
     await query.answer()
@@ -21222,6 +21343,7 @@ def main():
     application.add_handler(CallbackQueryHandler(sig_pair_callback,    pattern="^sig_pair:"))
     application.add_handler(CallbackQueryHandler(sig_tf_callback,      pattern="^sig_tf:"))
     application.add_handler(CallbackQueryHandler(sig_outcome_callback, pattern="^sig_out:"))
+    application.add_handler(CallbackQueryHandler(sig_mystats_callback, pattern="^sig_mystats:"))
     application.add_handler(CallbackQueryHandler(button_callback))
     
     application.add_handler(CommandHandler("address", cmd_address))
@@ -21266,6 +21388,7 @@ def main():
     # Pocket Option signal bot
     application.add_handler(CommandHandler("signal", cmd_signal))
     application.add_handler(CommandHandler("sig", cmd_signal))
+    application.add_handler(CommandHandler("mysignals", cmd_mysignals))
     # Live card paste gate-selection callback
     application.add_handler(CallbackQueryHandler(paste_gate_callback, pattern="^paste_gate:"))
     # BIN shop purchase callback
