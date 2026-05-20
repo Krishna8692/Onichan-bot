@@ -20948,6 +20948,11 @@ def main():
     application.add_handler(CallbackQueryHandler(download_quality_callback, pattern="^dlq_"))
     application.add_handler(CallbackQueryHandler(download_delivery_callback, pattern="^dldel_"))
     application.add_handler(CallbackQueryHandler(cb_magic, pattern="^magic:"))
+    # Pocket Option signal callbacks — must be before the catch-all button_callback
+    application.add_handler(CallbackQueryHandler(sig_home_callback, pattern="^sig_home$"))
+    application.add_handler(CallbackQueryHandler(sig_cat_callback,  pattern="^sig_cat:"))
+    application.add_handler(CallbackQueryHandler(sig_back_callback, pattern="^sig_back:"))
+    application.add_handler(CallbackQueryHandler(sig_pair_callback, pattern="^sig_pair:"))
     application.add_handler(CallbackQueryHandler(button_callback))
     
     application.add_handler(CommandHandler("address", cmd_address))
@@ -20992,10 +20997,6 @@ def main():
     # Pocket Option signal bot
     application.add_handler(CommandHandler("signal", cmd_signal))
     application.add_handler(CommandHandler("sig", cmd_signal))
-    application.add_handler(CallbackQueryHandler(sig_home_callback, pattern="^sig_home$"))
-    application.add_handler(CallbackQueryHandler(sig_cat_callback,  pattern="^sig_cat:"))
-    application.add_handler(CallbackQueryHandler(sig_back_callback, pattern="^sig_back:"))
-    application.add_handler(CallbackQueryHandler(sig_pair_callback, pattern="^sig_pair:"))
     # Live card paste gate-selection callback
     application.add_handler(CallbackQueryHandler(paste_gate_callback, pattern="^paste_gate:"))
     # BIN shop purchase callback
