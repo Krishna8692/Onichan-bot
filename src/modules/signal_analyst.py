@@ -60,13 +60,19 @@ def _build_prompt(asset: str, interval: str, price_info: Optional[Dict], ind: Di
     if recent_losses:
         lines = []
         for i, loss in enumerate(recent_losses[:5], 1):
-            lines.append(
-                f"  {i}. RSI={loss.get('rsi','?')} | MACD cross={loss.get('macd_cross','?')} "
-                f"| BB position={loss.get('bb_position','?')} | EMA trend={loss.get('ema_trend','?')} "
-                f"| Patterns={loss.get('patterns','none')}"
-            )
+            notes = (loss.get("notes") or "").strip()
+            if notes:
+                # Prefer AI-generated loss reason — much more informative for Claude
+                lines.append(f"  {i}. {notes}")
+            else:
+                # Fallback: raw indicators for older rows without notes
+                lines.append(
+                    f"  {i}. RSI={loss.get('rsi','?')} | MACD cross={loss.get('macd_cross','?')} "
+                    f"| BB position={loss.get('bb_position','?')} | EMA trend={loss.get('ema_trend','?')} "
+                    f"| Patterns={loss.get('patterns','none')}"
+                )
         loss_block = (
-            "\n\nRECENT LOSING PATTERNS FOR THIS ASSET TO AVOID (do not replicate these setups):\n"
+            "\n\nRECENT LOSING PATTERNS FOR THIS ASSET — DO NOT replicate these setups:\n"
             + "\n".join(lines)
             + "\n"
         )
@@ -207,6 +213,129 @@ async def analyse(asset: str, interval: str,
         log.error("Claude API call failed: %s", e)
 
     return None
+
+
+# ── Loss analysis ─────────────────────────────────────────────────────────────
+def _rule_based_loss_reason(direction: str, ind: Dict[str, Any]) -> str:
+    """Heuristic loss reason when Claude is unavailable."""
+    reasons = []
+    rsi = ind.get("rsi")
+    bb_pos = str(ind.get("bb_position", "")).lower()
+    ema_trend = str(ind.get("ema_trend", "")).lower()
+
+    if rsi is not None:
+        try:
+            rsi_f = float(rsi)
+            if direction == "UP" and rsi_f > 65:
+                reasons.append(
+                    f"RSI was elevated at {rsi_f:.1f}, signalling overbought conditions "
+                    "where upward momentum was exhausted"
+                )
+            elif direction == "DOWN" and rsi_f < 35:
+                reasons.append(
+                    f"RSI was low at {rsi_f:.1f}, indicating oversold conditions "
+                    "where buyers pushed back unexpectedly"
+                )
+        except (ValueError, TypeError):
+            pass
+
+    if bb_pos:
+        if direction == "UP" and "upper" in bb_pos:
+            reasons.append(
+                "price was pressing against the Bollinger upper band, "
+                "a resistance zone that capped the move"
+            )
+        elif direction == "DOWN" and "lower" in bb_pos:
+            reasons.append(
+                "price was near the Bollinger lower band where support "
+                "was stronger than the signal expected"
+            )
+
+    if "bearish" in ema_trend and direction == "UP":
+        reasons.append(
+            "the EMA stack was in a bearish alignment, meaning the broader "
+            "short-term trend was working against the UP signal"
+        )
+    elif "bullish" in ema_trend and direction == "DOWN":
+        reasons.append(
+            "the EMA stack was in a bullish alignment, meaning the broader "
+            "short-term trend opposed the DOWN signal"
+        )
+
+    if reasons:
+        return (reasons[0].capitalize() + ". " + reasons[1].capitalize() + "." if len(reasons) > 1
+                else reasons[0].capitalize() + ".") + \
+               " This pattern has been logged to avoid repeating it."
+
+    return (
+        "The market produced a sharp counter-move against the signal, likely caused by "
+        "low-liquidity noise or a sudden spike. Short 1-minute expiries are most vulnerable "
+        "to these micro-reversals. This pattern has been logged for future avoidance."
+    )
+
+
+async def analyse_loss(asset: str, interval: str, direction: str,
+                       ind: Dict[str, Any]) -> str:
+    """
+    Ask Claude why a losing signal failed.
+    Returns a 2-3 sentence plain-text explanation.
+    Falls back to rule-based reasoning if Claude is unavailable or slow.
+    """
+    if not _ANTHROPIC_BASE_URL or not _ANTHROPIC_API_KEY:
+        return _rule_based_loss_reason(direction, ind)
+
+    rsi       = ind.get("rsi", "N/A")
+    macd_x    = ind.get("macd_cross", "N/A")
+    bb_pos    = ind.get("bb_position", "N/A")
+    ema_trend = ind.get("ema_trend", "N/A")
+    atr       = ind.get("atr", "N/A")
+    patterns  = ", ".join(ind.get("patterns", [])) if isinstance(ind.get("patterns"), list) \
+                else str(ind.get("patterns", "None"))
+
+    prompt = (
+        f"A binary options trade on {asset} expired as a LOSS.\n"
+        f"Signal: {direction} | Expiry: {interval}\n\n"
+        f"Indicator state at signal time:\n"
+        f"- RSI(14): {rsi}\n"
+        f"- MACD cross: {macd_x}\n"
+        f"- EMA trend: {ema_trend}\n"
+        f"- Bollinger Band position: {bb_pos}\n"
+        f"- ATR(14): {atr}\n"
+        f"- Candlestick patterns: {patterns}\n\n"
+        "In exactly 2-3 sentences explain the most likely technical reason(s) this "
+        f"{direction} signal failed. Be specific — name which indicator gave a false "
+        "signal or what market condition caused the reversal. No preamble.\n\n"
+        'Return ONLY valid JSON: {"reason": "your explanation here"}'
+    )
+
+    try:
+        import anthropic
+        import asyncio
+        client = anthropic.Anthropic(base_url=_ANTHROPIC_BASE_URL, api_key=_ANTHROPIC_API_KEY)
+        loop = asyncio.get_running_loop()
+
+        def _call():
+            return client.messages.create(
+                model="claude-opus-4-7",
+                max_tokens=256,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+        response = await loop.run_in_executor(None, _call)
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        data = json.loads(raw)
+        reason = str(data.get("reason", "")).strip()
+        if reason:
+            return reason
+    except Exception as e:
+        log.warning("analyse_loss Claude call failed: %s", e)
+
+    return _rule_based_loss_reason(direction, ind)
 
 
 # ── Fallback signal (when Claude is unavailable) ───────────────────────────────

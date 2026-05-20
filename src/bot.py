@@ -5039,7 +5039,8 @@ def _signal_ctx_cleanup():
         _SIGNAL_CTX.pop(k, None)
 
 def _query_recent_losses(asset: str, direction: str, limit: int = 5) -> list:
-    """Return up to `limit` recent losing indicator snapshots for asset+direction."""
+    """Return up to `limit` recent losing indicator snapshots for asset+direction.
+    Includes `notes` (AI loss reason) when available so Claude gets readable context."""
     from modules.database import get_connection
     conn = get_connection()
     if not conn:
@@ -5047,7 +5048,7 @@ def _query_recent_losses(asset: str, direction: str, limit: int = 5) -> list:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT rsi, macd_cross, bb_position, ema_trend, patterns
+                """SELECT rsi, macd_cross, bb_position, ema_trend, patterns, notes
                    FROM signal_feedback
                    WHERE asset = %s AND direction = %s AND outcome = 'loss'
                    ORDER BY created_at DESC
@@ -5057,7 +5058,7 @@ def _query_recent_losses(asset: str, direction: str, limit: int = 5) -> list:
             rows = cur.fetchall()
         return [
             {"rsi": r[0], "macd_cross": r[1], "bb_position": r[2],
-             "ema_trend": r[3], "patterns": r[4]}
+             "ema_trend": r[3], "patterns": r[4], "notes": r[5]}
             for r in rows
         ]
     except Exception as e:
@@ -5065,8 +5066,10 @@ def _query_recent_losses(asset: str, direction: str, limit: int = 5) -> list:
         return []
 
 def _insert_signal_feedback(telegram_id: int, asset: str, direction: str,
-                             minutes: int, ind: dict, outcome: str):
-    """Insert a signal feedback row into the DB."""
+                             minutes: int, ind: dict, outcome: str,
+                             notes: str | None = None):
+    """Insert a signal feedback row into the DB.
+    Pass notes=<loss reason text> to store AI-generated loss analysis."""
     from modules.database import get_connection
     conn = get_connection()
     if not conn:
@@ -5077,12 +5080,12 @@ def _insert_signal_feedback(telegram_id: int, asset: str, direction: str,
             cur.execute(
                 """INSERT INTO signal_feedback
                    (telegram_id, asset, direction, timeframe_minutes,
-                    rsi, macd_cross, bb_position, ema_trend, patterns, outcome)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    rsi, macd_cross, bb_position, ema_trend, patterns, outcome, notes)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     telegram_id, asset, direction, minutes,
                     ind.get("rsi"), ind.get("macd_cross"), ind.get("bb_position"),
-                    ind.get("ema_trend"), patterns_val or None, outcome,
+                    ind.get("ema_trend"), patterns_val or None, outcome, notes,
                 ),
             )
     except Exception as e:
@@ -5537,23 +5540,9 @@ async def sig_outcome_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     user_id = query.from_user.id
 
-    # Retrieve stored indicator snapshot (consumed — prevents double-submit from context side)
+    # Retrieve stored indicator snapshot (consumed — prevents double-submit)
     ind = _signal_ctx_get(user_id, asset, direction, minutes_str)
 
-    # Persist to DB (fire-and-forget; errors logged but don't break UX)
-    try:
-        _insert_signal_feedback(
-            telegram_id=user_id,
-            asset=asset,
-            direction=direction,
-            minutes=int(minutes_str),
-            ind=ind,
-            outcome=outcome,
-        )
-    except Exception as e:
-        print(f"[sig_outcome] DB insert error: {e}")
-
-    # Edit the message: remove outcome buttons, keep Back button, append result line
     # Determine the category for Back button
     cat = "otc_classic"
     for c, assets in _SIG_ASSET_LISTS.items():
@@ -5565,6 +5554,7 @@ async def sig_outcome_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         InlineKeyboardButton("🔙 Back", callback_data=f"sig_back:{cat}")
     ]])
 
+    # Edit the message immediately to remove outcome buttons
     try:
         original = query.message.text or ""
         updated_text = original + f"\n\n📊 <b>Result recorded:</b> {label}"
@@ -5575,6 +5565,62 @@ async def sig_outcome_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     except Exception as e:
         print(f"[sig_outcome] edit message error: {e}")
+
+    # ── Loss analysis flow ────────────────────────────────────────────────────
+    loss_reason: str | None = None
+    if outcome == "loss":
+        # Show a "thinking..." message while analysis runs
+        thinking_msg = None
+        try:
+            thinking_msg = await query.message.reply_text(
+                "🔍 <b>Analysing why this trade lost…</b>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+
+        # Ask Claude (or rule-based fallback) for the loss reason
+        try:
+            interval_label = f"{minutes_str} min"
+            loss_reason = await _sa.analyse_loss(asset, interval_label, direction, ind or {})
+        except Exception as e:
+            print(f"[sig_outcome] analyse_loss error: {e}")
+            loss_reason = None
+
+        # Replace the thinking message with the actual analysis
+        analysis_text = (
+            f"🔍 <b>Loss Analysis — {asset} {direction} ↕</b>\n\n"
+            f"{loss_reason or 'Market moved against the signal unexpectedly.'}\n\n"
+            f"📚 <i>This pattern has been logged. Future signals for this pair will "
+            f"account for it to improve accuracy.</i>"
+        )
+        try:
+            if thinking_msg:
+                await thinking_msg.edit_text(
+                    ae(analysis_text),
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                await query.message.reply_text(
+                    ae(analysis_text),
+                    parse_mode=ParseMode.HTML,
+                )
+        except Exception as e:
+            print(f"[sig_outcome] send analysis error: {e}")
+
+    # Persist to DB — include loss_reason in notes for future prompt context
+    try:
+        _insert_signal_feedback(
+            telegram_id=user_id,
+            asset=asset,
+            direction=direction,
+            minutes=int(minutes_str),
+            ind=ind or {},
+            outcome=outcome,
+            notes=loss_reason,
+        )
+    except Exception as e:
+        print(f"[sig_outcome] DB insert error: {e}")
 
 
 @require_approval

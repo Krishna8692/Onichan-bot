@@ -603,6 +603,7 @@ def _create_tables():
                 )
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_sfb_asset ON signal_feedback(asset, direction, created_at DESC)")
+            cur.execute("ALTER TABLE signal_feedback ADD COLUMN IF NOT EXISTS notes TEXT")
 
         # Casino tables
         from modules.casino import _init_casino_tables, start_cleanup_scheduler
