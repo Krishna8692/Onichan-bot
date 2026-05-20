@@ -124,7 +124,7 @@ for _lst in (OTC_CLASSIC, OTC_CRYPTO, FOREX_LIVE, STOCKS_OTC):
 
 
 # ── CoinGecko candles ──────────────────────────────────────────────────────────
-_CG_OHLC_DAYS = {"1m": 1, "5m": 1, "15m": 2, "1h": 7, "4h": 14}
+_CG_OHLC_DAYS = {"1m": 1, "2m": 1, "3m": 1, "5m": 1, "10m": 1, "15m": 2, "1h": 7, "4h": 14}
 
 async def _cg_candles(coin_id: str, interval: str) -> List[Dict]:
     days = _CG_OHLC_DAYS.get(interval, 1)
@@ -147,7 +147,8 @@ async def _cg_candles(coin_id: str, interval: str) -> List[Dict]:
 
 
 # ── yfinance candles (forex + stocks) ─────────────────────────────────────────
-_YF_PERIOD_MAP = {"1m": ("1d", "1m"), "5m": ("5d", "5m"), "15m": ("5d", "15m"),
+_YF_PERIOD_MAP = {"1m": ("1d", "1m"), "2m": ("1d", "2m"), "3m": ("1d", "1m"),
+                  "5m": ("5d", "5m"), "10m": ("5d", "5m"), "15m": ("5d", "15m"),
                   "1h": ("7d", "1h"), "4h": ("14d", "1h")}
 
 def _yf_candles_sync(ticker: str, interval: str) -> List[Dict]:

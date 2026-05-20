@@ -5111,12 +5111,70 @@ async def sig_back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
+_SIG_TIMEFRAMES = [
+    ("1 min",  "1m",  1),
+    ("2 min",  "2m",  2),
+    ("3 min",  "3m",  3),
+    ("5 min",  "5m",  5),
+    ("10 min", "10m", 10),
+    ("15 min", "15m", 15),
+]
+
+
+def _sig_tf_keyboard(display_name: str) -> InlineKeyboardMarkup:
+    """Timeframe selection keyboard shown after a pair is chosen."""
+    rows = []
+    row = []
+    for label, interval, minutes in _SIG_TIMEFRAMES:
+        row.append(InlineKeyboardButton(
+            label,
+            callback_data=f"sig_tf:{display_name}:{minutes}",
+        ))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    # Determine category for Back button
+    cat = "otc_classic"
+    for c, assets in _SIG_ASSET_LISTS.items():
+        if any(e[0] == display_name for e in assets):
+            cat = c
+            break
+    rows.append([InlineKeyboardButton("🔙 Back", callback_data=f"sig_back:{cat}")])
+    return InlineKeyboardMarkup(rows)
+
+
 async def sig_pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User selected a pair — fetch data, call Claude, show signal."""
+    """User selected a pair — ask which timeframe they want."""
+    query = update.callback_query
+    await query.answer()
+
+    display_name = query.data.split(":", 1)[1]
+
+    try:
+        await query.edit_message_text(
+            ae(f"⏱ <b>Select timeframe for {html.escape(display_name)}</b>\n\n"
+               "Choose the candle interval for your signal:"),
+            parse_mode=ParseMode.HTML,
+            reply_markup=_sig_tf_keyboard(display_name),
+        )
+    except Exception:
+        pass
+
+
+async def sig_tf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User selected a timeframe — fetch data, call Claude, show signal."""
     query = update.callback_query
     await query.answer("⏳ Analysing…")
 
-    display_name = query.data.split(":", 1)[1]
+    parts = query.data.split(":", 2)
+    display_name = parts[1]
+    minutes = int(parts[2])
+
+    # Map minutes → interval string for get_candles()
+    _MINUTES_TO_INTERVAL = {1: "1m", 2: "2m", 3: "3m", 5: "5m", 10: "10m", 15: "15m"}
+    interval = _MINUTES_TO_INTERVAL.get(minutes, "5m")
 
     # Determine which category this pair belongs to (for Back button)
     cat = "otc_classic"
@@ -5128,7 +5186,7 @@ async def sig_pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Show loading state
     try:
         await query.edit_message_text(
-            ae(f"⏳ <b>Analysing {html.escape(display_name)}…</b>\n\n"
+            ae(f"⏳ <b>Analysing {html.escape(display_name)} ({minutes} min)…</b>\n\n"
                "Fetching live chart data and running AI analysis. Please wait…"),
             parse_mode=ParseMode.HTML,
         )
@@ -5136,9 +5194,8 @@ async def sig_pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
     # Fetch candles + price
-    interval = "5m"
     try:
-        candles   = await _sfeed.get_candles(display_name, interval)
+        candles    = await _sfeed.get_candles(display_name, interval)
         price_info = await _sfeed.get_price(display_name)
     except Exception as e:
         print(f"[/signal] data fetch error for {display_name}: {e}")
@@ -5161,21 +5218,20 @@ async def sig_pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not sig:
         sig = _sa.fallback_signal(display_name)
 
-    direction    = sig["direction"]          # "UP" or "DOWN"
-    expiry       = sig["expiry_minutes"]
-    acc_low      = sig["accuracy_low"]
-    acc_high     = sig["accuracy_high"]
-    ind_combo    = sig["indicator_combo"]
-    liq_note     = sig["liquidity_note"]
-    data_note    = sig["data_source_note"]
-    enc_code     = sig["enc_code"]
-    token_code   = sig["token_code"]
+    direction  = sig["direction"]
+    acc_low    = sig["accuracy_low"]
+    acc_high   = sig["accuracy_high"]
+    ind_combo  = sig["indicator_combo"]
+    liq_note   = sig["liquidity_note"]
+    data_note  = sig["data_source_note"]
+    enc_code   = sig["enc_code"]
+    token_code = sig["token_code"]
 
     dir_arrow = "↑" if direction == "UP" else "↓"
     dir_word  = "UP" if direction == "UP" else "DOWN"
 
     signal_text = (
-        f"<b>{html.escape(display_name)} | {expiry} min | {dir_word} {dir_arrow}</b>\n\n"
+        f"<b>{html.escape(display_name)} | {minutes} min | {dir_word} {dir_arrow}</b>\n\n"
         f"<b>Rules for the signal:</b>\n\n"
         f"{_SIGNAL_RULES}\n\n"
         f"<b>AI report:</b>\n"
@@ -21019,6 +21075,7 @@ def main():
     # Pocket Option signal bot
     application.add_handler(CommandHandler("signal", cmd_signal))
     application.add_handler(CommandHandler("sig", cmd_signal))
+    application.add_handler(CallbackQueryHandler(sig_tf_callback,   pattern="^sig_tf:"))
     # Live card paste gate-selection callback
     application.add_handler(CallbackQueryHandler(paste_gate_callback, pattern="^paste_gate:"))
     # BIN shop purchase callback
