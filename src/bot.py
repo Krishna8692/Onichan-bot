@@ -13109,6 +13109,11 @@ Then paste the cards above!
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
     query = update.callback_query
+
+    # Let dedicated handlers process signal callbacks — don't consume them here
+    if query.data and query.data.startswith(("sig_cat:", "sig_pair:", "sig_back:", "sig_home")):
+        return
+
     await query.answer()
     
     user = query.from_user
@@ -20411,6 +20416,23 @@ async def universal_text_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 def main():
     """Start the bot"""
+    # Kill any competing bot.py processes before starting to avoid split-brain polling
+    import subprocess as _sp, signal as _sig
+    try:
+        _r = _sp.run(["pgrep", "-f", "python.*bot\\.py"], capture_output=True, text=True)
+        import os as _os
+        _my_pid = _os.getpid()
+        for _line in _r.stdout.strip().split("\n"):
+            _pid = _line.strip()
+            if _pid and int(_pid) != _my_pid:
+                try:
+                    _os.kill(int(_pid), _sig.SIGTERM)
+                    print(f"🔪 Killed competing bot process PID {_pid}")
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     print("=" * 80)
     print("🎀 ONICHAN BOT - Starting...")
     print("🎨 Hot Sexy Anime GIFs 4K Edition")
