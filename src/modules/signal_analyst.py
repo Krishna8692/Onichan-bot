@@ -9,12 +9,18 @@ import json
 import random
 import string
 import logging
-from typing import Dict, Any, Optional
+import time
+from typing import Dict, Any, Optional, Tuple
 
 log = logging.getLogger("signal_analyst")
 
 _ANTHROPIC_BASE_URL = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "")
 _ANTHROPIC_API_KEY  = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "")
+
+# ── Signal cache ───────────────────────────────────────────────────────────────
+# Keys: (asset, interval)  →  (timestamp, signal_dict_without_codes)
+_CACHE: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
+_CACHE_TTL = 60  # seconds
 
 # ── Decorative code generator ─────────────────────────────────────────────────
 _CHARS = string.ascii_uppercase + string.digits
@@ -92,7 +98,20 @@ async def analyse(asset: str, interval: str,
      indicator_combo, liquidity_note, data_source_note,
      enc_code, token_code}
     Returns None on failure.
+
+    Results are cached for 60 seconds per (asset, interval) pair to avoid
+    duplicate API calls when multiple users request the same signal.
+    enc_code and token_code are always freshly generated per serve.
     """
+    cache_key = (asset, interval)
+    now = time.monotonic()
+    cached = _CACHE.get(cache_key)
+    if cached is not None:
+        cached_at, cached_signal = cached
+        if now - cached_at < _CACHE_TTL:
+            log.debug("Cache hit for %s/%s — skipping Claude call", asset, interval)
+            return {**cached_signal, "enc_code": _gen_code(), "token_code": _gen_code()}
+
     if not _ANTHROPIC_BASE_URL or not _ANTHROPIC_API_KEY:
         log.error("Anthropic env vars not set — cannot generate signal")
         return None
@@ -139,7 +158,7 @@ async def analyse(asset: str, interval: str,
         acc_low  = max(50, min(99, int(data.get("accuracy_low",  72))))
         acc_high = max(acc_low, min(99, int(data.get("accuracy_high", 78))))
 
-        return {
+        cacheable = {
             "direction":        direction,
             "expiry_minutes":   expiry,
             "accuracy_low":     acc_low,
@@ -147,9 +166,9 @@ async def analyse(asset: str, interval: str,
             "indicator_combo":  str(data.get("indicator_combo", "Bollinger Bands 21, RSI 14")),
             "liquidity_note":   str(data.get("liquidity_note",  "Liquidity indicators suggest moderate execution ease.")),
             "data_source_note": str(data.get("data_source_note","Chart quotes obtained from primary source.")),
-            "enc_code":         _gen_code(),
-            "token_code":       _gen_code(),
         }
+        _CACHE[cache_key] = (time.monotonic(), cacheable)
+        return {**cacheable, "enc_code": _gen_code(), "token_code": _gen_code()}
 
     except json.JSONDecodeError as e:
         log.warning("Claude returned non-JSON: %s | raw=%s", e, raw[:200] if 'raw' in dir() else '?')
