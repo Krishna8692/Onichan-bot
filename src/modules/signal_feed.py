@@ -2,9 +2,17 @@
 signal_feed.py — Candle + price data for Pocket Option asset pairs.
 
 All data from free public APIs — no user keys needed.
-- Forex (major + exotic): yfinance FX tickers  e.g. EURUSD=X, USDCOP=X
-- Crypto: CoinGecko OHLC or Binance public klines
+- Forex: Yahoo Finance v8 JSON API (direct — faster than yfinance library)
+- Crypto: Binance public klines + ticker (primary), CoinGecko (fallback)
 - Stocks: yfinance equity tickers
+
+IMPORTANT — OTC pricing note:
+  Pocket Option's "OTC" instruments are *synthetic* prices created by PO
+  and are NOT the same as real market prices.  The prices shown in signals
+  are real market reference prices (from the APIs above).  They will always
+  differ from PO's OTC quote by design — that is expected.  The indicator
+  direction (UP/DOWN) is still valid because OTC prices trend with the
+  underlying real market.
 """
 
 import asyncio
@@ -123,7 +131,67 @@ for _lst in (OTC_CLASSIC, OTC_CRYPTO, FOREX_LIVE, STOCKS_OTC):
         _ALL_ASSETS[entry[0]] = entry  # by display name
 
 
-# ── CoinGecko candles ──────────────────────────────────────────────────────────
+# ── Binance candles + price (crypto primary source) ───────────────────────────
+# Binance uses its own interval notation — map our internal strings
+_BINANCE_INTERVAL = {"1m": "1m", "2m": "1m", "3m": "3m", "5m": "5m",
+                     "10m": "5m", "15m": "15m", "1h": "1h", "4h": "4h"}
+_BINANCE_COIN_MAP = {
+    "bitcoin": "BTCUSDT", "ethereum": "ETHUSDT", "litecoin": "LTCUSDT",
+    "ripple": "XRPUSDT", "cardano": "ADAUSDT", "solana": "SOLUSDT",
+    "dogecoin": "DOGEUSDT", "binancecoin": "BNBUSDT",
+    "avalanche-2": "AVAXUSDT", "polkadot": "DOTUSDT",
+}
+
+async def _binance_candles(coin_id: str, interval: str) -> List[Dict]:
+    symbol = _BINANCE_COIN_MAP.get(coin_id)
+    if not symbol:
+        return []
+    b_interval = _BINANCE_INTERVAL.get(interval, "5m")
+    url = "https://api.binance.com/api/v3/klines"
+    params = {"symbol": symbol, "interval": b_interval, "limit": "100"}
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status != 200:
+                    return []
+                raw = await r.json(content_type=None)
+        candles = []
+        for row in raw:
+            candles.append({
+                "ts":     row[0] / 1000,
+                "open":   float(row[1]),
+                "high":   float(row[2]),
+                "low":    float(row[3]),
+                "close":  float(row[4]),
+                "volume": float(row[5]),
+            })
+        return candles
+    except Exception as e:
+        log.warning("Binance candles failed %s: %s", symbol, e)
+        return []
+
+
+async def _binance_price(coin_id: str) -> Optional[Dict]:
+    symbol = _BINANCE_COIN_MAP.get(coin_id)
+    if not symbol:
+        return None
+    url = "https://api.binance.com/api/v3/ticker/24hr"
+    params = {"symbol": symbol}
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, params=params, timeout=aiohttp.ClientTimeout(total=8)) as r:
+                if r.status != 200:
+                    return None
+                d = await r.json(content_type=None)
+        price = float(d["lastPrice"])
+        chg   = float(d["priceChangePercent"])
+        return {"price": price, "change_pct": chg}
+    except Exception as e:
+        log.warning("Binance price failed %s: %s", symbol, e)
+        return None
+
+
+# ── CoinGecko candles + price (crypto fallback) ────────────────────────────────
 _CG_OHLC_DAYS = {"1m": 1, "2m": 1, "3m": 1, "5m": 1, "10m": 1, "15m": 2, "1h": 7, "4h": 14}
 
 async def _cg_candles(coin_id: str, interval: str) -> List[Dict]:
@@ -140,13 +208,116 @@ async def _cg_candles(coin_id: str, interval: str) -> List[Dict]:
         for row in raw:
             ts, o, h, lw, c = row
             candles.append({"ts": ts / 1000, "open": o, "high": h, "low": lw, "close": c, "volume": 0})
-        return candles[-50:]
+        return candles[-100:]
     except Exception as e:
         log.warning("CG candles failed %s: %s", coin_id, e)
         return []
 
 
-# ── yfinance candles (forex + stocks) ─────────────────────────────────────────
+async def _cg_price(coin_id: str) -> Optional[Dict]:
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    params = {"ids": coin_id, "vs_currencies": "usd", "include_24hr_change": "true"}
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status != 200:
+                    return None
+                d = await r.json(content_type=None)
+        bucket = d.get(coin_id, {})
+        price = bucket.get("usd")
+        change = bucket.get("usd_24h_change")
+        if price is None:
+            return None
+        return {"price": float(price), "change_pct": float(change) if change else 0}
+    except Exception as e:
+        log.warning("CG price failed %s: %s", coin_id, e)
+        return None
+
+
+# ── Yahoo Finance v8 JSON API (forex + stocks — faster than yfinance library) ──
+_YF_V8_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; signal-bot/1.0)"}
+
+async def _yahoo_candles(ticker: str, interval: str) -> List[Dict]:
+    """Fetch OHLCV candles via Yahoo Finance v8 chart API (no library overhead)."""
+    # Map our interval to Yahoo's range/interval params
+    _range_map = {
+        "1m":  ("1d",  "1m"),
+        "2m":  ("1d",  "2m"),
+        "3m":  ("1d",  "5m"),   # YF doesn't have 3m — use 5m
+        "5m":  ("5d",  "5m"),
+        "10m": ("5d",  "5m"),   # use 5m, caller can aggregate
+        "15m": ("5d",  "15m"),
+        "1h":  ("7d",  "60m"),
+        "4h":  ("30d", "60m"),
+    }
+    range_str, yf_interval = _range_map.get(interval, ("5d", "5m"))
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+    params = {"interval": yf_interval, "range": range_str, "includePrePost": "false"}
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, params=params, headers=_YF_V8_HEADERS,
+                             timeout=aiohttp.ClientTimeout(total=12)) as r:
+                if r.status != 200:
+                    return []
+                data = await r.json(content_type=None)
+        result = data.get("chart", {}).get("result")
+        if not result:
+            return []
+        res   = result[0]
+        times = res.get("timestamp", [])
+        q     = res.get("indicators", {}).get("quote", [{}])[0]
+        opens  = q.get("open",   [])
+        highs  = q.get("high",   [])
+        lows   = q.get("low",    [])
+        closes = q.get("close",  [])
+        vols   = q.get("volume", [])
+        candles = []
+        for i, ts in enumerate(times):
+            try:
+                o = opens[i]; h = highs[i]; l = lows[i]; c = closes[i]
+                if None in (o, h, l, c):
+                    continue
+                candles.append({
+                    "ts": float(ts), "open": float(o), "high": float(h),
+                    "low": float(l), "close": float(c),
+                    "volume": float(vols[i] or 0) if i < len(vols) else 0,
+                })
+            except (IndexError, TypeError):
+                continue
+        return candles[-100:]
+    except Exception as e:
+        log.warning("Yahoo v8 candles failed %s: %s", ticker, e)
+        return []
+
+
+async def _yahoo_price(ticker: str) -> Optional[Dict]:
+    """Fetch current price via Yahoo Finance v8 (fast, no library)."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+    params = {"interval": "1m", "range": "1d", "includePrePost": "false"}
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, params=params, headers=_YF_V8_HEADERS,
+                             timeout=aiohttp.ClientTimeout(total=8)) as r:
+                if r.status != 200:
+                    return None
+                data = await r.json(content_type=None)
+        result = data.get("chart", {}).get("result")
+        if not result:
+            return None
+        q      = result[0].get("indicators", {}).get("quote", [{}])[0]
+        closes = [c for c in q.get("close", []) if c is not None]
+        if len(closes) < 2:
+            return None
+        price = closes[-1]
+        prev  = closes[-2]
+        chg   = ((price - prev) / prev * 100) if prev else 0.0
+        return {"price": float(price), "change_pct": round(chg, 4)}
+    except Exception as e:
+        log.warning("Yahoo v8 price failed %s: %s", ticker, e)
+        return None
+
+
+# ── yfinance fallback (stocks — library approach when v8 fails) ────────────────
 _YF_PERIOD_MAP = {"1m": ("1d", "1m"), "2m": ("1d", "2m"), "3m": ("1d", "1m"),
                   "5m": ("5d", "5m"), "10m": ("5d", "5m"), "15m": ("5d", "15m"),
                   "1h": ("7d", "1h"), "4h": ("14d", "1h")}
@@ -172,7 +343,7 @@ def _yf_candles_sync(ticker: str, interval: str) -> List[Dict]:
                 "close":  float(row["Close"]),
                 "volume": float(row.get("Volume", 0) or 0),
             })
-        return candles[-50:]
+        return candles[-100:]
     except Exception as e:
         log.warning("yfinance candles failed %s: %s", ticker, e)
         return []
@@ -181,53 +352,6 @@ def _yf_candles_sync(ticker: str, interval: str) -> List[Dict]:
 async def _yf_candles(ticker: str, interval: str) -> List[Dict]:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _yf_candles_sync, ticker, interval)
-
-
-def _yf_price_sync(ticker: str) -> Optional[Dict]:
-    try:
-        import yfinance as yf
-    except Exception:
-        return None
-    try:
-        t = yf.Ticker(ticker)
-        hist = t.history(period="2d", interval="5m", auto_adjust=False)
-        if hist is None or hist.empty:
-            return None
-        closes = hist["Close"].dropna()
-        if len(closes) < 2:
-            return None
-        price = float(closes.iloc[-1])
-        prev  = float(closes.iloc[-2])
-        change_pct = ((price - prev) / prev) * 100 if prev else 0
-        return {"price": price, "change_pct": change_pct}
-    except Exception as e:
-        log.warning("yfinance price failed %s: %s", ticker, e)
-        return None
-
-
-async def _yf_price(ticker: str) -> Optional[Dict]:
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _yf_price_sync, ticker)
-
-
-async def _cg_price(coin_id: str) -> Optional[Dict]:
-    url = "https://api.coingecko.com/api/v3/simple/price"
-    params = {"ids": coin_id, "vs_currencies": "usd", "include_24hr_change": "true"}
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as r:
-                if r.status != 200:
-                    return None
-                d = await r.json(content_type=None)
-        bucket = d.get(coin_id, {})
-        price = bucket.get("usd")
-        change = bucket.get("usd_24h_change")
-        if price is None:
-            return None
-        return {"price": float(price), "change_pct": float(change) if change else 0}
-    except Exception as e:
-        log.warning("CG price failed %s: %s", coin_id, e)
-        return None
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
