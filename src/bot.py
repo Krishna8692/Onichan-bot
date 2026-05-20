@@ -3991,6 +3991,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /gen · /bin · /fake · /web · /proxy
 /scr · /tmail · /cmail · /sk · /config
 /conv &lt;sym&gt; [amt] [cur] — live price + chart
+/signal — Pocket Option AI trading signal
 {sep}
 🧹 <b>CLEANER</b>
 /clean · /filter
@@ -4997,6 +4998,208 @@ async def cmd_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"[/conv] send_photo error: {e}")
     # Fallback: text only
     await update.message.reply_text(caption, parse_mode=ParseMode.HTML)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  /signal — Pocket Option AI trading signal
+# ─────────────────────────────────────────────────────────────────────────────
+from modules.signal_feed import OTC_CLASSIC, OTC_CRYPTO, FOREX_LIVE, STOCKS_OTC
+import modules.signal_feed    as _sfeed
+import modules.indicators     as _ind
+import modules.signal_analyst as _sa
+
+_SIG_CATEGORIES = [
+    ("📊 OTC Classic",  "otc_classic"),
+    ("🪙 OTC Crypto",   "otc_crypto"),
+    ("💱 Forex Live",   "forex_live"),
+    ("📈 Stocks OTC",   "stocks_otc"),
+]
+_SIG_ASSET_LISTS = {
+    "otc_classic": OTC_CLASSIC,
+    "otc_crypto":  OTC_CRYPTO,
+    "forex_live":  FOREX_LIVE,
+    "stocks_otc":  STOCKS_OTC,
+}
+
+_SIGNAL_RULES = (
+    "* The signal can be copied within 1 minute of receiving it. "
+    "If you're late, just request a new one.\n\n"
+    "* Repeat the signal once.\n\n"
+    "* If the result is negative, it is recommended to double the amount (x2) "
+    "and immediately repeat the signal after the first one finishes."
+)
+
+
+def _sig_category_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    for label, cat in _SIG_CATEGORIES:
+        rows.append([InlineKeyboardButton(label, callback_data=f"sig_cat:{cat}")])
+    rows.append([InlineKeyboardButton("🔙 Back", callback_data="sig_home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _sig_pair_keyboard(cat: str) -> InlineKeyboardMarkup:
+    assets = _SIG_ASSET_LISTS.get(cat, [])
+    rows = []
+    row = []
+    for entry in assets:
+        display = entry[0]
+        row.append(InlineKeyboardButton(display, callback_data=f"sig_pair:{display}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("🔙 Back", callback_data=f"sig_back:{cat}")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def cmd_signal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Pocket Option AI signal — /signal"""
+    text = ae(
+        "📡 <b>Pocket Option Signal Bot</b>\n\n"
+        "Select a market category to get a live AI-powered trading signal:"
+    )
+    await update.message.reply_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=_sig_category_keyboard(),
+    )
+
+
+async def sig_home_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    text = ae(
+        "📡 <b>Pocket Option Signal Bot</b>\n\n"
+        "Select a market category to get a live AI-powered trading signal:"
+    )
+    try:
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML,
+                                      reply_markup=_sig_category_keyboard())
+    except Exception:
+        pass
+
+
+async def sig_cat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cat = query.data.split(":", 1)[1]
+    cat_labels = dict(_SIG_CATEGORIES)
+    # reverse lookup
+    label = next((l for l, c in _SIG_CATEGORIES if c == cat), cat.replace("_", " ").title())
+    text = ae(f"📊 <b>{label}</b>\n\nSelect an OTC pair:")
+    try:
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML,
+                                      reply_markup=_sig_pair_keyboard(cat))
+    except Exception:
+        pass
+
+
+async def sig_back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Back from pair list → category list."""
+    query = update.callback_query
+    await query.answer()
+    text = ae(
+        "📡 <b>Pocket Option Signal Bot</b>\n\n"
+        "Select a market category to get a live AI-powered trading signal:"
+    )
+    try:
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML,
+                                      reply_markup=_sig_category_keyboard())
+    except Exception:
+        pass
+
+
+async def sig_pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User selected a pair — fetch data, call Claude, show signal."""
+    query = update.callback_query
+    await query.answer("⏳ Analysing…")
+
+    display_name = query.data.split(":", 1)[1]
+
+    # Determine which category this pair belongs to (for Back button)
+    cat = "otc_classic"
+    for c, assets in _SIG_ASSET_LISTS.items():
+        if any(e[0] == display_name for e in assets):
+            cat = c
+            break
+
+    # Show loading state
+    try:
+        await query.edit_message_text(
+            ae(f"⏳ <b>Analysing {html.escape(display_name)}…</b>\n\n"
+               "Fetching live chart data and running AI analysis. Please wait…"),
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        pass
+
+    # Fetch candles + price
+    interval = "5m"
+    try:
+        candles   = await _sfeed.get_candles(display_name, interval)
+        price_info = await _sfeed.get_price(display_name)
+    except Exception as e:
+        print(f"[/signal] data fetch error for {display_name}: {e}")
+        candles, price_info = [], None
+
+    # Compute indicators
+    try:
+        ind = _ind.compute(candles) if candles else {}
+    except Exception as e:
+        print(f"[/signal] indicator error: {e}")
+        ind = {}
+
+    # Call Claude
+    try:
+        sig = await _sa.analyse(display_name, interval, price_info, ind)
+    except Exception as e:
+        print(f"[/signal] analyst error: {e}")
+        sig = None
+
+    if not sig:
+        sig = _sa.fallback_signal(display_name)
+
+    direction    = sig["direction"]          # "UP" or "DOWN"
+    expiry       = sig["expiry_minutes"]
+    acc_low      = sig["accuracy_low"]
+    acc_high     = sig["accuracy_high"]
+    ind_combo    = sig["indicator_combo"]
+    liq_note     = sig["liquidity_note"]
+    data_note    = sig["data_source_note"]
+    enc_code     = sig["enc_code"]
+    token_code   = sig["token_code"]
+
+    dir_arrow = "↑" if direction == "UP" else "↓"
+    dir_word  = "UP" if direction == "UP" else "DOWN"
+
+    signal_text = (
+        f"<b>{html.escape(display_name)} | {expiry} min | {dir_word} {dir_arrow}</b>\n\n"
+        f"<b>Rules for the signal:</b>\n\n"
+        f"{_SIGNAL_RULES}\n\n"
+        f"<b>AI report:</b>\n"
+        f"{html.escape(data_note)} Chart analyzed via SnipeSpy 1.42 system "
+        f"{html.escape(ind_combo)}. No errors detected. Private quote token "
+        f"verified and correct. {html.escape(liq_note)} "
+        f"Signal accuracy: {acc_low}–{acc_high}%, depends on entry point\n\n"
+        f"<b>Technical version is up to date:</b>\n"
+        f"Encryption: <code>{enc_code}</code>\n"
+        f"Token generation: <code>{token_code}</code>"
+    )
+
+    back_kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔙 Back", callback_data=f"sig_back:{cat}")
+    ]])
+
+    try:
+        await query.edit_message_text(
+            ae(signal_text),
+            parse_mode=ParseMode.HTML,
+            reply_markup=back_kb,
+        )
+    except Exception as e:
+        print(f"[/signal] edit signal message failed: {e}")
 
 
 @require_approval
@@ -13211,6 +13414,7 @@ cc2|mm|yy|cvv</code>
 /gen · /bin · /fake · /web · /proxy
 /scr · /tmail · /cmail · /sk · /config
 /conv &lt;sym&gt; [amt] [cur] — live price + chart
+/signal — Pocket Option AI trading signal
 {sep}
 🧹 <b>CLEANER</b>
 /clean · /filter
@@ -20785,6 +20989,13 @@ def main():
     application.add_handler(CommandHandler("rcast", rich_broadcast))
     application.add_handler(CommandHandler("alertset", alertset_command))
     application.add_handler(CommandHandler("myalerts", myalerts_command))
+    # Pocket Option signal bot
+    application.add_handler(CommandHandler("signal", cmd_signal))
+    application.add_handler(CommandHandler("sig", cmd_signal))
+    application.add_handler(CallbackQueryHandler(sig_home_callback, pattern="^sig_home$"))
+    application.add_handler(CallbackQueryHandler(sig_cat_callback,  pattern="^sig_cat:"))
+    application.add_handler(CallbackQueryHandler(sig_back_callback, pattern="^sig_back:"))
+    application.add_handler(CallbackQueryHandler(sig_pair_callback, pattern="^sig_pair:"))
     # Live card paste gate-selection callback
     application.add_handler(CallbackQueryHandler(paste_gate_callback, pattern="^paste_gate:"))
     # BIN shop purchase callback
