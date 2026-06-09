@@ -546,7 +546,7 @@ th{color:#a78bfa;font-weight:600}
 
 # ── Route registration ─────────────────────────────────────────────────────────
 
-def register_lucko_routes(app, user_required, owner_required,
+def register_lucko_routes(app, user_required, owner_required, admin_required,
                           get_user_sidebar, USER_CSS, ADMIN_CSS):
 
     # ── User: lobby ──────────────────────────────────────────────────────────

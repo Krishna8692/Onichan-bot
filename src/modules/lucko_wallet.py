@@ -323,9 +323,9 @@ def buy_in(telegram_id: int, credits: float, game_id: str = '') -> Dict[str, Any
     if not lucko_uid:
         return {'ok': False, 'error': 'Failed to register Lucko account'}
 
-    # Lucko API enforces a short txn_id limit (~20 chars).
-    # Format: b{4-hex uid}{8-hex unix-sec}{5-hex random} = 18 chars, globally unique.
-    txn_id = f"b{telegram_id & 0xFFFF:04x}{int(time.time()):08x}{uuid.uuid4().hex[:5]}"
+    # Lucko API enforces a short numeric txn_id.  Use ms timestamp + 2-digit
+    # shard of user ID to avoid collisions; total 15 digits, numeric only.
+    txn_id = f"{int(time.time()*1000)}{telegram_id % 100:02d}"
 
     # Deduct first (optimistic)
     add_user_balance(telegram_id, -credits)
@@ -372,7 +372,7 @@ def rollback_buy_in(telegram_id: int) -> Dict[str, Any]:
         _clear_active_session(telegram_id)
         return {'ok': True, 'credits_back': 0.0, 'commission': 0.0}
 
-    txn_id = f"r{telegram_id & 0xFFFF:04x}{int(time.time()):08x}{uuid.uuid4().hex[:5]}"
+    txn_id = f"{int(time.time()*1000)}{telegram_id % 100:02d}"
 
     _execute_with_retry("""
         INSERT INTO lucko_transfers
@@ -428,7 +428,7 @@ def cash_out(telegram_id: int) -> Dict[str, Any]:
     net_f   = float(net)
     comm_f  = float(commission_amt)
 
-    txn_id = f"o{telegram_id & 0xFFFF:04x}{int(time.time()):08x}{uuid.uuid4().hex[:5]}"
+    txn_id = f"{int(time.time()*1000)}{telegram_id % 100:02d}"
 
     _execute_with_retry("""
         INSERT INTO lucko_transfers

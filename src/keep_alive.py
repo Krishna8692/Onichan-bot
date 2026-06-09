@@ -17300,7 +17300,7 @@ from modules.casino_routes import register_casino_routes
 register_casino_routes(app, user_required, owner_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
 
 from lucko_routes import register_lucko_routes
-register_lucko_routes(app, user_required, owner_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
+register_lucko_routes(app, user_required, owner_required, admin_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
 
 from market_routes import register_market_routes
 register_market_routes(app, user_required, admin_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
