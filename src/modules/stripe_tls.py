@@ -671,6 +671,13 @@ def charge_card_sync(
         hdrs     = _make_cffi_headers(profile)
         hdrs_js  = _make_cffi_headers(profile, origin="js")
 
+        # Connected-account header — REQUIRED or Stripe returns 403 on confirm
+        stripe_account = checkout_data.get("stripe_account", "")
+        if stripe_account and stripe_account.startswith("acct_"):
+            hdrs["Stripe-Account"]    = stripe_account
+            hdrs_js["Stripe-Account"] = stripe_account
+            log.debug("[semex] Stripe-Account: %s", stripe_account)
+
         # ── Method A: Create PaymentMethod ────────────────────────────────────
         pm_id = None
         try:
@@ -759,9 +766,18 @@ def charge_card_sync(
                     cookies=cookies, proxies=proxies,
                     impersonate=imp, timeout=30,
                 )
-                return r.json()
-            except Exception:
-                return None
+                sc = r.status_code
+                if sc == 403:
+                    log.warning("[semex] 403 on confirm — check Stripe-Account header")
+                    return {"error": {"code": "forbidden", "message": "403 Forbidden"}}
+                if sc == 429:
+                    return {"error": {"code": "rate_limited", "message": "Rate limited — too many requests"}}
+                try:
+                    return r.json()
+                except Exception:
+                    return {"error": {"code": f"http_{sc}", "message": f"HTTP {sc} — non-JSON response"}}
+            except Exception as e:
+                return {"error": {"code": "network_error", "message": str(e)[:60]}}
 
         def _retry_confirm(conf: dict) -> Optional[dict]:
             c1 = {k: v for k, v in conf.items() if k != "consent[terms_of_service]"}
@@ -777,7 +793,8 @@ def charge_card_sync(
 
         def _parse(conf_result: Optional[dict]) -> dict:
             if not conf_result:
-                result["response"] = "No response"
+                result["status"]   = "ERROR"
+                result["response"] = "No response from confirm"
                 result["time"]     = round(time.perf_counter() - start, 2)
                 return result
 
