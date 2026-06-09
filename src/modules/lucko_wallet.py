@@ -75,13 +75,44 @@ def init_lucko_tables():
         """, (k, v))
 
 
+# ── Settings cache ─────────────────────────────────────────────────────────────
+# One bulk SELECT loads all lucko_settings at once; cache is invalidated on any
+# write so reads are always consistent within a 5-second window.
+
+_lcfg_cache: Dict[str, str] = {}
+_lcfg_ts: float = 0.0
+_lcfg_ttl: float = 5.0
+_lcfg_lock = threading.Lock()
+
+
+def _load_lcfg_bulk() -> Dict[str, str]:
+    rows = _execute_with_retry("SELECT key, value FROM lucko_settings", fetch=True) or []
+    return {r['key']: r['value'] for r in rows}
+
+
+def _get_lcfg() -> Dict[str, str]:
+    global _lcfg_cache, _lcfg_ts
+    now = time.monotonic()
+    with _lcfg_lock:
+        if now - _lcfg_ts < _lcfg_ttl and _lcfg_cache:
+            return _lcfg_cache
+    fresh = _load_lcfg_bulk()
+    with _lcfg_lock:
+        _lcfg_cache = fresh
+        _lcfg_ts = time.monotonic()
+    return fresh
+
+
+def _invalidate_lcfg():
+    global _lcfg_ts
+    with _lcfg_lock:
+        _lcfg_ts = 0.0
+
+
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 def get_setting(key: str, default: str = '') -> str:
-    row = _execute_with_retry(
-        "SELECT value FROM lucko_settings WHERE key = %s", (key,), fetch_one=True
-    )
-    return (row['value'] if row else None) or default
+    return _get_lcfg().get(key) or default
 
 
 def set_setting(key: str, value: str):
@@ -90,6 +121,7 @@ def set_setting(key: str, value: str):
         VALUES (%s, %s, NOW())
         ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()
     """, (key, str(value)))
+    _invalidate_lcfg()
 
 
 def is_enabled() -> bool:

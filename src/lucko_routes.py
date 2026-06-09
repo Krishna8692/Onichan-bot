@@ -803,32 +803,26 @@ def register_lucko_routes(app, user_required, owner_required,
                            f"Errors: {result['errors']}")
                 msg_ok  = result['errors'] == 0
 
-        # Stats
-        member_count = (
-            _q("SELECT COUNT(*) as c FROM lucko_members", fetch_one=True) or {}
-        ).get('c', 0)
+        # All stats in a single round-trip using conditional aggregation
+        try:
+            _stats = _q("""
+                SELECT
+                    (SELECT COUNT(*) FROM lucko_members) AS member_count,
+                    COALESCE(SUM(CASE WHEN direction='in'  AND status='completed' THEN credits_lucko    ELSE 0 END), 0) AS total_in,
+                    COALESCE(SUM(CASE WHEN direction='out' AND status='completed' THEN credits_lucko    ELSE 0 END), 0) AS total_out,
+                    COALESCE(SUM(CASE WHEN direction='out' AND status='completed' THEN commission_amount ELSE 0 END), 0) AS total_comm
+                FROM lucko_transfers
+            """, fetch_one=True) or {}
+        except Exception:
+            _stats = {}
 
-        # Total ever deposited to Lucko
-        total_in = float((_q(
-            "SELECT COALESCE(SUM(credits_lucko),0) as s FROM lucko_transfers "
-            "WHERE direction='in' AND status='completed'",
-            fetch_one=True) or {}).get('s', 0))
-
-        # Total ever withdrawn from Lucko (gross before commission)
-        total_out = float((_q(
-            "SELECT COALESCE(SUM(credits_lucko),0) as s FROM lucko_transfers "
-            "WHERE direction='out' AND status='completed'",
-            fetch_one=True) or {}).get('s', 0))
-
-        # Current live exposure = deposited - withdrawn (still in Lucko wallets)
+        member_count  = int(_stats.get('member_count', 0))
+        total_in      = float(_stats.get('total_in',   0))
+        total_out     = float(_stats.get('total_out',  0))
+        total_comm    = float(_stats.get('total_comm', 0))
         live_exposure = max(0.0, round(total_in - total_out, 2))
 
-        total_comm = float((_q(
-            "SELECT COALESCE(SUM(commission_amount),0) as s FROM lucko_transfers "
-            "WHERE direction='out' AND status='completed'",
-            fetch_one=True) or {}).get('s', 0))
-
-        # Webhook event count
+        # Webhook event count (separate table — one extra query only)
         try:
             wh_count = (_q(
                 "SELECT COUNT(*) as c FROM lucko_webhook_events",

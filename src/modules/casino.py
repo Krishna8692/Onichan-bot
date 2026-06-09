@@ -3,11 +3,44 @@ import random
 import hashlib
 import time
 import json
+import threading
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_DOWN
 from modules.database import _execute_with_retry
 
 _secure_rng = random.SystemRandom()
+
+# ── Settings cache ─────────────────────────────────────────────────────────────
+# Bulk-loads ALL casino_settings rows in one query and caches for a short TTL.
+# Eliminates the N×DB-roundtrip pattern caused by calling get_setting() per game.
+_settings_cache: dict = {}
+_settings_cache_ts: float = 0.0
+_settings_cache_ttl: float = 5.0   # seconds
+_settings_cache_lock = threading.Lock()
+
+
+def _load_settings_bulk() -> dict:
+    rows = _execute_with_retry("SELECT key, value FROM casino_settings", fetch=True) or []
+    return {r['key']: r['value'] for r in rows}
+
+
+def _get_settings_cache() -> dict:
+    global _settings_cache, _settings_cache_ts
+    now = time.monotonic()
+    with _settings_cache_lock:
+        if now - _settings_cache_ts < _settings_cache_ttl and _settings_cache:
+            return _settings_cache
+    fresh = _load_settings_bulk()
+    with _settings_cache_lock:
+        _settings_cache = fresh
+        _settings_cache_ts = time.monotonic()
+    return fresh
+
+
+def _invalidate_settings_cache():
+    global _settings_cache_ts
+    with _settings_cache_lock:
+        _settings_cache_ts = 0.0
 
 
 GAMES = [
@@ -521,12 +554,7 @@ def get_leaderboard(period='all'):
 
 
 def get_setting(key, default=None):
-    row = _execute_with_retry(
-        "SELECT value FROM casino_settings WHERE key = %s", (key,), fetch_one=True
-    )
-    if row:
-        return row['value']
-    return default
+    return _get_settings_cache().get(key, default)
 
 
 def set_setting(key, value):
@@ -535,6 +563,7 @@ def set_setting(key, value):
         VALUES (%s, %s, NOW())
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
     """, (key, str(value)))
+    _invalidate_settings_cache()
 
 
 def get_house_edge(game):
