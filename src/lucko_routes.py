@@ -744,7 +744,7 @@ def register_lucko_routes(app, user_required, owner_required,
     # ── Admin: live casino settings ───────────────────────────────────────────
 
     @app.route('/admin/casino/live', methods=['GET', 'POST'])
-    @owner_required
+    @admin_required
     def admin_casino_live():
         from modules.database import _execute_with_retry as _q
 
