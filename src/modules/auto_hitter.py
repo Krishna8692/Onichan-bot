@@ -1114,26 +1114,14 @@ async def charge_card(card: dict, checkout_data: dict, proxy_str: str = None, cu
             result["decline_code"] = "N/A"
             result["time"] = tls_result.get("time", round(time.perf_counter() - start, 2))
             return result
-        elif tls_status == "LIVE":
-            result["status"] = "LIVE"
-            result["response"] = tls_result.get("response", "Live card")
-            result["decline_code"] = tls_result.get("decline_code", "N/A")
-            result["time"] = tls_result.get("time", round(time.perf_counter() - start, 2))
-            return result
-        elif tls_status == "DEAD":
-            result["status"] = "DECLINED"
-            result["response"] = tls_result.get("response", "Dead card")
-            result["decline_code"] = tls_result.get("decline_code", "N/A")
-            result["time"] = tls_result.get("time", round(time.perf_counter() - start, 2))
-            return result
-        elif tls_status in ("ERROR", "FAILED", "UNKNOWN") or tls_status:
-            result["status"] = "ERROR" if tls_status in ("ERROR", "FAILED", "UNKNOWN") else tls_status
+        elif tls_status == "ERROR" and "Max retries" not in str(tls_result.get("response", "")):
+            result["status"] = "ERROR"
             result["response"] = tls_result.get("response", "Unknown error")
             result["decline_code"] = "N/A"
             result["time"] = tls_result.get("time", round(time.perf_counter() - start, 2))
             return result
         else:
-            print(f"[CO] TLS engine returned empty status, falling back to aiohttp...")
+            print(f"[CO] TLS engine returned {tls_status}, falling back to aiohttp...")
 
     except ImportError:
         print("[CO] TLS client not available, using aiohttp fallback...")
