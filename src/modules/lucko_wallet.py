@@ -1,7 +1,9 @@
 """
 Lucko.ai Wallet Bridge
-Maps bot users to Lucko members, handles credit transfers, and runs a background
-idle-sweep so credits are never permanently stranded in Lucko wallets.
+- Maps bot telegram_id → Lucko user_id
+- Handles deposit/withdraw with commission
+- Caches guest session tokens for game URL generation
+- Background idle-sweep returns stale balances
 """
 import threading
 import time
@@ -17,18 +19,18 @@ import modules.lucko_client as _api
 
 logger = logging.getLogger(__name__)
 
-_SWEEP_INTERVAL = 300      # seconds between idle-sweep runs
-_IDLE_THRESHOLD = 1800     # mark session idle after 30 min with no exit call
-_MIN_BALANCE_TO_SWEEP = 0.01  # don't bother sweeping dust amounts
+_SWEEP_INTERVAL   = 300    # seconds between idle-sweep runs
+_IDLE_THRESHOLD   = 1800   # consider session idle after 30 min
+_MIN_SWEEP        = 0.01   # ignore dust below this amount
 
+# ── DB setup ──────────────────────────────────────────────────────────────────
 
 def init_lucko_tables():
-    """Create lucko DB tables — called from _create_tables() in database.py."""
     _execute_with_retry("""
         CREATE TABLE IF NOT EXISTS lucko_members (
             id SERIAL PRIMARY KEY,
             telegram_id BIGINT UNIQUE NOT NULL,
-            lucko_member_id VARCHAR(100) NOT NULL,
+            lucko_user_id VARCHAR(100) NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
         )
     """)
@@ -42,7 +44,7 @@ def init_lucko_tables():
             commission_pct DECIMAL(5,2) DEFAULT 0,
             commission_amount DECIMAL(10,2) DEFAULT 0,
             game_id VARCHAR(200) DEFAULT '',
-            order_id VARCHAR(150) UNIQUE,
+            txn_id VARCHAR(150) UNIQUE,
             status VARCHAR(20) DEFAULT 'pending',
             error_msg TEXT,
             created_at TIMESTAMP DEFAULT NOW()
@@ -55,17 +57,16 @@ def init_lucko_tables():
             updated_at TIMESTAMP DEFAULT NOW()
         )
     """)
-    _execute_with_retry("CREATE INDEX IF NOT EXISTS idx_lucko_tf_user ON lucko_transfers(telegram_id, created_at DESC)")
+    _execute_with_retry("CREATE INDEX IF NOT EXISTS idx_lucko_tf_user   ON lucko_transfers(telegram_id, created_at DESC)")
     _execute_with_retry("CREATE INDEX IF NOT EXISTS idx_lucko_tf_status ON lucko_transfers(status, created_at)")
 
-    # Seed defaults (won't overwrite existing values)
     defaults = {
-        'enabled': 'false',
+        'enabled':              'false',
         'default_commission_pct': '5.0',
-        'min_buyin': '1.00',
-        'max_buyin': '500.00',
-        'default_buyin': '10.00',
-        'game_settings': '{}',
+        'min_buyin':            '1.00',
+        'max_buyin':            '500.00',
+        'default_buyin':        '10.00',
+        'game_settings':        '{}',
     }
     for k, v in defaults.items():
         _execute_with_retry("""
@@ -74,53 +75,51 @@ def init_lucko_tables():
         """, (k, v))
 
 
-# ── Settings helpers ─────────────────────────────────────────────────────────
+# ── Settings ──────────────────────────────────────────────────────────────────
 
-def get_lucko_setting(key: str, default: str = '') -> str:
+def get_setting(key: str, default: str = '') -> str:
     row = _execute_with_retry(
         "SELECT value FROM lucko_settings WHERE key = %s", (key,), fetch_one=True
     )
     return (row['value'] if row else None) or default
 
 
-def set_lucko_setting(key: str, value: str):
+def set_setting(key: str, value: str):
     _execute_with_retry("""
         INSERT INTO lucko_settings (key, value, updated_at)
         VALUES (%s, %s, NOW())
-        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()
     """, (key, str(value)))
 
 
 def is_enabled() -> bool:
-    return get_lucko_setting('enabled', 'false').lower() == 'true'
+    return get_setting('enabled', 'false').lower() == 'true'
 
 
 def get_commission_pct(game_id: str = '') -> float:
     if game_id:
         try:
-            game_settings = json.loads(get_lucko_setting('game_settings', '{}'))
-            g = game_settings.get(game_id, {})
-            if 'commission_pct' in g:
-                return float(g['commission_pct'])
+            gs = json.loads(get_setting('game_settings', '{}'))
+            pct = gs.get(game_id, {}).get('commission_pct')
+            if pct is not None:
+                return float(pct)
         except Exception:
             pass
-    return float(get_lucko_setting('default_commission_pct', '5.0'))
+    return float(get_setting('default_commission_pct', '5.0'))
 
 
 def set_game_setting(game_id: str, field: str, value):
     try:
-        gs = json.loads(get_lucko_setting('game_settings', '{}'))
+        gs = json.loads(get_setting('game_settings', '{}'))
     except Exception:
         gs = {}
-    if game_id not in gs:
-        gs[game_id] = {}
-    gs[game_id][field] = value
-    set_lucko_setting('game_settings', json.dumps(gs))
+    gs.setdefault(game_id, {})[field] = value
+    set_setting('game_settings', json.dumps(gs))
 
 
 def is_game_enabled(game_id: str) -> bool:
     try:
-        gs = json.loads(get_lucko_setting('game_settings', '{}'))
+        gs = json.loads(get_setting('game_settings', '{}'))
         return gs.get(game_id, {}).get('enabled', True)
     except Exception:
         return True
@@ -128,44 +127,126 @@ def is_game_enabled(game_id: str) -> bool:
 
 # ── Member management ─────────────────────────────────────────────────────────
 
+def _lucko_uid(telegram_id: int) -> str:
+    """Deterministic Lucko user_id for a Telegram user."""
+    return f"onichan_{telegram_id}"
+
+
 def ensure_member(telegram_id: int) -> Optional[str]:
-    """Return Lucko member ID for this user, registering if necessary."""
+    """Return Lucko user_id for this user, registering if necessary."""
     row = _execute_with_retry(
-        "SELECT lucko_member_id FROM lucko_members WHERE telegram_id = %s",
+        "SELECT lucko_user_id FROM lucko_members WHERE telegram_id = %s",
         (telegram_id,), fetch_one=True
     )
     if row:
-        return row['lucko_member_id']
+        return row['lucko_user_id']
 
-    lucko_id = f"onichan_{telegram_id}"
-    res = _api.create_member(lucko_id, str(telegram_id))
-    if res.get('code') not in (0, None):
-        code = res.get('code')
-        # Code for "already exists" varies — treat non-fatal codes as success
-        if code not in (-1, -2, -3):
-            pass  # likely already created — still store it
-        else:
-            logger.warning(f"[lucko] create_member failed for {telegram_id}: {res}")
-            return None
+    lucko_uid = _lucko_uid(telegram_id)
+    res = _api.create_member(lucko_uid, str(telegram_id))
+    # code 200 = created, 700102 = already exists — both are fine
+    if res.get('code') not in (200, 700102):
+        logger.warning(f"[lucko] create_member failed for {telegram_id}: {res}")
+        return None
 
     _execute_with_retry("""
-        INSERT INTO lucko_members (telegram_id, lucko_member_id)
+        INSERT INTO lucko_members (telegram_id, lucko_user_id)
         VALUES (%s, %s) ON CONFLICT (telegram_id) DO NOTHING
-    """, (telegram_id, lucko_id))
-    return lucko_id
+    """, (telegram_id, lucko_uid))
+    return lucko_uid
 
 
-# ── Transfer operations ───────────────────────────────────────────────────────
+# ── Token / game URL ──────────────────────────────────────────────────────────
+
+# Short-lived in-memory token cache {lucko_uid: (token, expiry_ts)}
+_token_cache: Dict[str, tuple] = {}
+_token_lock = threading.Lock()
+_TOKEN_TTL = 3000  # seconds (~50 min; tokens expire around 60 min)
+
+
+def _get_session_token(lucko_uid: str) -> Optional[str]:
+    """
+    Get a valid session token for this user.
+    Flow: guest/login → token → member/login → personalised token.
+    """
+    with _token_lock:
+        cached = _token_cache.get(lucko_uid)
+        if cached and time.time() < cached[1]:
+            return cached[0]
+
+    # 1. Acquire a guest token
+    g = _api.guest_login('web')
+    if g.get('code') != 200:
+        logger.warning(f"[lucko] guest_login failed: {g}")
+        return None
+    guest_token = (g.get('data') or {}).get('token', '')
+    if not guest_token:
+        return None
+
+    # 2. Exchange for a member-specific token (no inst_id = lobby URL)
+    uid_part = lucko_uid  # e.g. onichan_12345
+    m = _api.member_login(uid_part, guest_token, 'web')
+    if m.get('code') != 200:
+        logger.warning(f"[lucko] member_login failed for {lucko_uid}: {m}")
+        return None
+    member_token = (m.get('data') or {}).get('token', '')
+    if not member_token:
+        return None
+
+    with _token_lock:
+        _token_cache[lucko_uid] = (member_token, time.time() + _TOKEN_TTL)
+    return member_token
+
+
+def get_lobby_url(telegram_id: int, inst_id: str = '') -> Dict[str, Any]:
+    """
+    Return the playable game URL for this user.
+    inst_id is appended as a query param to deep-link into a specific room.
+    """
+    lucko_uid = ensure_member(telegram_id)
+    if not lucko_uid:
+        return {'ok': False, 'error': 'Failed to register Lucko account'}
+
+    token = _get_session_token(lucko_uid)
+    if not token:
+        return {'ok': False, 'error': 'Could not obtain session token'}
+
+    # member/login returns a lobby URL — append inst_id to open specific room
+    res = _api.member_login(lucko_uid, token, 'web')
+    if res.get('code') != 200:
+        # Token may have expired — invalidate and retry once
+        with _token_lock:
+            _token_cache.pop(lucko_uid, None)
+        token = _get_session_token(lucko_uid)
+        if not token:
+            return {'ok': False, 'error': 'Session token refresh failed'}
+        res = _api.member_login(lucko_uid, token, 'web')
+
+    if res.get('code') != 200:
+        return {'ok': False, 'error': res.get('message', 'Login failed')}
+
+    url = (res.get('data') or {}).get('url', '')
+    new_token = (res.get('data') or {}).get('token', token)
+    with _token_lock:
+        _token_cache[lucko_uid] = (new_token, time.time() + _TOKEN_TTL)
+
+    # Append inst_id to deep-link into a specific game room
+    if inst_id and url:
+        sep = '&' if '?' in url else '?'
+        url = f"{url}{sep}inst_id={inst_id}"
+
+    return {'ok': True, 'url': url}
+
+
+# ── Wallet operations ─────────────────────────────────────────────────────────
 
 def buy_in(telegram_id: int, credits: float, game_id: str = '') -> Dict[str, Any]:
     """
-    Deduct credits from bot wallet, transfer to Lucko wallet.
-    Returns {'ok': True, 'order_id': ..., 'lucko_balance': ...}
-    or      {'ok': False, 'error': '...'}
+    Deduct credits from bot wallet → transfer to Lucko wallet.
+    Returns {'ok': True, 'txn_id': ..., 'lucko_balance': ...}
     """
     credits = round(float(credits), 2)
-    min_b = float(get_lucko_setting('min_buyin', '1.00'))
-    max_b = float(get_lucko_setting('max_buyin', '500.00'))
+    min_b = float(get_setting('min_buyin', '1.00'))
+    max_b = float(get_setting('max_buyin', '500.00'))
 
     if credits < min_b:
         return {'ok': False, 'error': f'Minimum buy-in is ${min_b:.2f}'}
@@ -174,57 +255,52 @@ def buy_in(telegram_id: int, credits: float, game_id: str = '') -> Dict[str, Any
 
     bot_balance = get_user_balance(telegram_id)
     if bot_balance < credits:
-        return {'ok': False, 'error': f'Insufficient balance (have ${bot_balance:.2f}, need ${credits:.2f})'}
+        return {'ok': False, 'error': f'Insufficient balance (have ${bot_balance:.2f})'}
 
-    lucko_id = ensure_member(telegram_id)
-    if not lucko_id:
+    lucko_uid = ensure_member(telegram_id)
+    if not lucko_uid:
         return {'ok': False, 'error': 'Failed to register Lucko account'}
 
-    order_id = f"bi_{telegram_id}_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
+    txn_id = f"bi_{telegram_id}_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
 
-    # Deduct from bot wallet first (optimistic)
+    # Deduct first (optimistic)
     add_user_balance(telegram_id, -credits)
 
-    # Record pending transfer
+    # Log pending
     _execute_with_retry("""
-        INSERT INTO lucko_transfers
-            (telegram_id, direction, credits_bot, credits_lucko, game_id, order_id, status)
+        INSERT INTO lucko_transfers (telegram_id, direction, credits_bot, credits_lucko, game_id, txn_id, status)
         VALUES (%s, 'in', %s, %s, %s, %s, 'pending')
-    """, (telegram_id, credits, credits, game_id, order_id))
+    """, (telegram_id, credits, credits, game_id, txn_id))
 
-    # Call Lucko API
-    res = _api.transfer_in(lucko_id, credits, order_id)
-    if res.get('code') == 0:
-        _execute_with_retry(
-            "UPDATE lucko_transfers SET status='completed' WHERE order_id=%s", (order_id,)
-        )
-        lucko_bal = _api.get_member_balance(lucko_id) or credits
-        return {'ok': True, 'order_id': order_id, 'lucko_balance': lucko_bal}
+    res = _api.deposit(lucko_uid, credits, txn_id)
+    if res.get('code') == 200:
+        _execute_with_retry("UPDATE lucko_transfers SET status='completed' WHERE txn_id=%s", (txn_id,))
+        lucko_bal = _api.get_balance(lucko_uid) or credits
+        return {'ok': True, 'txn_id': txn_id, 'lucko_balance': lucko_bal}
     else:
-        # Refund on failure
+        # Refund
         add_user_balance(telegram_id, credits)
         _execute_with_retry("""
-            UPDATE lucko_transfers SET status='failed', error_msg=%s WHERE order_id=%s
-        """, (res.get('msg', 'API error'), order_id))
-        return {'ok': False, 'error': res.get('msg', 'Transfer failed')}
+            UPDATE lucko_transfers SET status='failed', error_msg=%s WHERE txn_id=%s
+        """, (res.get('message', 'API error'), txn_id))
+        return {'ok': False, 'error': res.get('message', 'Deposit failed')}
 
 
 def cash_out(telegram_id: int, game_id: str = '') -> Dict[str, Any]:
     """
-    Sweep Lucko balance back to bot wallet, applying commission on winnings.
+    Sweep Lucko wallet → bot wallet minus commission.
     Returns {'ok': True, 'credits_back': ..., 'commission': ..., 'commission_pct': ...}
-    or      {'ok': False, 'error': '...'}
     """
-    lucko_id = ensure_member(telegram_id)
-    if not lucko_id:
+    lucko_uid = ensure_member(telegram_id)
+    if not lucko_uid:
         return {'ok': False, 'error': 'No Lucko account found'}
 
-    lucko_bal = _api.get_member_balance(lucko_id)
+    lucko_bal = _api.get_balance(lucko_uid)
     if lucko_bal is None:
         return {'ok': False, 'error': 'Could not fetch Lucko balance'}
 
-    if lucko_bal < _MIN_BALANCE_TO_SWEEP:
-        return {'ok': True, 'credits_back': 0.0, 'commission': 0.0, 'commission_pct': 0.0}
+    if lucko_bal < _MIN_SWEEP:
+        return {'ok': True, 'credits_back': 0.0, 'commission': 0.0, 'commission_pct': 0.0, 'lucko_gross': 0.0}
 
     commission_pct = get_commission_pct(game_id)
     gross = Decimal(str(lucko_bal))
@@ -232,96 +308,56 @@ def cash_out(telegram_id: int, game_id: str = '') -> Dict[str, Any]:
         Decimal('0.01'), rounding=ROUND_DOWN
     )
     net = (gross - commission_amt).quantize(Decimal('0.01'), rounding=ROUND_DOWN)
-    net_f = float(net)
-    comm_f = float(commission_amt)
+    net_f   = float(net)
+    comm_f  = float(commission_amt)
 
-    order_id = f"bo_{telegram_id}_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
+    txn_id = f"bo_{telegram_id}_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
 
     _execute_with_retry("""
         INSERT INTO lucko_transfers
-            (telegram_id, direction, credits_bot, credits_lucko, commission_pct,
-             commission_amount, game_id, order_id, status)
+            (telegram_id, direction, credits_bot, credits_lucko, commission_pct, commission_amount, game_id, txn_id, status)
         VALUES (%s, 'out', %s, %s, %s, %s, %s, %s, 'pending')
-    """, (telegram_id, net_f, float(lucko_bal), commission_pct, comm_f, game_id, order_id))
+    """, (telegram_id, net_f, float(lucko_bal), commission_pct, comm_f, game_id, txn_id))
 
-    res = _api.transfer_out_all(lucko_id, order_id)
-    if res.get('code') == 0:
+    res = _api.withdraw(lucko_uid, float(lucko_bal), txn_id)
+    if res.get('code') == 200:
         add_user_balance(telegram_id, net_f)
-        _execute_with_retry(
-            "UPDATE lucko_transfers SET status='completed' WHERE order_id=%s", (order_id,)
-        )
+        _execute_with_retry("UPDATE lucko_transfers SET status='completed' WHERE txn_id=%s", (txn_id,))
         return {
             'ok': True,
-            'credits_back': net_f,
-            'commission': comm_f,
+            'credits_back':   net_f,
+            'commission':     comm_f,
             'commission_pct': commission_pct,
-            'lucko_gross': float(lucko_bal),
+            'lucko_gross':    float(lucko_bal),
         }
     else:
         _execute_with_retry("""
-            UPDATE lucko_transfers SET status='failed', error_msg=%s WHERE order_id=%s
-        """, (res.get('msg', 'API error'), order_id))
-        return {'ok': False, 'error': res.get('msg', 'Transfer out failed')}
-
-
-# ── Game URL helper ───────────────────────────────────────────────────────────
-
-def get_game_url(telegram_id: int, game_id: str, return_url: str = '') -> Dict[str, Any]:
-    """Ensure member exists and return the playable launch URL."""
-    lucko_id = ensure_member(telegram_id)
-    if not lucko_id:
-        return {'ok': False, 'error': 'Failed to create Lucko account'}
-    res = _api.get_game_url(game_id, lucko_id, return_url=return_url)
-    if res.get('code') == 0:
-        url = (res.get('data') or {}).get('url', '')
-        return {'ok': True, 'url': url}
-    return {'ok': False, 'error': res.get('msg', 'Could not get game URL')}
+            UPDATE lucko_transfers SET status='failed', error_msg=%s WHERE txn_id=%s
+        """, (res.get('message', 'API error'), txn_id))
+        return {'ok': False, 'error': res.get('message', 'Withdraw failed')}
 
 
 # ── Admin helpers ─────────────────────────────────────────────────────────────
 
 def get_recent_transfers(limit: int = 50):
     return _execute_with_retry("""
-        SELECT lt.*, lm.lucko_member_id
+        SELECT lt.*, lm.lucko_user_id
         FROM lucko_transfers lt
         LEFT JOIN lucko_members lm ON lm.telegram_id = lt.telegram_id
         ORDER BY lt.created_at DESC LIMIT %s
     """, (limit,), fetch=True) or []
 
 
-def get_total_lucko_credits() -> float:
-    """Sum of all pending bot-side debits (credits still in play)."""
-    row = _execute_with_retry("""
-        SELECT COALESCE(SUM(credits_lucko), 0) as total
-        FROM lucko_transfers
-        WHERE direction='in' AND status='completed'
-          AND id NOT IN (
-              SELECT t2.id FROM lucko_transfers t2
-              WHERE t2.telegram_id = lucko_transfers.telegram_id
-                AND t2.direction='out' AND t2.status='completed'
-                AND t2.created_at > lucko_transfers.created_at
-          )
-    """, fetch_one=True)
-    if row:
-        try:
-            return float(row['total'])
-        except Exception:
-            return 0.0
-    return 0.0
-
-
 def sweep_all_members() -> Dict[str, Any]:
-    """Force cash-out for every member that has a Lucko balance > 0."""
     members = _execute_with_retry(
-        "SELECT telegram_id, lucko_member_id FROM lucko_members", fetch=True
+        "SELECT telegram_id, lucko_user_id FROM lucko_members", fetch=True
     ) or []
-    swept = 0
-    errors = 0
+    swept = errors = 0
     total_back = 0.0
     for m in members:
         tid = m['telegram_id']
-        bal = _api.get_member_balance(m['lucko_member_id'])
-        if bal and bal >= _MIN_BALANCE_TO_SWEEP:
+        bal = _api.get_balance(m['lucko_user_id'])
+        if bal and bal >= _MIN_SWEEP:
             res = cash_out(tid)
             if res.get('ok'):
                 swept += 1
@@ -329,6 +365,79 @@ def sweep_all_members() -> Dict[str, Any]:
             else:
                 errors += 1
     return {'swept': swept, 'errors': errors, 'total_back': round(total_back, 2)}
+
+
+# ── Game list cache ───────────────────────────────────────────────────────────
+
+_game_cache: Dict = {'rooms': [], 'fetched_at': 0}
+_CACHE_TTL = 3600
+
+_GAME_ID_NAMES = {
+    '101': 'Baccarat', '102': 'Dragon Tiger', '103': 'Roulette',
+    '104': 'Live Baccarat', '105': 'Blackjack', '109': 'Lottery',
+    '112': 'Lucky Lace', '113': 'Lightning Baccarat', '114': 'Matching Lace',
+    '115': 'Sic Bo', '116': 'Goal', '117': 'Football Goddess',
+    '118': 'Football Goddess Lite', '20102': 'Space Crash', '20103': 'Surf Crash',
+}
+
+_GAME_ID_TYPES = {
+    '101': 'live', '102': 'live', '103': 'live', '104': 'live',
+    '105': 'live', '112': 'live', '113': 'live', '114': 'live',
+    '115': 'live', '116': 'live', '117': 'live', '118': 'live',
+    '109': 'lottery', '20102': 'crash', '20103': 'crash',
+}
+
+
+def get_cached_rooms(force: bool = False):
+    """Return flat list of all game rooms from API, cached for 1 hour."""
+    now = time.time()
+    if not force and _game_cache['rooms'] and (now - _game_cache['fetched_at']) < _CACHE_TTL:
+        return _game_cache['rooms']
+    return refresh_game_cache()
+
+
+def refresh_game_cache():
+    res = _api.get_game_list()
+    if res.get('code') != 200:
+        return _game_cache['rooms']
+
+    raw = (res.get('data') or {}).get('list', [])
+    rooms = []
+    try:
+        gs = json.loads(get_setting('game_settings', '{}'))
+    except Exception:
+        gs = {}
+
+    for category in raw:
+        gid     = str(category.get('game_id', ''))
+        gnames  = category.get('game_name', {})
+        gname   = gnames.get('en-US') or gnames.get('zh-CN') or _GAME_ID_NAMES.get(gid, f'Game {gid}')
+        gtype   = _GAME_ID_TYPES.get(gid, 'live')
+
+        for room in category.get('rooms', []):
+            inst_id = room.get('inst_id', '')
+            if not inst_id:
+                continue
+            rnames  = room.get('inst_name', {})
+            rname   = rnames.get('en-US') or rnames.get('zh-CN') or gname
+            cover   = room.get('cover') or room.get('cover_thumbnail') or ''
+
+            gsettings = gs.get(inst_id, {})
+            rooms.append({
+                'inst_id':      inst_id,
+                'game_id':      gid,
+                'name':         f"{gname} — {rname}" if rname != gname else gname,
+                'game_name':    gname,
+                'room_name':    rname,
+                'game_type':    gtype,
+                'cover':        cover,
+                'enabled':      gsettings.get('enabled', True),
+                'commission_pct': gsettings.get('commission_pct', float(get_setting('default_commission_pct', '5.0'))),
+            })
+
+    _game_cache['rooms']      = rooms
+    _game_cache['fetched_at'] = time.time()
+    return rooms
 
 
 # ── Idle-sweep background thread ──────────────────────────────────────────────
@@ -339,24 +448,24 @@ def _idle_sweep_loop():
             time.sleep(_SWEEP_INTERVAL)
             if not is_enabled() or not _api.is_configured():
                 continue
-            # Find members with unclosed sessions older than idle threshold
             rows = _execute_with_retry("""
-                SELECT DISTINCT telegram_id FROM lucko_transfers
-                WHERE direction='in' AND status='completed'
-                  AND created_at < NOW() - INTERVAL '%s seconds'
-                  AND telegram_id NOT IN (
-                      SELECT telegram_id FROM lucko_transfers
-                      WHERE direction='out' AND status='completed'
-                        AND created_at > NOW() - INTERVAL '%s seconds'
+                SELECT DISTINCT t.telegram_id FROM lucko_transfers t
+                WHERE t.direction='in' AND t.status='completed'
+                  AND t.created_at < NOW() - INTERVAL '1800 seconds'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM lucko_transfers t2
+                      WHERE t2.telegram_id = t.telegram_id
+                        AND t2.direction = 'out' AND t2.status = 'completed'
+                        AND t2.created_at > t.created_at
                   )
-            """, (_IDLE_THRESHOLD, _IDLE_THRESHOLD), fetch=True) or []
+            """, fetch=True) or []
             for r in rows:
                 tid = r['telegram_id']
-                lucko_id = ensure_member(tid)
-                if not lucko_id:
+                lucko_uid = ensure_member(tid)
+                if not lucko_uid:
                     continue
-                bal = _api.get_member_balance(lucko_id)
-                if bal and bal >= _MIN_BALANCE_TO_SWEEP:
+                bal = _api.get_balance(lucko_uid)
+                if bal and bal >= _MIN_SWEEP:
                     cash_out(tid)
         except Exception as e:
             logger.warning(f"[lucko_sweep] {e}")

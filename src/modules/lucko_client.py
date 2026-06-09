@@ -1,13 +1,22 @@
 """
 Lucko.ai Casino API Client
-MD5-signed requests to api.aigapi.com (prod) or staging.aig1234.com (staging).
+Staging: https://staging.aig1234.com
+Production: https://api.aigapi.com
 
-Signing algorithm:
-  md5(SECRET + "&" + sorted_key=value_pairs_joined_by_&)
-All requests: POST JSON, gzip-compressed responses.
+Signing algorithm (MD5):
+  1. Collect all non-empty params (including agent_id, excluding sign)
+  2. Sort by ASCII key
+  3. Join as key1=val1&key2=val2...
+  4. Prepend secret: SECRET&key1=val1&...
+  5. md5(above string) → sign
+
+All requests: POST JSON with Content-Type: application/json
+Game list:    GET with query params
+Balance:      GET with query params
 """
 import os
 import hashlib
+import time
 import requests as _http
 from typing import Dict, Any, Optional
 
@@ -17,11 +26,11 @@ _SESSION.headers.update({'Content-Type': 'application/json'})
 
 def _cfg():
     agent_id = os.environ.get('LUCKO_AGENT_ID', '').strip()
-    secret = os.environ.get('LUCKO_SECRET', '').strip()
-    base = os.environ.get('LUCKO_BASE_URL', '').strip()
+    secret   = os.environ.get('LUCKO_SECRET',   '').strip()
+    base     = os.environ.get('LUCKO_BASE_URL', '').strip()
     if not base:
         base = 'https://api.aigapi.com' if agent_id else 'https://staging.aig1234.com'
-    return agent_id, secret, base
+    return agent_id, secret, base.rstrip('/')
 
 
 def is_configured() -> bool:
@@ -30,102 +39,129 @@ def is_configured() -> bool:
 
 
 def _sign(secret: str, params: dict) -> str:
-    """md5(SECRET&key1=v1&key2=v2...) — params sorted by ASCII key."""
-    sorted_pairs = '&'.join(f"{k}={params[k]}" for k in sorted(params))
+    """md5(SECRET&key1=v1&key2=v2...) — non-empty params only, sorted by ASCII key."""
+    non_empty = {k: v for k, v in params.items() if v is not None and str(v) != ''}
+    sorted_pairs = '&'.join(f"{k}={non_empty[k]}" for k in sorted(non_empty))
     raw = f"{secret}&{sorted_pairs}"
     return hashlib.md5(raw.encode('utf-8')).hexdigest()
 
 
-def _call(endpoint: str, params: dict, timeout: int = 15) -> Dict[str, Any]:
-    agent_id, secret, base_url = _cfg()
+def _ts() -> int:
+    return int(time.time() * 1000)
+
+
+def _post(endpoint: str, extra: dict, timeout: int = 15) -> Dict[str, Any]:
+    agent_id, secret, base = _cfg()
     if not agent_id or not secret:
-        return {'code': -1, 'msg': 'Lucko API credentials not configured (LUCKO_AGENT_ID / LUCKO_SECRET missing)'}
-    payload = dict(params)
-    payload['agent_id'] = agent_id
-    payload['sign'] = _sign(secret, payload)
-    url = f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        return {'code': -1, 'message': 'Lucko API credentials not configured'}
+    params = {'agent_id': agent_id, 'timestamp': _ts(), **extra}
+    params['sign'] = _sign(secret, params)
+    url = f"{base}/{endpoint.lstrip('/')}"
     try:
-        resp = _SESSION.post(url, json=payload, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+        r = _SESSION.post(url, json=params, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
     except _http.exceptions.Timeout:
-        return {'code': -2, 'msg': 'Lucko API request timed out'}
+        return {'code': -2, 'message': 'Request timed out'}
     except _http.exceptions.HTTPError as e:
-        return {'code': -3, 'msg': f'HTTP error: {e}'}
+        return {'code': -3, 'message': f'HTTP {e.response.status_code}'}
     except Exception as e:
-        return {'code': -1, 'msg': str(e)}
+        return {'code': -1, 'message': str(e)}
 
 
-def ping() -> Dict[str, Any]:
-    return _call('api/ping', {})
+def _get(endpoint: str, extra: dict, timeout: int = 15) -> Dict[str, Any]:
+    agent_id, secret, base = _cfg()
+    if not agent_id or not secret:
+        return {'code': -1, 'message': 'Lucko API credentials not configured'}
+    params = {'agent_id': agent_id, 'timestamp': _ts(), **extra}
+    params['sign'] = _sign(secret, params)
+    url = f"{base}/{endpoint.lstrip('/')}"
+    try:
+        r = _SESSION.get(url, params=params, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+    except _http.exceptions.Timeout:
+        return {'code': -2, 'message': 'Request timed out'}
+    except _http.exceptions.HTTPError as e:
+        return {'code': -3, 'message': f'HTTP {e.response.status_code}'}
+    except Exception as e:
+        return {'code': -1, 'message': str(e)}
 
 
-def create_member(agent_member_id: str, nickname: str = '') -> Dict[str, Any]:
-    """Register / get-or-create a Lucko member. Safe to call repeatedly."""
-    return _call('api/member/create', {
-        'agent_member_id': str(agent_member_id),
-        'nickname': nickname or str(agent_member_id),
+# ── Member ────────────────────────────────────────────────────────────────────
+
+def create_member(user_id: str, user_name: str = '') -> Dict[str, Any]:
+    """Register a member. code=700102 means already registered (safe to ignore)."""
+    return _post('api/member/create', {
+        'user_id':   str(user_id),
+        'user_name': user_name or str(user_id),
     })
 
 
-def get_member_balance(agent_member_id: str) -> Optional[float]:
-    """Return the Lucko-side credit balance, or None on error."""
-    res = _call('api/member/balance', {'agent_member_id': str(agent_member_id)})
-    if res.get('code') == 0:
-        data = res.get('data') or {}
+def guest_login(platform: str = 'web') -> Dict[str, Any]:
+    """Get a session token for a guest user.  Returns data.token."""
+    return _post('api/guest/login', {'platform': platform})
+
+
+def member_login(user_id: str, token: str, platform: str = 'web') -> Dict[str, Any]:
+    """
+    Get a personalised game URL for user_id.
+    token   — session token obtained from guest_login().
+    Returns data.url  (full H5 game lobby URL) and data.token (refreshed token).
+    """
+    return _post('api/member/login', {
+        'user_id':  str(user_id),
+        'token':    token,
+        'platform': platform,
+    })
+
+
+def member_logout(user_id: str) -> Dict[str, Any]:
+    return _post('api/member/logout', {'user_id': str(user_id)})
+
+
+# ── Wallet ────────────────────────────────────────────────────────────────────
+
+def deposit(user_id: str, amount: float, txn_id: str) -> Dict[str, Any]:
+    """Credit user's Lucko wallet (transfer in from agent)."""
+    return _post('api/wallet/deposit', {
+        'user_id': str(user_id),
+        'amount':  f"{amount:.2f}",
+        'txn_id':  str(txn_id),
+    })
+
+
+def withdraw(user_id: str, amount: float, txn_id: str) -> Dict[str, Any]:
+    """Debit user's Lucko wallet (transfer back to agent)."""
+    return _post('api/wallet/withdraw', {
+        'user_id': str(user_id),
+        'amount':  f"{amount:.2f}",
+        'txn_id':  str(txn_id),
+    })
+
+
+def get_balance(user_id: str) -> Optional[float]:
+    """Return the user's current Lucko wallet balance, or None on error."""
+    res = _get('api/wallet/balance', {'user_id': str(user_id)})
+    if res.get('code') == 200:
         try:
-            return float(data.get('balance', 0))
+            return float(res.get('data', {}).get('balance', 0))
         except (TypeError, ValueError):
             return None
     return None
 
 
-def transfer_in(agent_member_id: str, amount: float, order_id: str) -> Dict[str, Any]:
-    """Load credits from agent wallet → member wallet (before play)."""
-    return _call('api/wallet/transfer-in', {
-        'agent_member_id': str(agent_member_id),
-        'amount': f"{amount:.2f}",
-        'order_id': str(order_id),
-    })
+# ── Games ─────────────────────────────────────────────────────────────────────
+
+def get_game_list() -> Dict[str, Any]:
+    """
+    Returns all game categories with their rooms.
+    Response shape:
+      data.list[]: {game_id, game_name:{en-US, zh-CN}, rooms:[{inst_id, cover, ...}]}
+    """
+    return _get('api/game/list', {})
 
 
-def transfer_out(agent_member_id: str, amount: float, order_id: str) -> Dict[str, Any]:
-    """Withdraw credits from member wallet → agent wallet (after play)."""
-    return _call('api/wallet/transfer-out', {
-        'agent_member_id': str(agent_member_id),
-        'amount': f"{amount:.2f}",
-        'order_id': str(order_id),
-    })
-
-
-def transfer_out_all(agent_member_id: str, order_id: str) -> Dict[str, Any]:
-    """Sweep entire member balance back to agent wallet."""
-    return _call('api/wallet/transfer-out-all', {
-        'agent_member_id': str(agent_member_id),
-        'order_id': str(order_id),
-    })
-
-
-def get_game_list(game_type: str = '') -> Dict[str, Any]:
-    """Fetch available games. game_type: 'slot'|'live'|'table'|'' (all)."""
-    params = {}
-    if game_type:
-        params['game_type'] = game_type
-    return _call('api/game/list', params)
-
-
-def get_game_url(game_id: str, agent_member_id: str,
-                 return_url: str = '', lang: str = 'en') -> Dict[str, Any]:
-    """Get a playable launch URL for this member + game."""
-    params = {
-        'game_id': str(game_id),
-        'agent_member_id': str(agent_member_id),
-        'lang': lang,
-    }
-    if return_url:
-        params['return_url'] = return_url
-    return _call('api/game/launch', params)
-
-
-def get_transfer_status(order_id: str) -> Dict[str, Any]:
-    return _call('api/wallet/transfer-status', {'order_id': str(order_id)})
+def ping() -> Dict[str, Any]:
+    """Health-check: create a test member; code=200 or 700102 means API is up."""
+    return create_member('ping_probe', 'ping_probe')
