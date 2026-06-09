@@ -162,6 +162,31 @@ def get_game_list() -> Dict[str, Any]:
     return _get('api/game/list', {})
 
 
+def get_latest_transactions(last_time: int = 0) -> Dict[str, Any]:
+    """
+    Poll bet/payout events since last_time (ms epoch).
+    NOTE: user_id must be excluded from the sign for this endpoint.
+    Returns data.transactions[]: {user_id, game_id, inst_id, bet_amount, win_amount, ...}
+    """
+    agent_id, secret, base = _cfg()
+    if not agent_id or not secret:
+        return {'code': -1, 'message': 'Lucko API credentials not configured'}
+    params_for_sign = {'agent_id': agent_id, 'timestamp': _ts(), 'last_time': int(last_time)}
+    sign_val = _sign(secret, params_for_sign)
+    query_params = {**params_for_sign, 'sign': sign_val}
+    url = f"{base}/api/game/transaction/latest"
+    try:
+        r = _SESSION.get(url, params=query_params, timeout=20)
+        r.raise_for_status()
+        return r.json()
+    except _http.exceptions.Timeout:
+        return {'code': -2, 'message': 'Request timed out'}
+    except _http.exceptions.HTTPError as e:
+        return {'code': -3, 'message': f'HTTP {e.response.status_code}'}
+    except Exception as e:
+        return {'code': -1, 'message': str(e)}
+
+
 def ping() -> Dict[str, Any]:
     """Health-check: create a test member; code=200 or 700102 means API is up."""
     return create_member('ping_probe', 'ping_probe')

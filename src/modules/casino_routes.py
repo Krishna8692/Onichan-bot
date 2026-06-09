@@ -83,6 +83,7 @@ def register_casino_routes(app, user_required, owner_required, get_user_sidebar,
             cat_tabs += f'<button class="cat-tab{active}" onclick="switchTab(\'{cid}\')">{cinfo["name"]}</button>'
             cat_idx += 1
         cat_tabs += '<button class="cat-tab" onclick="switchTab(\'all\')">All Games</button>'
+        cat_tabs += '<a href="/user/casino/live" class="cat-tab" style="text-decoration:none;display:inline-flex;align-items:center;background:linear-gradient(135deg,rgba(124,58,237,.35),rgba(162,28,175,.35));border-color:rgba(168,85,247,.4)">🎬 Live Games</a>'
 
         return render_template_string(CASINO_PAGE_HTML,
             sidebar=get_user_sidebar('casino', ''),

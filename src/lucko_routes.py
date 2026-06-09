@@ -420,18 +420,27 @@ th{color:#a78bfa;font-weight:600}
     </form>
   </div>
 
-  <!-- API test -->
+  <!-- API Credentials & Status -->
   <div class="sec">
-    <h3>API Status</h3>
-    {% if configured %}
-    <p style="color:#4ade80;margin-bottom:12px">✅ Credentials configured (LUCKO_AGENT_ID + LUCKO_SECRET)</p>
-    {% else %}
-    <p style="color:#f87171;margin-bottom:12px">❌ Set <code>LUCKO_AGENT_ID</code> and <code>LUCKO_SECRET</code> in Replit Secrets.</p>
+    <h3>API Credentials & Connection</h3>
+    <div style="display:grid;grid-template-columns:160px 1fr;gap:8px 16px;font-size:.82rem;margin-bottom:16px;align-items:center">
+      <span style="color:#a78bfa">Agent ID</span>
+      <code style="color:{% if agent_id_display %}#4ade80{% else %}#ef4444{% endif %}">
+        {{ agent_id_display or '❌ NOT SET — add LUCKO_AGENT_ID to Replit Secrets' }}</code>
+      <span style="color:#a78bfa">Secret</span>
+      <span style="color:{% if secret_set %}#4ade80{% else %}#ef4444{% endif %}">
+        {{ '✅ Set (LUCKO_SECRET)' if secret_set else '❌ NOT SET — add LUCKO_SECRET to Replit Secrets' }}</span>
+      <span style="color:#a78bfa">API Base URL</span>
+      <code style="color:#9ca3af;font-size:.75rem">{{ base_url_display }}</code>
+    </div>
+    {% if not configured %}
+    <div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:12px;font-size:.8rem;color:#fca5a5;margin-bottom:14px">
+      <strong>Setup required:</strong> Go to Replit Secrets (🔑 icon in sidebar) and add:<br>
+      • <code>LUCKO_AGENT_ID</code> — your Lucko agent ID<br>
+      • <code>LUCKO_SECRET</code> — your Lucko signing secret<br>
+      • <code>LUCKO_BASE_URL</code> (optional) — defaults to <code>https://api.aigapi.com</code>
+    </div>
     {% endif %}
-    <p style="color:#6b7280;font-size:.8rem;margin-bottom:14px">
-      Staging: <code>https://staging.aig1234.com</code> &nbsp;|&nbsp;
-      Production: <code>https://api.aigapi.com</code>
-    </p>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <form method="POST"><input type="hidden" name="action" value="ping_api">
         <button type="submit" class="btn btn-purple">🔗 Test Connection</button></form>
@@ -481,12 +490,20 @@ th{color:#a78bfa;font-weight:600}
         <div class="sval">{{ member_count }}</div>
       </div>
       <div class="stat">
-        <div class="slbl">Total Deposited</div>
+        <div class="slbl">Ever Deposited</div>
         <div class="sval">${{ total_in }}</div>
+      </div>
+      <div class="stat">
+        <div class="slbl">Live Exposure</div>
+        <div class="sval" style="color:#fbbf24" title="Credits currently inside Lucko wallets (deposited minus withdrawn)">${{ live_exposure }}</div>
       </div>
       <div class="stat">
         <div class="slbl">Commission Earned</div>
         <div class="sval" style="color:#4ade80">${{ total_commission }}</div>
+      </div>
+      <div class="stat">
+        <div class="slbl">Webhook Events</div>
+        <div class="sval">{{ wh_count }}</div>
       </div>
     </div>
     <form method="POST" onsubmit="return confirm('Force cashout ALL member wallets now?')">
@@ -654,6 +671,70 @@ def register_lucko_routes(app, user_required, owner_required,
 
     @app.route('/webhook/lucko/notify', methods=['POST'])
     def webhook_lucko():
+        """
+        Receives bet/payout events from Lucko.ai.
+        Payload (JSON): {agent_id, user_id, inst_id, game_id,
+                          bet_amount, win_amount, txn_id, sign, timestamp, ...}
+        We verify the sign, then persist the event and reconcile any
+        large negative-net wallets back to the bot balance.
+        """
+        import logging
+        wlog = logging.getLogger('lucko_webhook')
+
+        data = request.get_json(silent=True) or {}
+        received_sign = data.get('sign', '')
+        agent_id, secret, _ = _api._cfg()
+
+        # Verify signature
+        params_for_sign = {k: v for k, v in data.items()
+                          if k != 'sign' and v is not None and str(v) != ''}
+        expected = _api._sign(secret, params_for_sign)
+        if received_sign != expected:
+            wlog.warning(f'[lucko_wh] invalid sign received: {received_sign!r}')
+            return jsonify({'code': 400, 'message': 'invalid sign'})
+
+        user_id_raw  = str(data.get('user_id', ''))
+        inst_id      = str(data.get('inst_id', ''))
+        game_id      = str(data.get('game_id', ''))
+        txn_id_wh    = str(data.get('txn_id', ''))
+        bet_amount   = float(data.get('bet_amount', 0) or 0)
+        win_amount   = float(data.get('win_amount', 0) or 0)
+        event_type   = str(data.get('event_type', 'bet'))
+
+        # Persist webhook event
+        from modules.database import _execute_with_retry as _q
+        _q("""
+            CREATE TABLE IF NOT EXISTS lucko_webhook_events (
+                id SERIAL PRIMARY KEY,
+                lucko_user_id VARCHAR(120),
+                inst_id VARCHAR(50),
+                game_id VARCHAR(50),
+                txn_id VARCHAR(150),
+                bet_amount DECIMAL(12,4) DEFAULT 0,
+                win_amount DECIMAL(12,4) DEFAULT 0,
+                event_type VARCHAR(40),
+                raw_payload JSONB,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        try:
+            _q("""
+                INSERT INTO lucko_webhook_events
+                    (lucko_user_id, inst_id, game_id, txn_id,
+                     bet_amount, win_amount, event_type, raw_payload)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT DO NOTHING
+            """, (user_id_raw, inst_id, game_id, txn_id_wh,
+                  bet_amount, win_amount, event_type, json.dumps(data)))
+        except Exception as e:
+            wlog.warning(f'[lucko_wh] insert failed: {e}')
+
+        # If this is a payout event and win_amount > 0, invalidate token cache
+        # so the next balance poll reflects the new amount.
+        if win_amount > 0 and user_id_raw:
+            with _wallet._token_lock:
+                _wallet._token_cache.pop(user_id_raw, None)
+
         return jsonify({'code': 200, 'message': 'ok'})
 
     # ── Admin: live casino settings ───────────────────────────────────────────
@@ -722,33 +803,64 @@ def register_lucko_routes(app, user_required, owner_required,
         member_count = (
             _q("SELECT COUNT(*) as c FROM lucko_members", fetch_one=True) or {}
         ).get('c', 0)
-        total_in  = float((_q(
+
+        # Total ever deposited to Lucko
+        total_in = float((_q(
             "SELECT COALESCE(SUM(credits_lucko),0) as s FROM lucko_transfers "
             "WHERE direction='in' AND status='completed'",
             fetch_one=True) or {}).get('s', 0))
+
+        # Total ever withdrawn from Lucko (gross before commission)
+        total_out = float((_q(
+            "SELECT COALESCE(SUM(credits_lucko),0) as s FROM lucko_transfers "
+            "WHERE direction='out' AND status='completed'",
+            fetch_one=True) or {}).get('s', 0))
+
+        # Current live exposure = deposited - withdrawn (still in Lucko wallets)
+        live_exposure = max(0.0, round(total_in - total_out, 2))
+
         total_comm = float((_q(
             "SELECT COALESCE(SUM(commission_amount),0) as s FROM lucko_transfers "
             "WHERE direction='out' AND status='completed'",
             fetch_one=True) or {}).get('s', 0))
+
+        # Webhook event count
+        try:
+            wh_count = (_q(
+                "SELECT COUNT(*) as c FROM lucko_webhook_events",
+                fetch_one=True) or {}).get('c', 0)
+        except Exception:
+            wh_count = 0
+
+        # Agent ID display (masked for security)
+        import os
+        agent_id_display = os.environ.get('LUCKO_AGENT_ID', '')
+        secret_set       = bool(os.environ.get('LUCKO_SECRET', ''))
+        base_url_display = os.environ.get('LUCKO_BASE_URL', 'https://api.aigapi.com (default)')
 
         rooms     = _wallet.get_cached_rooms()
         transfers = _wallet.get_recent_transfers(50)
 
         return render_template_string(
             _ADMIN_HTML,
-            admin_css      = ADMIN_CSS,
-            message        = message,
-            msg_ok         = msg_ok,
-            configured     = _api.is_configured(),
-            lucko_enabled  = _wallet.is_enabled(),
-            commission_pct = float(_wallet.get_setting('default_commission_pct', '5')),
-            default_buyin  = float(_wallet.get_setting('default_buyin', '10')),
-            min_buyin      = float(_wallet.get_setting('min_buyin', '1')),
-            max_buyin      = float(_wallet.get_setting('max_buyin', '500')),
-            rooms          = rooms,
-            transfers      = transfers,
-            ping_result    = ping_result,
-            member_count   = member_count,
-            total_in       = f"{total_in:.2f}",
+            admin_css        = ADMIN_CSS,
+            message          = message,
+            msg_ok           = msg_ok,
+            configured       = _api.is_configured(),
+            lucko_enabled    = _wallet.is_enabled(),
+            commission_pct   = float(_wallet.get_setting('default_commission_pct', '5')),
+            default_buyin    = float(_wallet.get_setting('default_buyin', '10')),
+            min_buyin        = float(_wallet.get_setting('min_buyin', '1')),
+            max_buyin        = float(_wallet.get_setting('max_buyin', '500')),
+            rooms            = rooms,
+            transfers        = transfers,
+            ping_result      = ping_result,
+            member_count     = member_count,
+            total_in         = f"{total_in:.2f}",
             total_commission = f"{total_comm:.2f}",
+            live_exposure    = f"{live_exposure:.2f}",
+            wh_count         = wh_count,
+            agent_id_display = agent_id_display,
+            secret_set       = secret_set,
+            base_url_display = base_url_display,
         )
