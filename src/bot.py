@@ -3333,7 +3333,7 @@ async def hit_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             text=ae(f"⚡ <b>Fetching checkout...</b>\n<i>BIN: {html.escape(chosen['bin_value'][:6])}*** ({len(cards)} cards)</i>"),
             parse_mode=ParseMode.HTML
         )
-        await _run_auto_hit(query, context, url, cards, loading_msg)
+        await _run_auto_hit(update, context, url, cards, loading_msg)
         return
 
 
