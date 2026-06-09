@@ -239,9 +239,39 @@ def get_lobby_url(telegram_id: int, inst_id: str = '') -> Dict[str, Any]:
 
 # ── Wallet operations ─────────────────────────────────────────────────────────
 
+# ── Active session tracking ───────────────────────────────────────────────────
+# Maps telegram_id → {'inst_id': str, 'buyin_txn_id': str, 'ts': float}
+# Written at buy-in; read/cleared at cashout.  Never trust client-supplied
+# inst_id for commission lookups — always pull from this server-side record.
+
+_active_sessions: Dict[int, Dict[str, Any]] = {}
+_session_lock = threading.Lock()
+
+
+def _set_active_session(telegram_id: int, inst_id: str, buyin_txn_id: str):
+    with _session_lock:
+        _active_sessions[telegram_id] = {
+            'inst_id':      inst_id,
+            'buyin_txn_id': buyin_txn_id,
+            'ts':           time.time(),
+        }
+
+
+def _get_active_session(telegram_id: int) -> Optional[Dict[str, Any]]:
+    with _session_lock:
+        return _active_sessions.get(telegram_id)
+
+
+def _clear_active_session(telegram_id: int):
+    with _session_lock:
+        _active_sessions.pop(telegram_id, None)
+
+
 def buy_in(telegram_id: int, credits: float, game_id: str = '') -> Dict[str, Any]:
     """
     Deduct credits from bot wallet → transfer to Lucko wallet.
+    Records inst_id in the server-side active session so cashout always
+    uses the correct commission — never trusting client-supplied inst_id.
     Returns {'ok': True, 'txn_id': ..., 'lucko_balance': ...}
     """
     credits = round(float(credits), 2)
@@ -276,6 +306,9 @@ def buy_in(telegram_id: int, credits: float, game_id: str = '') -> Dict[str, Any
     if res.get('code') == 200:
         _execute_with_retry("UPDATE lucko_transfers SET status='completed' WHERE txn_id=%s", (txn_id,))
         lucko_bal = _api.get_balance(lucko_uid) or credits
+        # Record server-side session AFTER successful deposit so commission
+        # policy is bound to this specific inst_id and cannot be overridden.
+        _set_active_session(telegram_id, game_id, txn_id)
         return {'ok': True, 'txn_id': txn_id, 'lucko_balance': lucko_bal}
     else:
         # Refund
@@ -284,6 +317,48 @@ def buy_in(telegram_id: int, credits: float, game_id: str = '') -> Dict[str, Any
             UPDATE lucko_transfers SET status='failed', error_msg=%s WHERE txn_id=%s
         """, (res.get('message', 'API error'), txn_id))
         return {'ok': False, 'error': res.get('message', 'Deposit failed')}
+
+
+def rollback_buy_in(telegram_id: int) -> Dict[str, Any]:
+    """
+    Zero-commission reversal used when a game URL could not be obtained
+    immediately after a successful buy-in.  Withdraws the full Lucko balance
+    back to the bot wallet WITHOUT charging any commission.
+    Clears the active session on success.
+    """
+    lucko_uid = ensure_member(telegram_id)
+    if not lucko_uid:
+        return {'ok': False, 'error': 'No Lucko account found'}
+
+    lucko_bal = _api.get_balance(lucko_uid)
+    if lucko_bal is None:
+        return {'ok': False, 'error': 'Could not fetch Lucko balance for rollback'}
+
+    if lucko_bal < _MIN_SWEEP:
+        _clear_active_session(telegram_id)
+        return {'ok': True, 'credits_back': 0.0, 'commission': 0.0}
+
+    txn_id = f"rb_{telegram_id}_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
+
+    _execute_with_retry("""
+        INSERT INTO lucko_transfers
+            (telegram_id, direction, credits_bot, credits_lucko,
+             commission_pct, commission_amount, game_id, txn_id, status)
+        VALUES (%s, 'out', %s, %s, 0, 0, 'ROLLBACK', %s, 'pending')
+    """, (telegram_id, float(lucko_bal), float(lucko_bal), txn_id))
+
+    res = _api.withdraw(lucko_uid, float(lucko_bal), txn_id)
+    if res.get('code') == 200:
+        add_user_balance(telegram_id, float(lucko_bal))
+        _execute_with_retry("UPDATE lucko_transfers SET status='completed' WHERE txn_id=%s", (txn_id,))
+        _clear_active_session(telegram_id)
+        logger.info(f"[lucko] rollback_buy_in: refunded {lucko_bal} to {telegram_id} (no commission)")
+        return {'ok': True, 'credits_back': float(lucko_bal), 'commission': 0.0}
+    else:
+        _execute_with_retry("""
+            UPDATE lucko_transfers SET status='failed', error_msg=%s WHERE txn_id=%s
+        """, (res.get('message', 'API error'), txn_id))
+        return {'ok': False, 'error': res.get('message', 'Rollback withdraw failed')}
 
 
 def cash_out(telegram_id: int, game_id: str = '') -> Dict[str, Any]:
