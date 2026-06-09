@@ -361,9 +361,12 @@ def rollback_buy_in(telegram_id: int) -> Dict[str, Any]:
         return {'ok': False, 'error': res.get('message', 'Rollback withdraw failed')}
 
 
-def cash_out(telegram_id: int, game_id: str = '') -> Dict[str, Any]:
+def cash_out(telegram_id: int) -> Dict[str, Any]:
     """
     Sweep Lucko wallet → bot wallet minus commission.
+    The commission rate is determined by the inst_id recorded server-side at
+    buy-in time (_active_sessions).  The client cannot influence the commission
+    by supplying a different inst_id — that parameter is intentionally removed.
     Returns {'ok': True, 'credits_back': ..., 'commission': ..., 'commission_pct': ...}
     """
     lucko_uid = ensure_member(telegram_id)
@@ -375,7 +378,12 @@ def cash_out(telegram_id: int, game_id: str = '') -> Dict[str, Any]:
         return {'ok': False, 'error': 'Could not fetch Lucko balance'}
 
     if lucko_bal < _MIN_SWEEP:
+        _clear_active_session(telegram_id)
         return {'ok': True, 'credits_back': 0.0, 'commission': 0.0, 'commission_pct': 0.0, 'lucko_gross': 0.0}
+
+    # Pull inst_id from the server-side session — never from client input.
+    session_info = _get_active_session(telegram_id)
+    game_id = session_info['inst_id'] if session_info else ''
 
     commission_pct = get_commission_pct(game_id)
     gross = Decimal(str(lucko_bal))
@@ -398,6 +406,7 @@ def cash_out(telegram_id: int, game_id: str = '') -> Dict[str, Any]:
     if res.get('code') == 200:
         add_user_balance(telegram_id, net_f)
         _execute_with_retry("UPDATE lucko_transfers SET status='completed' WHERE txn_id=%s", (txn_id,))
+        _clear_active_session(telegram_id)
         return {
             'ok': True,
             'credits_back':   net_f,

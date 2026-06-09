@@ -319,10 +319,12 @@ function doExit(){
   });
 }
 
-window.addEventListener('beforeunload',function(e){
+// sendBeacon fires the cashout request before the page unloads — guaranteed
+// delivery even when the user closes the tab or navigates away.
+// The server ignores any client-supplied inst_id, so no payload is needed.
+window.addEventListener('pagehide', function(){
   if(!_exiting && {{ 'true' if game_url else 'false' }}){
-    e.preventDefault();
-    e.returnValue='Cash out before leaving!';
+    navigator.sendBeacon('/api/casino/live/cashout', new Blob(['{}'],{type:'application/json'}));
   }
 });
 </script>
@@ -632,8 +634,8 @@ def register_lucko_routes(app, user_required, owner_required,
         # Get game URL
         url_res = _wallet.get_lobby_url(user_id, inst_id)
         if not url_res['ok']:
-            # Refund if URL failed
-            _wallet.cash_out(user_id, inst_id)
+            # Zero-commission rollback — no game session started, no commission owed
+            _wallet.rollback_buy_in(user_id)
             return jsonify({'ok': False, 'error': url_res.get('error', 'Could not get game URL')})
 
         # Store context in session for the play page
@@ -652,9 +654,11 @@ def register_lucko_routes(app, user_required, owner_required,
     @user_required
     def api_lucko_cashout():
         user_id = session.get('user_id')
-        data    = request.get_json(silent=True) or {}
-        inst_id = str(data.get('inst_id', ''))
-        result  = _wallet.cash_out(user_id, inst_id)
+        # inst_id from the client is intentionally ignored here.
+        # Commission is determined by the server-side active session recorded
+        # at buy-in time, so users cannot manipulate the commission rate by
+        # submitting a different or blank inst_id.
+        result  = _wallet.cash_out(user_id)
         return jsonify(result)
 
     # ── API: Lucko balance ────────────────────────────────────────────────────
