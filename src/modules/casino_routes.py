@@ -2244,5 +2244,10 @@ input[type=number]:focus, input[type=text]:focus, select:focus { border-color: #
         <a href="/admin/casino/export/achievements" class="btn btn-purple" style="text-decoration:none">Export Achievements CSV</a>
     </div>
 </div>
+<div class="section" style="border-color:rgba(168,85,247,.4)">
+    <h3 style="color:#a855f7">🎬 Lucko.ai Live Casino</h3>
+    <p style="color:#9ca3af;font-size:.875rem;margin-bottom:14px">Configure live dealer, slot, and table games powered by Lucko.ai.</p>
+    <a href="/admin/casino/live" class="btn btn-purple" style="text-decoration:none">Open Live Casino Settings →</a>
+</div>
 </div>
 </body></html>'''

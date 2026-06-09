@@ -610,6 +610,11 @@ def _create_tables():
         _init_casino_tables()
         start_cleanup_scheduler()
 
+        # Lucko.ai live casino tables
+        from modules.lucko_wallet import init_lucko_tables, start_idle_sweep
+        init_lucko_tables()
+        start_idle_sweep()
+
         return True
     except Exception as e:
         print(f"Table creation error: {e}")

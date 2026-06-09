@@ -4655,7 +4655,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
     _shop_keys = {'ccshop', 'purchased', 'proxyshop', 'myproxies', 'bins', 'mybins'}
     _tools_keys = {'checker', 'masscheck', 'generator', 'autohitter', 'bulkhitter', 'razorpay',
                    'payu', 'shopify', 'cleaner', 'binlookup', 'proxychecker', 'proxygen', 'browser'}
-    _casino_keys = {'casino'}
+    _casino_keys = {'casino', 'casino_live'}
     _market_keys = {'market', 'market_sell', 'market_shop', 'market_orders'}
 
     def _tab_cls(group):
@@ -4772,6 +4772,7 @@ def get_user_sidebar(active_page, page_title="Onichan", is_admin=None):
             <div class="nav-section-title" data-key="casino" onclick="toggleNavSection(this)" role="button" tabindex="0">Casino<span class="caret">▾</span></div>
             <div class="nav-section-body">
             {link('casino', '🎰 Casino', '/user/casino')}
+            {link('casino_live', '🎬 Live Games', '/user/casino/live')}
             </div>
         </div>
         <div class="nav-section">
@@ -17297,6 +17298,9 @@ def tonconnect_manifest():
 
 from modules.casino_routes import register_casino_routes
 register_casino_routes(app, user_required, owner_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
+
+from lucko_routes import register_lucko_routes
+register_lucko_routes(app, user_required, owner_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
 
 from market_routes import register_market_routes
 register_market_routes(app, user_required, admin_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
