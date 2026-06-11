@@ -244,8 +244,8 @@ def get_lobby_url(telegram_id, inst_id: str = '') -> Dict[str, Any]:
     if not token:
         return {'ok': False, 'error': 'Could not obtain session token'}
 
-    # member/login returns a lobby URL — append inst_id to open specific room
-    res = _api.member_login(lucko_uid, token, 'web')
+    # member/login — pass inst_id so the API returns a direct game URL
+    res = _api.member_login(lucko_uid, token, 'web', inst_id=inst_id)
     if res.get('code') != 200:
         # Token may have expired — invalidate and retry once
         with _token_lock:
@@ -253,7 +253,7 @@ def get_lobby_url(telegram_id, inst_id: str = '') -> Dict[str, Any]:
         token = _get_session_token(lucko_uid)
         if not token:
             return {'ok': False, 'error': 'Session token refresh failed'}
-        res = _api.member_login(lucko_uid, token, 'web')
+        res = _api.member_login(lucko_uid, token, 'web', inst_id=inst_id)
 
     if res.get('code') != 200:
         return {'ok': False, 'error': res.get('message', 'Login failed')}
@@ -262,11 +262,6 @@ def get_lobby_url(telegram_id, inst_id: str = '') -> Dict[str, Any]:
     new_token = (res.get('data') or {}).get('token', token)
     with _token_lock:
         _token_cache[lucko_uid] = (new_token, time.time() + _TOKEN_TTL)
-
-    # Append inst_id to deep-link into a specific game room
-    if inst_id and url:
-        sep = '&' if '?' in url else '?'
-        url = f"{url}{sep}inst_id={inst_id}"
 
     return {'ok': True, 'url': url}
 
