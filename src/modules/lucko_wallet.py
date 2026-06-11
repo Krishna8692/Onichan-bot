@@ -164,8 +164,9 @@ def _lucko_uid(telegram_id: int) -> str:
     return f"onichan_{telegram_id}"
 
 
-def ensure_member(telegram_id: int) -> Optional[str]:
+def ensure_member(telegram_id) -> Optional[str]:
     """Return Lucko user_id for this user, registering if necessary."""
+    telegram_id = int(telegram_id)
     row = _execute_with_retry(
         "SELECT lucko_user_id FROM lucko_members WHERE telegram_id = %s",
         (telegram_id,), fetch_one=True
@@ -229,11 +230,12 @@ def _get_session_token(lucko_uid: str) -> Optional[str]:
     return member_token
 
 
-def get_lobby_url(telegram_id: int, inst_id: str = '') -> Dict[str, Any]:
+def get_lobby_url(telegram_id, inst_id: str = '') -> Dict[str, Any]:
     """
     Return the playable game URL for this user.
     inst_id is appended as a query param to deep-link into a specific room.
     """
+    telegram_id = int(telegram_id)
     lucko_uid = ensure_member(telegram_id)
     if not lucko_uid:
         return {'ok': False, 'error': 'Failed to register Lucko account'}
@@ -299,13 +301,14 @@ def _clear_active_session(telegram_id: int):
         _active_sessions.pop(telegram_id, None)
 
 
-def buy_in(telegram_id: int, credits: float, game_id: str = '') -> Dict[str, Any]:
+def buy_in(telegram_id, credits: float, game_id: str = '') -> Dict[str, Any]:
     """
     Deduct credits from bot wallet → transfer to Lucko wallet.
     Records inst_id in the server-side active session so cashout always
     uses the correct commission — never trusting client-supplied inst_id.
     Returns {'ok': True, 'txn_id': ..., 'lucko_balance': ...}
     """
+    telegram_id = int(telegram_id)
     credits = round(float(credits), 2)
     min_b = float(get_setting('min_buyin', '1.00'))
     max_b = float(get_setting('max_buyin', '500.00'))
@@ -353,13 +356,14 @@ def buy_in(telegram_id: int, credits: float, game_id: str = '') -> Dict[str, Any
         return {'ok': False, 'error': res.get('message', 'Deposit failed')}
 
 
-def rollback_buy_in(telegram_id: int) -> Dict[str, Any]:
+def rollback_buy_in(telegram_id) -> Dict[str, Any]:
     """
     Zero-commission reversal used when a game URL could not be obtained
     immediately after a successful buy-in.  Withdraws the full Lucko balance
     back to the bot wallet WITHOUT charging any commission.
     Clears the active session on success.
     """
+    telegram_id = int(telegram_id)
     lucko_uid = ensure_member(telegram_id)
     if not lucko_uid:
         return {'ok': False, 'error': 'No Lucko account found'}
@@ -395,7 +399,7 @@ def rollback_buy_in(telegram_id: int) -> Dict[str, Any]:
         return {'ok': False, 'error': res.get('message', 'Rollback withdraw failed')}
 
 
-def cash_out(telegram_id: int) -> Dict[str, Any]:
+def cash_out(telegram_id) -> Dict[str, Any]:
     """
     Sweep Lucko wallet → bot wallet minus commission.
     The commission rate is determined by the inst_id recorded server-side at
@@ -403,6 +407,7 @@ def cash_out(telegram_id: int) -> Dict[str, Any]:
     by supplying a different inst_id — that parameter is intentionally removed.
     Returns {'ok': True, 'credits_back': ..., 'commission': ..., 'commission_pct': ...}
     """
+    telegram_id = int(telegram_id)
     lucko_uid = ensure_member(telegram_id)
     if not lucko_uid:
         return {'ok': False, 'error': 'No Lucko account found'}
