@@ -244,8 +244,10 @@ def get_lobby_url(telegram_id, inst_id: str = '') -> Dict[str, Any]:
     if not token:
         return {'ok': False, 'error': 'Could not obtain session token'}
 
-    # member/login — pass inst_id so the API returns a direct game URL
-    res = _api.member_login(lucko_uid, token, 'web', inst_id=inst_id)
+    # member/login — pass inst_id so the API returns a direct game URL.
+    # lang='en' is set here only (not in _get_session_token) so the token
+    # acquisition flow stays compatible with the API's guest/login endpoint.
+    res = _api.member_login(lucko_uid, token, 'web', inst_id=inst_id, lang='en')
     if res.get('code') != 200:
         # Token may have expired — invalidate and retry once
         with _token_lock:
@@ -253,7 +255,7 @@ def get_lobby_url(telegram_id, inst_id: str = '') -> Dict[str, Any]:
         token = _get_session_token(lucko_uid)
         if not token:
             return {'ok': False, 'error': 'Session token refresh failed'}
-        res = _api.member_login(lucko_uid, token, 'web', inst_id=inst_id)
+        res = _api.member_login(lucko_uid, token, 'web', inst_id=inst_id, lang='en')
 
     if res.get('code') != 200:
         return {'ok': False, 'error': res.get('message', 'Login failed')}

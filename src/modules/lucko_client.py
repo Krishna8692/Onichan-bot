@@ -114,27 +114,29 @@ def create_member(user_id: str, user_name: str = '') -> Dict[str, Any]:
     })
 
 
-def guest_login(platform: str = 'web', lang: str = 'en') -> Dict[str, Any]:
+def guest_login(platform: str = 'web') -> Dict[str, Any]:
     """Get a session token for a guest user.  Returns data.token."""
-    return _post('api/guest/login', {'platform': platform, 'lang': lang})
+    return _post('api/guest/login', {'platform': platform})
 
 
 def member_login(user_id: str, token: str, platform: str = 'web',
-                 inst_id: str = '', lang: str = 'en') -> Dict[str, Any]:
+                 inst_id: str = '', lang: str = '') -> Dict[str, Any]:
     """
     Get a personalised game URL for user_id.
     token   — session token obtained from guest_login().
     inst_id — if set, returns a direct URL for that specific game room.
+    lang    — language code (e.g. 'en'); omitted when empty.
     Returns data.url  (game or lobby URL) and data.token (refreshed token).
     """
     params: Dict[str, Any] = {
         'user_id':  str(user_id),
         'token':    token,
         'platform': platform,
-        'lang':     lang,
     }
     if inst_id:
         params['inst_id'] = inst_id
+    if lang:
+        params['lang'] = lang
     return _post('api/member/login', params)
 
 
