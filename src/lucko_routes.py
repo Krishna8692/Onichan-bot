@@ -587,16 +587,19 @@ def register_lucko_routes(app, user_required, owner_required, admin_required,
         game_name  = session.get(f'lc_name_{inst_id}', inst_id)
         lucko_bal  = session.get(f'lc_bal_{inst_id}',  0.0)
 
-        game_url = ''
+        # Prefer URL stored during buy-in (avoids a redundant second API call
+        # and guarantees the same inst_id-bound URL is used).
+        game_url = session.pop(f'lc_url_{inst_id}', '')
         error    = ''
-        if _api.is_configured():
-            res = _wallet.get_lobby_url(user_id, inst_id)
-            if res['ok']:
-                game_url = res['url']
+        if not game_url:
+            if _api.is_configured():
+                res = _wallet.get_lobby_url(user_id, inst_id)
+                if res['ok']:
+                    game_url = res['url']
+                else:
+                    error = res.get('error', 'Could not load game')
             else:
-                error = res.get('error', 'Could not load game')
-        else:
-            error = 'Lucko API not configured'
+                error = 'Lucko API not configured'
 
         return render_template_string(
             _PLAY_HTML,
@@ -641,6 +644,7 @@ def register_lucko_routes(app, user_required, owner_required, admin_required,
         # Store context in session for the play page
         session[f'lc_name_{inst_id}'] = game_name
         session[f'lc_bal_{inst_id}']  = res['lucko_balance']
+        session[f'lc_url_{inst_id}']  = url_res['url']   # avoid 2nd API call on play page
 
         return jsonify({
             'ok':           True,
