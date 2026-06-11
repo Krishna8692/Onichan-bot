@@ -7,7 +7,6 @@ Lucko.ai Wallet Bridge
 """
 import threading
 import time
-import uuid
 import json
 import logging
 from decimal import Decimal, ROUND_DOWN
@@ -159,6 +158,13 @@ def is_game_enabled(game_id: str) -> bool:
 
 # ── Member management ─────────────────────────────────────────────────────────
 
+# In-process cache so we skip the DB lookup on every wallet operation.
+# The uid is deterministic (onichan_{tid}), so once confirmed registered it
+# never changes.  Cache is intentionally never invalidated between restarts.
+_member_cache: Dict[int, str] = {}
+_member_cache_lock = threading.Lock()
+
+
 def _lucko_uid(telegram_id: int) -> str:
     """Deterministic Lucko user_id for a Telegram user."""
     return f"onichan_{telegram_id}"
@@ -167,24 +173,37 @@ def _lucko_uid(telegram_id: int) -> str:
 def ensure_member(telegram_id) -> Optional[str]:
     """Return Lucko user_id for this user, registering if necessary."""
     telegram_id = int(telegram_id)
+
+    # Fast path — already seen this user in this process lifetime
+    with _member_cache_lock:
+        if telegram_id in _member_cache:
+            return _member_cache[telegram_id]
+
+    # DB lookup
     row = _execute_with_retry(
         "SELECT lucko_user_id FROM lucko_members WHERE telegram_id = %s",
         (telegram_id,), fetch_one=True
     )
     if row:
-        return row['lucko_user_id']
+        uid = row['lucko_user_id']
+        with _member_cache_lock:
+            _member_cache[telegram_id] = uid
+        return uid
 
+    # First time — register with Lucko and persist
     lucko_uid = _lucko_uid(telegram_id)
     res = _api.create_member(lucko_uid, str(telegram_id))
     # code 200 = created, 700102 = already exists — both are fine
     if res.get('code') not in (200, 700102):
-        logger.warning(f"[lucko] create_member failed for {telegram_id}: {res}")
+        print(f"[lucko] create_member failed for {telegram_id}: {res}", flush=True)
         return None
 
     _execute_with_retry("""
         INSERT INTO lucko_members (telegram_id, lucko_user_id)
         VALUES (%s, %s) ON CONFLICT (telegram_id) DO NOTHING
     """, (telegram_id, lucko_uid))
+    with _member_cache_lock:
+        _member_cache[telegram_id] = lucko_uid
     return lucko_uid
 
 
@@ -209,20 +228,21 @@ def _get_session_token(lucko_uid: str) -> Optional[str]:
     # 1. Acquire a guest token
     g = _api.guest_login('web')
     if g.get('code') != 200:
-        logger.warning(f"[lucko] guest_login failed: {g}")
+        print(f"[lucko] guest_login failed: {g}", flush=True)
         return None
     guest_token = (g.get('data') or {}).get('token', '')
     if not guest_token:
+        print(f"[lucko] guest_login returned empty token: {g}", flush=True)
         return None
 
-    # 2. Exchange for a member-specific token (no inst_id = lobby URL)
-    uid_part = lucko_uid  # e.g. onichan_12345
-    m = _api.member_login(uid_part, guest_token, 'web')
+    # 2. Exchange for a member-specific token (no inst_id = no game URL yet)
+    m = _api.member_login(lucko_uid, guest_token, 'web')
     if m.get('code') != 200:
-        logger.warning(f"[lucko] member_login failed for {lucko_uid}: {m}")
+        print(f"[lucko] member_login (token step) failed for {lucko_uid}: {m}", flush=True)
         return None
     member_token = (m.get('data') or {}).get('token', '')
     if not member_token:
+        print(f"[lucko] member_login returned empty token for {lucko_uid}: {m}", flush=True)
         return None
 
     with _token_lock:

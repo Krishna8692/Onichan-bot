@@ -179,9 +179,15 @@ function openBuyIn(inst,name,type){
   _inst=inst; _name=name; _type=type;
   document.getElementById('mTitle').textContent='🎮 '+name;
   document.getElementById('mBal').textContent=document.getElementById('balVal').textContent;
+  var btn=document.getElementById('confirmBtn');
+  btn.disabled=false; btn.innerHTML='🎮 Play!';
   document.getElementById('modal').style.display='flex';
 }
-function closeModal(){ document.getElementById('modal').style.display='none'; }
+function closeModal(){
+  document.getElementById('modal').style.display='none';
+  var btn=document.getElementById('confirmBtn');
+  btn.disabled=false; btn.innerHTML='🎮 Play!';
+}
 function setAmt(v){
   if(v==='all'){
     var b=parseFloat(document.getElementById('balVal').textContent.replace('$',''))||0;

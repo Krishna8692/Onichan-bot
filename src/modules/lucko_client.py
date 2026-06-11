@@ -17,20 +17,32 @@ Balance:      GET with query params
 import os
 import hashlib
 import time
+import threading
 import requests as _http
 from typing import Dict, Any, Optional
 
 _SESSION = _http.Session()
 _SESSION.headers.update({'Content-Type': 'application/json'})
 
+# ── Config cache — read env vars once, not on every call ─────────────────────
+_cfg_cache: Dict[str, str] = {}
+_cfg_lock = threading.Lock()
+
 
 def _cfg():
+    with _cfg_lock:
+        if _cfg_cache:
+            return _cfg_cache['agent_id'], _cfg_cache['secret'], _cfg_cache['base']
     agent_id = os.environ.get('LUCKO_AGENT_ID', '').strip()
     secret   = os.environ.get('LUCKO_SECRET',   '').strip()
-    base     = os.environ.get('LUCKO_BASE_URL', '').strip()
+    base     = os.environ.get('LUCKO_BASE_URL', '').strip().rstrip('/')
     if not base:
         base = 'https://api.aigapi.com' if agent_id else 'https://staging.aig1234.com'
-    return agent_id, secret, base.rstrip('/')
+    with _cfg_lock:
+        _cfg_cache['agent_id'] = agent_id
+        _cfg_cache['secret']   = secret
+        _cfg_cache['base']     = base
+    return agent_id, secret, base
 
 
 def is_configured() -> bool:
@@ -57,13 +69,12 @@ def _post(endpoint: str, extra: dict, timeout: int = 15) -> Dict[str, Any]:
     params = {'agent_id': agent_id, 'timestamp': _ts(), **extra}
     params['sign'] = _sign(secret, params)
     url = f"{base}/{endpoint.lstrip('/')}"
-    safe = {k: v for k, v in params.items() if k not in ('sign', 'agent_id')}
-    print(f"[lucko] POST {endpoint} params={safe}", flush=True)
     try:
         r = _SESSION.post(url, json=params, timeout=timeout)
         r.raise_for_status()
         data = r.json()
-        print(f"[lucko] POST {endpoint} → {data}", flush=True)
+        if data.get('code') != 200:
+            print(f"[lucko] POST {endpoint} non-200 → {data}", flush=True)
         return data
     except _http.exceptions.Timeout:
         print(f"[lucko] POST {endpoint} → TIMEOUT", flush=True)
@@ -84,13 +95,12 @@ def _get(endpoint: str, extra: dict, timeout: int = 15) -> Dict[str, Any]:
     params = {'agent_id': agent_id, 'timestamp': _ts(), **extra}
     params['sign'] = _sign(secret, params)
     url = f"{base}/{endpoint.lstrip('/')}"
-    safe = {k: v for k, v in params.items() if k not in ('sign', 'agent_id')}
-    print(f"[lucko] GET {endpoint} params={safe}", flush=True)
     try:
         r = _SESSION.get(url, params=params, timeout=timeout)
         r.raise_for_status()
         data = r.json()
-        print(f"[lucko] GET {endpoint} → {data}", flush=True)
+        if data.get('code') != 200:
+            print(f"[lucko] GET {endpoint} non-200 → {data}", flush=True)
         return data
     except _http.exceptions.Timeout:
         print(f"[lucko] GET {endpoint} → TIMEOUT", flush=True)
