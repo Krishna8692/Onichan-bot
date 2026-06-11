@@ -264,11 +264,11 @@ def get_lobby_url(telegram_id, inst_id: str = '') -> Dict[str, Any]:
     if not token:
         return {'ok': False, 'error': 'Could not obtain session token'}
 
-    # member/login — pass inst_id so the API returns a direct game URL.
-    # Do NOT include lang in the signed params — Lucko excludes it from its own
-    # sign computation, so including it causes an "invalid sign" error.
-    # English is forced by appending lang=en to the returned URL instead.
-    res = _api.member_login(lucko_uid, token, 'web', inst_id=inst_id)
+    # member/login — Lucko only includes the core params in its sign check
+    # (user_id, token, platform, agent_id, timestamp).  Extra params like
+    # inst_id and lang break the sign.  Get the bare lobby URL here and
+    # append inst_id + lang as query-string hints for the game frontend.
+    res = _api.member_login(lucko_uid, token, 'web')
     if res.get('code') != 200:
         # Token may have expired — invalidate and retry once
         with _token_lock:
@@ -276,15 +276,18 @@ def get_lobby_url(telegram_id, inst_id: str = '') -> Dict[str, Any]:
         token = _get_session_token(lucko_uid)
         if not token:
             return {'ok': False, 'error': 'Session token refresh failed'}
-        res = _api.member_login(lucko_uid, token, 'web', inst_id=inst_id)
+        res = _api.member_login(lucko_uid, token, 'web')
 
     if res.get('code') != 200:
         return {'ok': False, 'error': res.get('message', 'Login failed')}
 
     url = (res.get('data') or {}).get('url', '')
-    # Append lang=en so the game client opens in English
     if url:
-        url += ('&' if '?' in url else '?') + 'lang=en'
+        sep = '&' if '?' in url else '?'
+        if inst_id:
+            url += f'{sep}inst_id={inst_id}'
+            sep = '&'
+        url += f'{sep}lang=en'
 
     new_token = (res.get('data') or {}).get('token', token)
     with _token_lock:
