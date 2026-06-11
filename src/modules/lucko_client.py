@@ -50,10 +50,6 @@ def _ts() -> int:
     return int(time.time() * 1000)
 
 
-import logging as _logging
-_log = _logging.getLogger(__name__)
-
-
 def _post(endpoint: str, extra: dict, timeout: int = 15) -> Dict[str, Any]:
     agent_id, secret, base = _cfg()
     if not agent_id or not secret:
@@ -61,24 +57,23 @@ def _post(endpoint: str, extra: dict, timeout: int = 15) -> Dict[str, Any]:
     params = {'agent_id': agent_id, 'timestamp': _ts(), **extra}
     params['sign'] = _sign(secret, params)
     url = f"{base}/{endpoint.lstrip('/')}"
-    # Log every outgoing request (mask sign for brevity)
     safe = {k: v for k, v in params.items() if k not in ('sign', 'agent_id')}
-    _log.info(f"[lucko] POST {endpoint} params={safe}")
+    print(f"[lucko] POST {endpoint} params={safe}", flush=True)
     try:
         r = _SESSION.post(url, json=params, timeout=timeout)
         r.raise_for_status()
         data = r.json()
-        if data.get('code') != 200:
-            _log.warning(f"[lucko] POST {endpoint} → code={data.get('code')} msg={data.get('message')} full={data}")
+        print(f"[lucko] POST {endpoint} → {data}", flush=True)
         return data
     except _http.exceptions.Timeout:
-        _log.error(f"[lucko] POST {endpoint} → timeout")
+        print(f"[lucko] POST {endpoint} → TIMEOUT", flush=True)
         return {'code': -2, 'message': 'Request timed out'}
     except _http.exceptions.HTTPError as e:
-        _log.error(f"[lucko] POST {endpoint} → HTTP {e.response.status_code} body={e.response.text[:300]}")
+        body = e.response.text[:400] if e.response else ''
+        print(f"[lucko] POST {endpoint} → HTTP {e.response.status_code} body={body}", flush=True)
         return {'code': -3, 'message': f'HTTP {e.response.status_code}'}
     except Exception as e:
-        _log.error(f"[lucko] POST {endpoint} → {e}")
+        print(f"[lucko] POST {endpoint} → EXCEPTION {e}", flush=True)
         return {'code': -1, 'message': str(e)}
 
 
@@ -89,15 +84,23 @@ def _get(endpoint: str, extra: dict, timeout: int = 15) -> Dict[str, Any]:
     params = {'agent_id': agent_id, 'timestamp': _ts(), **extra}
     params['sign'] = _sign(secret, params)
     url = f"{base}/{endpoint.lstrip('/')}"
+    safe = {k: v for k, v in params.items() if k not in ('sign', 'agent_id')}
+    print(f"[lucko] GET {endpoint} params={safe}", flush=True)
     try:
         r = _SESSION.get(url, params=params, timeout=timeout)
         r.raise_for_status()
-        return r.json()
+        data = r.json()
+        print(f"[lucko] GET {endpoint} → {data}", flush=True)
+        return data
     except _http.exceptions.Timeout:
+        print(f"[lucko] GET {endpoint} → TIMEOUT", flush=True)
         return {'code': -2, 'message': 'Request timed out'}
     except _http.exceptions.HTTPError as e:
+        body = e.response.text[:400] if e.response else ''
+        print(f"[lucko] GET {endpoint} → HTTP {e.response.status_code} body={body}", flush=True)
         return {'code': -3, 'message': f'HTTP {e.response.status_code}'}
     except Exception as e:
+        print(f"[lucko] GET {endpoint} → EXCEPTION {e}", flush=True)
         return {'code': -1, 'message': str(e)}
 
 
