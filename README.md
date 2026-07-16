@@ -57,9 +57,19 @@ Mass checking supported for all gates via `/m<gate>` commands or `.txt` file upl
 - Escrow service for peer-to-peer deals (`/escrow`)
 - Reseller infrastructure built in
 
-### 🎰 Casino
-- Blackjack, Roulette, Slots, and more
-- In-bot balance for casino play
+### 🎰 Live Casino (Lucko.ai)
+Real-time live dealer casino games integrated via the Lucko.ai API:
+- **Live dealer games** — Baccarat, Dragon Tiger, Roulette, Blackjack, Sic Bo, and more
+- **Crash games** — SpaceCrash, SurfCrash, Aviator-style games
+- **Lottery** — Instant lottery rooms
+- **Buy-in / Cash-out** — Transfer credits between bot wallet and game wallet
+- **Per-game commission** — Configurable commission rate on cash-out, set per game
+- **Auto idle-sweep** — Background thread automatically returns stale balances after 30 min
+- **Admin panel** — `/admin/casino/live` — enable/disable, commission control, game settings
+
+### 🎰 Classic Casino
+- In-bot Blackjack, Roulette, Slots (existing `casino.py` module)
+- Uses bot credit balance directly (no external API)
 
 ### 🌐 Proxy Management
 - System proxy pool (scraped and verified automatically)
@@ -87,6 +97,7 @@ Mass checking supported for all gates via `/m<gate>` commands or `.txt` file upl
 - **Settings** — access control toggle, maintenance mode, global gate proxy, gate enable/disable switches, error log viewer
 - **CC Shop** — upload and sell cards with custom pricing rules
 - **Proxy Shop** — manage proxy plans, nodes, and scraping sources
+- **Live Casino** — `/admin/casino/live` — stats, enable/disable, commission %, per-game settings, listing removal
 - **Tools** — web-based checker, card generator, and cleaner
 - **Auto Hitter** — mass checkout interface
 
@@ -112,6 +123,9 @@ Mass checking supported for all gates via `/m<gate>` commands or `.txt` file upl
 | `TWILIO_AUTH_TOKEN` | Twilio auth token |
 | `TWILIO_PHONE_NUMBER` | Twilio caller number |
 | `DATABASE_URL` | PostgreSQL connection string |
+| `LUCKO_AGENT_ID` | Lucko.ai API agent ID |
+| `LUCKO_SECRET` | Lucko.ai API signing secret |
+| `LUCKO_BASE_URL` | Lucko.ai base URL (optional — defaults to staging/prod) |
 | `TON_WALLET` | TON wallet address for payments |
 
 ### Running Locally
@@ -150,6 +164,9 @@ src/
     ├── chatgpt.py
     ├── wormgpt.py
     ├── casino.py
+    ├── lucko_client.py      # Lucko.ai API client (signing, auth, game list)
+    ├── lucko_wallet.py     # Lucko bridge: buy-in, cash-out, commission, idle sweep
+    ├── marketplace.py
     ├── escrow.py
     ├── reseller.py
     ├── proxy_checker.py
@@ -188,6 +205,25 @@ artifacts/
 | `/restart` | Restart bot | Owner |
 
 ---
+
+## 📝 Recent Updates
+
+### 2026-07-16 — Live Casino (Lucko.ai) Integration
+- **Integrated Lucko.ai API** for real-time live dealer games, crash games, and lottery
+- **Buy-in / Cash-out flow** — seamless transfer between bot credits and game wallet with configurable commission
+- **Idle-sweep background thread** — automatically returns stale Lucko balances after 30 minutes of inactivity
+- **Per-game commission control** — admin can set different commission rates per game via `/admin/casino/live`
+- **Game list caching** — fetched once and cached for 1 hour to reduce API load
+- **Session token caching** — cached in memory (50 min TTL) to avoid repeated `guest_login` + `member_login` round-trips
+- **Sign compatibility fix** — Lucko only signs core params (user_id, token, platform); `inst_id` and `lang` are appended to the returned URL as query params
+
+### 2026-07-16 — Performance & Bug Fixes
+- **Fixed "invalid sign" error** — caused by including `inst_id` and `lang` in the MD5 sign computation; now appended to game URL only
+- **Fixed "Could not obtain session token"** — caused by passing `lang` to `guest_login`; reverted to clean guest login flow
+- **Fixed buy-in button stuck** — modal button stays disabled after a failed attempt; now resets on open/close
+- **Removed verbose API logging** — was printing every request twice with `flush=True`; now only logs non-200 / exceptions
+- **Cached `_cfg()` result** — environment vars read once per process, not on every API call
+- **Cached `ensure_member()`** — in-memory cache skips DB lookup for returning users (saves 1 round-trip per wallet operation)
 
 ## ⚠️ Disclaimer
 
