@@ -1001,57 +1001,54 @@ def add_to_pending(user_id, username, first_name):
 
 
 # ============================================================================
-# TENOR GIF SEARCH - HOT SEXY ANIME GIRLS 4K
+# ANIME GIF FETCHER — nekos.best (free, no API key, real anime GIFs)
+# Tenor API was discontinued; nekos.best is the drop-in replacement.
 # ============================================================================
 
 _gif_cache = {}
 _gif_cache_lock = _threading.Lock()
 
-def search_tenor_gif(query, limit=10):
-    try:
-        url = "https://tenor.googleapis.com/v2/search"
-        params = {
-            "q": query, "key": TENOR_API_KEY,
-            "client_key": "nepali_momo_bot", "limit": limit,
-            "media_filter": "gif", "contentfilter": "off"
-        }
-        response = requests.get(url, params=params, timeout=5)
-        data = response.json()
-        if "results" in data and len(data["results"]) > 0:
-            gifs = []
-            for result in data["results"]:
-                if "media_formats" in result and "gif" in result["media_formats"]:
-                    gifs.append(result["media_formats"]["gif"]["url"])
-            return gifs
-        return []
-    except:
-        return []
-
+# Maps bot category → nekos.best endpoint names to pick from
 _GIF_QUERIES = {
-    "welcome": ["sexy anime girl wink", "hot anime girl wave", "anime girl cute smile", "anime girl seductive"],
-    "loading": ["anime girl waiting", "anime thinking", "anime girl loading"],
-    "success": ["anime girl happy celebrate", "sexy anime victory", "anime girl excited"],
-    "failed":  ["anime girl sad", "anime crying", "anime girl disappointed"],
-    "premium": ["anime girl rich luxury", "anime queen vip", "anime girl powerful"],
-    "admin":   ["anime girl boss", "anime queen powerful", "anime girl confident"],
-    "banned":  ["anime girl angry", "anime mad furious", "anime girl serious"],
+    "welcome": ["wink", "wave", "dance", "blush"],
+    "loading": ["think", "stare", "bored", "sleep"],
+    "success": ["happy", "dance", "laugh", "smile"],
+    "failed":  ["cry", "pout", "facepalm", "sad"],
+    "premium": ["blush", "smile", "hug", "wink"],
+    "admin":   ["smug", "happy", "thumbsup", "smile"],
+    "banned":  ["kick", "punch", "slap", "angry"],
 }
-_gif_pending = set()  # queries currently being fetched (background)
+_gif_pending = set()
 
-def _refresh_gif_cache_bg(query):
+def search_tenor_gif(category, limit=8):
+    """Fetch anime GIFs from nekos.best (replaces discontinued Tenor API)."""
+    try:
+        amount = min(limit, 10)
+        response = requests.get(
+            f"https://nekos.best/api/v2/{category}",
+            params={"amount": amount},
+            headers={"User-Agent": "OnichanBot/1.0 (Telegram; anime-gif-fetcher)"},
+            timeout=8
+        )
+        data = response.json()
+        return [r["url"] for r in data.get("results", []) if r.get("url")]
+    except Exception:
+        return []
+
+def _refresh_gif_cache_bg(category):
     """Fire-and-forget background fetch — never blocks any caller."""
-    if query in _gif_pending:
+    if category in _gif_pending:
         return
-    _gif_pending.add(query)
+    _gif_pending.add(category)
     import threading
     def _w():
         try:
-            gifs = search_tenor_gif(query, 8)
+            gifs = search_tenor_gif(category, 8)
             if gifs:
                 with _gif_cache_lock:
-                    _gif_cache[query] = gifs
+                    _gif_cache[category] = gifs
         finally:
-            _gif_pending.discard(query)
+            _gif_pending.discard(category)
     threading.Thread(target=_w, daemon=True).start()
 
 def get_sexy_anime_gif(category):
@@ -1061,25 +1058,25 @@ def get_sexy_anime_gif(category):
        - None (caller can skip the GIF)
        Cache is refreshed asynchronously in the background.
     """
-    queries = _GIF_QUERIES.get(category, _GIF_QUERIES["welcome"])
-    query = random.choice(queries)
+    categories = _GIF_QUERIES.get(category, _GIF_QUERIES["welcome"])
+    cat = random.choice(categories)
 
-    if query in _gif_cache and _gif_cache[query]:
-        return random.choice(_gif_cache[query])
+    if cat in _gif_cache and _gif_cache[cat]:
+        return random.choice(_gif_cache[cat])
 
     # Schedule background refresh — does NOT block the event loop
-    _refresh_gif_cache_bg(query)
+    _refresh_gif_cache_bg(cat)
 
-    # Try any other cached query in the same category
-    for q in queries:
-        if q in _gif_cache and _gif_cache[q]:
-            return random.choice(_gif_cache[q])
+    # Try any other cached category in the same group
+    for c in categories:
+        if c in _gif_cache and _gif_cache[c]:
+            return random.choice(_gif_cache[c])
 
-    # Try any cached query at all (cross-category fallback)
-    for q_list in _GIF_QUERIES.values():
-        for q in q_list:
-            if q in _gif_cache and _gif_cache[q]:
-                return random.choice(_gif_cache[q])
+    # Try any cached category at all (cross-group fallback)
+    for c_list in _GIF_QUERIES.values():
+        for c in c_list:
+            if c in _gif_cache and _gif_cache[c]:
+                return random.choice(_gif_cache[c])
 
     # Cold cache — return None; caller falls back to text-only message
     return None
@@ -1088,16 +1085,16 @@ def _preload_gif_cache():
     """Warm the cache at startup so the first user never waits."""
     import threading
     def _w():
-        for q_list in _GIF_QUERIES.values():
-            for q in q_list:
-                if q not in _gif_cache:
-                    try:
-                        gifs = search_tenor_gif(q, 8)
-                        if gifs:
-                            with _gif_cache_lock:
-                                _gif_cache[q] = gifs
-                    except Exception:
-                        pass
+        all_cats = {c for cats in _GIF_QUERIES.values() for c in cats}
+        for cat in all_cats:
+            if cat not in _gif_cache:
+                try:
+                    gifs = search_tenor_gif(cat, 8)
+                    if gifs:
+                        with _gif_cache_lock:
+                            _gif_cache[cat] = gifs
+                except Exception:
+                    pass
         print(f"🎬 GIF cache preloaded — {len(_gif_cache)} queries cached")
     threading.Thread(target=_w, daemon=True).start()
 
