@@ -3997,6 +3997,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📋 <b>MASS</b> (Free:5 | Prem:20 | Owner:50)
 /mss · /mpp · /mbu · /msstxt
 {sep}""")
+    text += f"""
+🎯 <b>HITTER</b>
+💳 /hitck &lt;url&gt; &lt;card&gt; — Checkout.com
+🔷 /hitad &lt;url&gt; &lt;card&gt; — Adyen
+🔷 /hitad1 &lt;url&gt; &lt;card&gt; — Adyen v2
+🌐 /hitmpgs &lt;url&gt; &lt;card&gt; — MPGS
+🛍 /hitwhop &lt;url&gt; &lt;card&gt; — Whop
+🏓 /hitpad &lt;url&gt; &lt;card&gt; — Paddle
+⏱ /hitep &lt;url&gt; &lt;card&gt; — Epoch
+📱 /jio &lt;mobile&gt; &lt;card&gt; — Jio Recharge
+{sep}"""
     
     if is_premium_user:
         text += f"""
@@ -14278,6 +14289,17 @@ cc2|mm|yy|cvv</code>
 {sep}
 📋 <b>MASS</b> (Free:5 | Prem:20 | Owner:50)
 /mss · /mpp · /mbu · /msstxt
+{sep}""")
+        text += ae(f"""
+🎯 <b>HITTER</b>
+💳 /hitck &lt;url&gt; &lt;card&gt; — Checkout.com
+🔷 /hitad &lt;url&gt; &lt;card&gt; — Adyen
+🔷 /hitad1 &lt;url&gt; &lt;card&gt; — Adyen v2
+🌐 /hitmpgs &lt;url&gt; &lt;card&gt; — MPGS
+🛍 /hitwhop &lt;url&gt; &lt;card&gt; — Whop
+🏓 /hitpad &lt;url&gt; &lt;card&gt; — Paddle
+⏱ /hitep &lt;url&gt; &lt;card&gt; — Epoch
+📱 /jio &lt;mobile&gt; &lt;card&gt; — Jio Recharge
 {sep}""")
         if is_premium_user:
             text += ae(f"""
