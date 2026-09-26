@@ -14021,6 +14021,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [_btn("Razorpay", icon=EID["card"], callback_data="gate_razorpay"), _btn("Shopify V2", icon=EID["bolt"], callback_data="gate_shopify_v2")],
             [_btn("PayU ₹1", icon=EID["card"], callback_data="gate_payu"), _btn("CC Killer", icon=EID["danger"], callback_data="gate_cc_killer")],
             [_btn("⬛ Square Auth", icon=EID["card"], callback_data="gate_square_auth"), _btn("⚡ Auto Hitter", icon=EID["bolt"], callback_data="gate_auto_hitter")],
+            [_btn("🎯 HITTER", style="danger", icon=EID["hitting"], callback_data="hitter_menu")],
             [_btn("BACK", style="default", icon=EID["back"], callback_data="start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -14053,7 +14054,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "gate_paypal", "gate_auto_shopify", "gate_stripe_newrp",
         "gate_razorpay", "gate_payu", "gate_shopify_v2",
         "gate_stripe1", "gate_auto_hitter", "gate_cc_killer",
-        "gate_square_auth"
+        "gate_square_auth", "hitter_menu"
     ):
         gate_texts = {
             "gate_stripe5": ae("""<b>Stripe $5</b>
@@ -14140,6 +14141,21 @@ Checks cards against Square Payment Gateway.
 • DECLINED / INVALID → Dead card ❌
 
 <code>/sq 4242424242424242|12|25|123</code>"""),
+            "hitter_menu": ae("""🎯 <b>ONICHAN • HITTER</b>
+━━━━━━━━━━━━━━━━━━━━
+<b>Hit external payment gateways with a card.</b>
+Usage: <code>/cmd &lt;url&gt; cc|mm|yy|cvv</code>
+━━━━━━━━━━━━━━━━━━━━
+💳 /hitck &lt;url&gt; &lt;card&gt; — Checkout.com
+🔷 /hitad &lt;url&gt; &lt;card&gt; — Adyen
+🔷 /hitad1 &lt;url&gt; &lt;card&gt; — Adyen v2
+🌐 /hitmpgs &lt;url&gt; &lt;card&gt; — MPGS
+🛍 /hitwhop &lt;url&gt; &lt;card&gt; — Whop
+🏓 /hitpad &lt;url&gt; &lt;card&gt; — Paddle
+⏱ /hitep &lt;url&gt; &lt;card&gt; — Epoch
+📱 /jio &lt;mobile&gt; &lt;card&gt; — Jio Recharge
+━━━━━━━━━━━━━━━━━━━━
+<i>Each hitter auto-detects the gateway flow.</i>"""),
         }
         text = gate_texts[query.data]
         keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="gates")]]
@@ -14222,6 +14238,13 @@ cc2|mm|yy|cvv</code>
 🔍 /bin 424242 — BIN Lookup
 🧹 /clean — CC Cleaner
 📡 /scr channel — CC Scraper
+👤 /fake — Fake Identity Generator
+{sep}
+🏦 /iban [country] — IBAN Generator
+🌍 /ibancountry — Supported Countries
+✂️ /split &lt;n&gt; — Split Card File (n parts)
+🎲 /pick &lt;n&gt; — Pick N Random Cards
+🌐 /country — Country Distribution
 {sep}
 ✨ All tools are free!""")
         
