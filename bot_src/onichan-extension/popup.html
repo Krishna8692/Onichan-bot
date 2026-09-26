@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="loginScreen" class="screen">
+  <div class="login-mascot"><img src="images/mascot.png" alt=""></div>
+  <div class="login-card">
+    <div class="brand-name">ONICHAN<br><span>BYPASSER</span></div>
+    <div class="brand-version">V2.0 · WAIFU EDITION 💗</div>
+    <p class="login-text">Unlock Onee-chan's powers with your premium key</p>
+    <input id="keyInput" type="text" placeholder="ONI-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+    <button id="activateBtn" class="btn btn-primary">⚡ ACTIVATE</button>
+    <p id="loginStatus" class="login-status"></p>
+    <div class="login-help">
+      Get your key from <b>@Onichanbabybot</b> — type <code>/buy</code>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MAIN ================= -->
+<div id="mainScreen" class="screen hidden">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="mascot-wrapper">
+      <img src="images/mascot.png" alt="" class="header-mascot">
+    </div>
+    <div class="header-brand">
+      <div class="brand-name">ONICHAN BYPASSER</div>
+      <div class="brand-version">V2.0 · <span id="tierBadge">PREMIUM</span> EDITION</div>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="notifBtn" title="Notifications">
+        <span>🔔</span>
+        <span class="notif-dot hidden" id="notifDot"></span>
+      </button>
+      <button class="icon-btn" id="logoutBtn" title="Logout">🚪</button>
+    </div>
+  </div>
+
+  <!-- Trial / License Banner -->
+  <div class="trial-banner" id="trialBanner">
+    <div class="trial-icon">●</div>
+    <div class="trial-info">
+      <div class="trial-title">Premium Active</div>
+      <div class="trial-countdown" id="trialCountdown">Loading…</div>
+    </div>
+    <div class="tier-badge" id="tierBadge2">PREMIUM</div>
+  </div>
+
+  <!-- Notification dropdown -->
+  <div class="notif-dropdown hidden" id="notifDropdown">
+    <div class="notif-header">
+      <span>🔔 Notifications</span>
+      <span class="notif-clear" id="notifClear">Clear All</span>
+    </div>
+    <div class="notif-list" id="notifList">
+      <div class="notif-empty">No new notifications</div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat"><div class="stat-val blue" id="statTotal">0</div><div class="stat-label">Total</div></div>
+    <div class="stat"><div class="stat-val green" id="statCharged">0</div><div class="stat-label">Charged</div></div>
+    <div class="stat"><div class="stat-val purple" id="statLive">0</div><div class="stat-label">Live</div></div>
+    <div class="stat"><div class="stat-val red" id="statDead">0</div><div class="stat-label">Dead</div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="bypass">Bypass</button>
+    <button class="tab" data-tab="history">History</button>
+    <button class="tab" data-tab="news">News</button>
+    <button class="tab" data-tab="captcha">Captcha</button>
+    <button class="tab" data-tab="proxy">Proxy</button>
+    <button class="tab" data-tab="tools">Tools</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </div>
+
+  <!-- ================= BYPASS TAB ================= -->
+  <div class="tab-pane active" id="tab-bypass">
+
+    <!-- 🚀 START HITTING -->
+    <div class="start-block">
+      <button id="startHitBtn" class="btn btn-start">🚀 START HITTING</button>
+      <button id="stopHitBtn" class="btn btn-stop hidden">⏹ STOP</button>
+      <div class="start-status" id="startStatus">Ready · 0 cards loaded</div>
+    </div>
+
+    <!-- 1. BIN / CC List -->
+    <div class="section">
+      <div class="section-header">
+        <h2>1. BIN / CC List</h2>
+        <div class="mode-toggle">
+          <button class="mode-btn active" data-mode="bin" id="binModeBtn">BIN</button>
+          <button class="mode-btn" data-mode="ccList" id="ccListModeBtn">CC List</button>
+        </div>
+      </div>
+      <div class="section-content">
+        <!-- BIN mode -->
+        <div id="binModeContent">
+          <div class="row-2">
+            <div>
+              <label>BIN:</label>
+              <input type="text" id="binCcInput" placeholder="44304400" autocomplete="off">
+            </div>
+            <div>
+              <label>CVV:</label>
+              <input type="text" id="cvvInput" placeholder="RND" maxlength="4">
+            </div>
+          </div>
+          <div class="row-2">
+            <div>
+              <label>Expiry Month:</label>
+              <select id="expMonth">
+                <option value="RND">RND</option>
+                <option>01</option><option>02</option><option>03</option><option>04</option>
+                <option>05</option><option>06</option><option>07</option><option>08</option>
+                <option>09</option><option>10</option><option>11</option><option>12</option>
+              </select>
+            </div>
+            <div>
+              <label>Expiry Year:</label>
+              <select id="expYear"><option value="RND">RND</option></select>
+            </div>
+          </div>
+          <p class="hint">💡 <code>RND</code> = random per card. AMEX BINs (34/37) auto-detected.</p>
+        </div>
+        <!-- CC List mode -->
+        <div id="ccListModeContent" class="hidden">
+          <div class="cc-list-header">
+            <label>CC List:</label>
+            <span class="cc-badge" id="ccListCounter">📋 0 cards</span>
+          </div>
+          <textarea id="ccListInput" placeholder="Paste cards (any format: pipe, colon, space, comma)
+4242424242424242|12|25|123
+4111 1111 1111 1111  12  26  555"></textarea>
+          <p class="hint">💡 Luhn + expiry filter applied automatically</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Card Replacement -->
+    <div class="section">
+      <div class="section-header">
+        <h2>2. Card Replacement</h2>
+        <label class="toggle"><input type="checkbox" id="cardReplToggle"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="section-content hidden" id="cardReplContent">
+        <div class="gateway-grid">
+          <label class="gw-opt"><input type="checkbox" id="gw_repl_stripe" checked><span>Stripe</span></label>
+          <label class="gw-opt"><input type="checkbox" id="gw_repl_adyen" checked><span>Adyen</span></label>
+          <label class="gw-opt"><input type="checkbox" id="gw_repl_checkout" checked><span>Checkout.com</span></label>
+          <label class="gw-opt"><input type="checkbox" id="gw_repl_recurly" checked><span>Recurly</span></label>
+          <label class="gw-opt"><input type="checkbox" id="gw_repl_xsolla" checked><span>Xsolla</span></label>
+        </div>
+        <p class="hint">💡 Auto-uses next card from CC List when one fails. Required for <b>Automation Mode</b>.</p>
+      </div>
+    </div>
+
+    <!-- 3. CVV Bypass -->
+    <div class="section">
+      <div class="section-header">
+        <h2>3. CVV Bypass</h2>
+        <label class="toggle"><input type="checkbox" id="cvvBypassToggle"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="section-content hidden" id="cvvBypassContent">
+        <div class="gateway-grid">
+          <label class="gw-opt"><input type="checkbox" id="gw_cvv_stripe"><span>Stripe</span></label>
+          <label class="gw-opt"><input type="checkbox" id="gw_cvv_adyen"><span>Adyen</span></label>
+          <label class="gw-opt"><input type="checkbox" id="gw_cvv_checkout"><span>Checkout.com</span></label>
+          <label class="gw-opt"><input type="checkbox" id="gw_cvv_recurly"><span>Recurly</span></label>
+          <label class="gw-opt"><input type="checkbox" id="gw_cvv_xsolla"><span>Xsolla</span></label>
+        </div>
+        <p class="hint">💡 <code>cvc_required</code> error? Disable for that gateway.</p>
+      </div>
+    </div>
+
+    <!-- 4. Payment User Agent Bypass -->
+    <div class="section">
+      <div class="section-header">
+        <h2>4. Payment User Agent Bypass</h2>
+        <label class="toggle"><input type="checkbox" id="paymentUaToggle"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="section-content hidden" id="paymentUaContent">
+        <p class="info">Stripe only</p>
+        <p class="hint">💡 <code>ua_required</code> error? Disable this bypass.</p>
+      </div>
+    </div>
+
+    <!-- 5. Stripe Security Bypass -->
+    <div class="section">
+      <div class="section-header">
+        <h2>5. Stripe Security Bypass</h2>
+        <label class="toggle"><input type="checkbox" id="stripeSecToggle" checked><span class="toggle-slider"></span></label>
+      </div>
+      <div class="section-content" id="stripeSecContent">
+        <div class="gateway-grid">
+          <label class="gw-opt"><input type="checkbox" id="sec_pasted" checked><span>Pasted Fields</span></label>
+          <label class="gw-opt"><input type="checkbox" id="sec_timing" checked><span>Time Tracking</span></label>
+          <label class="gw-opt"><input type="checkbox" id="sec_tracking" checked><span>Tracking IDs</span></label>
+          <label class="gw-opt"><input type="checkbox" id="sec_zip" checked><span>Zip Code</span></label>
+        </div>
+        <p class="info">Stripe only</p>
+        <p class="hint">⚠️ Advanced: makes automation harder to detect. Keep <b>ON</b>.</p>
+      </div>
+    </div>
+
+    <!-- 6. 3DS Bypass -->
+    <div class="section">
+      <div class="section-header">
+        <h2>6. 3DS Bypass</h2>
+        <label class="toggle"><input type="checkbox" id="threeDsToggle" checked><span class="toggle-slider"></span></label>
+      </div>
+      <div class="section-content" id="threeDsContent">
+        <p class="info">Stripe only</p>
+        <p class="hint">⚠️ Experimental: <code>3ds_bypass_failed</code> is normal sometimes. Card re-added on fail.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= HISTORY TAB ================= -->
+  <div class="tab-pane" id="tab-history">
+    <div class="hist-actions">
+      <button class="btn-mini btn-blur active" id="histBlurBtn"><span id="histBlurIcon">👁️</span> <span id="histBlurText">Unblur</span></button>
+      <button class="btn-mini" id="histCopyBtn">📋 Copy</button>
+      <button class="btn-mini" id="histExportBtn">📥 Export</button>
+      <button class="btn-mini btn-danger" id="histClearBtn">🗑️ Clear</button>
+    </div>
+    <div class="hist-filters">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="charged">Charged</button>
+      <button class="filter-btn" data-filter="live">Live</button>
+      <button class="filter-btn" data-filter="dead">Dead</button>
+    </div>
+    <div class="hist-list blurred" id="histList">
+      <div class="empty"><div class="empty-icon">📭</div><div>No transactions yet</div></div>
+    </div>
+  </div>
+
+  <!-- ================= NEWS TAB ================= -->
+  <div class="tab-pane" id="tab-news">
+    <div class="news-header">
+      <h3>📰 Latest News & BINs</h3>
+      <button class="icon-btn" id="newsRefreshBtn" title="Refresh">🔄</button>
+    </div>
+    <div class="news-list" id="newsList">
+      <div class="news-loading">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ================= CAPTCHA TAB ================= -->
+  <div class="tab-pane" id="tab-captcha">
+    <div class="section">
+      <div class="section-header">
+        <h2>Captcha Solving</h2>
+        <label class="toggle"><input type="checkbox" id="captchaSolveToggle"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="section-content hidden" id="captchaSolveContent">
+        <p class="hint">⚠️ <b>Cloudflare warning:</b> auto-pauses on CF challenge to prevent loops.</p>
+
+        <div class="subsection">
+          <div class="subsection-header">
+            <h3>NopeCHA API</h3>
+            <span class="status-badge" id="nopechaStatus">Not Set</span>
+          </div>
+          <input type="text" id="nopechaKey" placeholder="Enter NopeCHA API key" autocomplete="off">
+          <p class="hint">🔑 Get key at <a href="https://nopecha.com" target="_blank">nopecha.com</a> (image solving)</p>
+        </div>
+
+        <div class="subsection">
+          <div class="subsection-header">
+            <h3>Cloudflare Turnstile</h3>
+            <label class="toggle small"><input type="checkbox" id="mod_cf" checked><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <div class="subsection">
+          <div class="subsection-header">
+            <h3>hCaptcha</h3>
+            <label class="toggle small"><input type="checkbox" id="hcaptchaEnabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="subsection-content hidden" id="hcaptchaContent">
+            <label class="check-label"><input type="checkbox" id="hcap_tap" checked> Tap-based (auto-click)</label>
+            <label class="check-label"><input type="checkbox" id="hcap_fallback" checked> Fallback to manual on image challenge</label>
+          </div>
+        </div>
+
+        <div class="subsection">
+          <div class="subsection-header">
+            <h3>reCAPTCHA v2</h3>
+            <label class="toggle small"><input type="checkbox" id="recaptchaEnabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="subsection-content hidden" id="recaptchaContent">
+            <label class="check-label"><input type="checkbox" id="rec_open" checked> Auto-open (click checkbox)</label>
+            <label class="check-label"><input type="checkbox" id="rec_solve" checked> Auto-solve via NopeCHA</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= PROXY TAB ================= -->
+  <div class="tab-pane" id="tab-proxy">
+    <div class="section">
+      <div class="section-header">
+        <h2>Proxy Management</h2>
+        <label class="toggle"><input type="checkbox" id="proxyEnabled"><span class="toggle-slider"></span></label>
+      </div>
+      <div class="section-content">
+        <label>Proxy Address:</label>
+        <input type="text" id="proxyInput" placeholder="host:port  or  host:port:user:pass" autocomplete="off">
+        <div class="row-2">
+          <div>
+            <label>Type:</label>
+            <select id="proxyType">
+              <option value="http">HTTP/S</option>
+              <option value="https">HTTPS</option>
+              <option value="socks4">SOCKS4</option>
+              <option value="socks5">SOCKS5</option>
+            </select>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button class="btn-mini" id="proxyTestBtn">🚀 Test</button>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="proxyApplyBtn">✅ Apply Proxy</button>
+        <button class="btn btn-secondary" id="proxyClearBtn">❌ Clear Proxy</button>
+
+        <div class="proxy-status hidden" id="proxyStatus">
+          <span class="proxy-flag" id="proxyFlag">🌍</span>
+          <div class="proxy-info">
+            <div class="proxy-country" id="proxyCountry">Not Connected</div>
+            <div class="proxy-ip" id="proxyIp">-</div>
+          </div>
+          <div class="proxy-meta">
+            <div class="proxy-latency" id="proxyLatency">-</div>
+            <div class="proxy-city" id="proxyCity">-</div>
+          </div>
+        </div>
+
+        <div class="subsection">
+          <h3>Saved Proxies</h3>
+          <div id="savedProxies"><div class="empty-mini">No saved proxies</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TOOLS TAB ================= -->
+  <div class="tab-pane" id="tab-tools">
+    <div class="section-header"><h2>💳 BIN Lookup</h2></div>
+    <input id="binInput" type="text" placeholder="First 6-8 digits (e.g. 424242)" maxlength="8">
+    <button class="btn btn-primary" id="binLookupBtn">🔍 Lookup BIN</button>
+    <div id="binResult" class="result-card hidden"></div>
+
+    <div class="section-header"><h2>✅ Luhn Validator</h2></div>
+    <input id="luhnInput" type="text" placeholder="Card number">
+    <button class="btn btn-primary" id="luhnBtn">🧮 Validate</button>
+    <div id="luhnResult" class="result-card hidden"></div>
+
+    <div class="section-header"><h2>🎲 CC Generator</h2></div>
+    <input id="genBin" type="text" placeholder="BIN prefix" maxlength="8">
+    <select id="genCount">
+      <option value="5">5 cards</option>
+      <option value="10" selected>10 cards</option>
+      <option value="20">20 cards</option>
+      <option value="50">50 cards</option>
+      <option value="100">100 cards</option>
+    </select>
+    <button class="btn btn-primary" id="genBtn">⚡ Generate</button>
+    <button class="btn btn-secondary" id="copyGenBtn">📋 Copy All</button>
+    <button class="btn btn-secondary" id="loadGenBtn">📥 Load to CC List</button>
+    <div id="genResult" class="result-card hidden"></div>
+
+    <div class="section-header"><h2>📲 Bot Tools</h2></div>
+    <a href="https://t.me/Onichanbabybot?start=cc" target="_blank" class="btn btn-secondary">💎 CC Checker (Bot)</a>
+    <a href="https://t.me/Onichanbabybot?start=proxy" target="_blank" class="btn btn-secondary">🌐 Proxy Shop (Bot)</a>
+    <a href="https://t.me/Onichanbabybot?start=buy" target="_blank" class="btn btn-secondary">🔑 Renew Premium</a>
+  </div>
+
+  <!-- ================= SETTINGS TAB ================= -->
+  <div class="tab-pane" id="tab-settings">
+    <div class="section">
+      <div class="section-header"><h2>🔑 License</h2></div>
+      <div class="section-content">
+        <div class="lic-row"><span>Key:</span> <code id="licKey">—</code></div>
+        <div class="lic-row"><span>Tier:</span> <b id="licTier">—</b></div>
+        <div class="lic-row"><span>Expires:</span> <span id="licExpiry">—</span></div>
+        <button class="btn btn-secondary" id="logoutBtn2">🚪 Logout / Change Key</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header"><h2>👤 Form Filling</h2></div>
+      <div class="section-content">
+        <label>Email (cardholder):</label>
+        <div class="row-2">
+          <input type="email" id="fillEmail" value="onichan@waifu.gg">
+          <label class="check-label inline"><input type="checkbox" id="fillEmailRnd"> Random</label>
+        </div>
+        <label>Billing Name:</label>
+        <div class="row-2">
+          <input type="text" id="fillName" value="Onichan Waifu">
+          <label class="check-label inline"><input type="checkbox" id="fillNameRnd"> Random</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header"><h2>🌸 Appearance & Sounds</h2></div>
+      <div class="section-content">
+        <div class="setting-row"><span>Show Mascot</span><label class="toggle small"><input type="checkbox" id="opt_mascot" checked><span class="toggle-slider"></span></label></div>
+        <div class="setting-row"><span>Sound Effects</span><label class="toggle small"><input type="checkbox" id="opt_sound" checked><span class="toggle-slider"></span></label></div>
+        <div class="setting-row"><span>Notifications</span><label class="toggle small"><input type="checkbox" id="opt_notif" checked><span class="toggle-slider"></span></label></div>
+        <div class="setting-row"><span>Sexy Visuals on Hit</span><label class="toggle small"><input type="checkbox" id="opt_celebrate" checked><span class="toggle-slider"></span></label></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header"><h2>🎬 Actions</h2></div>
+      <div class="section-content">
+        <button class="btn btn-secondary" id="resetStatsBtn">🔄 Reset Statistics</button>
+        <button class="btn btn-secondary" id="exportAllBtn">📦 Export All Data</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div class="sys-stat"><div class="sys-dot" id="sysDot"></div><span id="sysText">System Connected</span></div>
+    <span class="ver-text">v2.0.0 💗</span>
+  </div>
+</div>
+
+<!-- Celebration overlay -->
+<div id="celebrate" class="celebrate hidden">
+  <img id="celebrateImg" src="images/hit.png" alt="">
+  <div id="celebrateText" class="celebrate-text">CHARGED! 💗</div>
+</div>
+
+<script src="popup.js"></script>
+</body></html>

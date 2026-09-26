@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Onichan Bypasser V1 — UI Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0612; min-height: 100vh; padding: 30px;
+    font-family: 'Quicksand', sans-serif; color: #fff;
+    background-image:
+      radial-gradient(ellipse at 20% 30%, rgba(236,72,153,0.18), transparent 50%),
+      radial-gradient(ellipse at 80% 70%, rgba(139,92,246,0.20), transparent 50%);
+    display: flex; flex-direction: column; align-items: center; gap: 24px; }
+  h1 { font-family: 'Orbitron', sans-serif; font-size: 1.4em; color: #ec4899;
+    text-shadow: 0 0 20px rgba(236,72,153,0.6); letter-spacing: 2px; margin-bottom: 8px; }
+  .subtitle { color: #b1bad3; font-size: 0.85em; text-align: center; max-width: 760px; line-height: 1.5; }
+  .row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+  .label { color: #ec4899; font-weight: 700; text-align: center; margin-bottom: 8px;
+    text-transform: uppercase; letter-spacing: 1.2px; font-size: 0.75em; }
+
+  /* === EXTENSION POPUP === */
+  .popup { width: 360px; background: linear-gradient(165deg, #14082a 0%, #1a0a2e 50%, #0f0620 100%);
+    border: 1px solid rgba(236,72,153,0.35); border-radius: 16px; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7), 0 0 30px rgba(236,72,153,0.25);
+    position: relative; }
+  .popup::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, #ec4899, #8b5cf6, #ec4899, transparent);
+    animation: shine 3s linear infinite; }
+  @keyframes shine { 0% { background-position: -360px 0; } 100% { background-position: 360px 0; } }
+
+  /* Header w/ mascot */
+  .pop-header { position: relative; height: 200px; overflow: hidden;
+    background:
+      radial-gradient(ellipse at 60% 40%, rgba(236,72,153,0.30), transparent 60%),
+      linear-gradient(180deg, #1f0838, #14082a); }
+  .mascot { position: absolute; right: -10px; bottom: -8px; height: 220px; width: auto;
+    filter: drop-shadow(0 0 18px rgba(236,72,153,0.55)); z-index: 2; }
+  .brand { position: absolute; left: 16px; top: 14px; z-index: 3; }
+  .brand-name { font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 1.05em;
+    color: #fff; letter-spacing: 1.5px; line-height: 1.1;
+    text-shadow: 0 0 14px rgba(236,72,153,0.7); }
+  .brand-name span { color: #ec4899; }
+  .brand-version { color: #b794f4; font-size: 0.62em; letter-spacing: 2px;
+    text-transform: uppercase; margin-top: 3px; font-weight: 700; }
+  .heart { position: absolute; font-size: 18px; opacity: 0.6;
+    animation: float 4s ease-in-out infinite; pointer-events: none; }
+  .heart:nth-child(1) { top: 40px; left: 40px; animation-delay: 0s; }
+  .heart:nth-child(2) { top: 90px; left: 150px; animation-delay: 1s; }
+  .heart:nth-child(3) { top: 60px; left: 100px; animation-delay: 2s; }
+  @keyframes float { 0%,100% { transform: translateY(0) rotate(-10deg); }
+    50% { transform: translateY(-10px) rotate(10deg); } }
+
+  /* Status bar */
+  .status-bar { display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; background: rgba(0,0,0,0.35);
+    border-top: 1px solid rgba(236,72,153,0.2);
+    border-bottom: 1px solid rgba(236,72,153,0.15); }
+  .status-info { display: flex; align-items: center; gap: 10px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #4ade80;
+    box-shadow: 0 0 12px #4ade80; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.4); opacity: 0.6; } }
+  .status-text { font-weight: 700; font-size: 0.9em; }
+  .status-sub { color: #b1bad3; font-size: 0.7em; margin-top: 2px; }
+
+  /* Big toggle */
+  .toggle-wrap { display: flex; align-items: center; }
+  .toggle { position: relative; width: 60px; height: 30px; background: linear-gradient(135deg, #ec4899, #8b5cf6);
+    border-radius: 15px; cursor: pointer; box-shadow: inset 0 2px 4px rgba(0,0,0,0.4),
+    0 0 18px rgba(236,72,153,0.55); }
+  .toggle::after { content: ''; position: absolute; top: 3px; right: 3px; width: 24px; height: 24px;
+    background: radial-gradient(circle at 30% 30%, #fff, #f3e8ff);
+    border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.4); transition: 0.25s; }
+
+  /* Body */
+  .pop-body { padding: 18px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .stat { background: linear-gradient(135deg, rgba(236,72,153,0.12), rgba(139,92,246,0.10));
+    border: 1px solid rgba(236,72,153,0.25); border-radius: 12px; padding: 12px;
+    text-align: center; position: relative; overflow: hidden; }
+  .stat-icon { font-size: 1.4em; margin-bottom: 4px; }
+  .stat-num { font-family: 'Orbitron'; font-size: 1.5em; font-weight: 800; color: #ec4899;
+    text-shadow: 0 0 8px rgba(236,72,153,0.5); }
+  .stat-label { font-size: 0.65em; color: #b1bad3; text-transform: uppercase; letter-spacing: 1px;
+    font-weight: 700; margin-top: 2px; }
+
+  /* Active site card */
+  .site-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(236,72,153,0.2);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; display: flex;
+    align-items: center; gap: 12px; }
+  .site-icon { width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, #ec4899, #8b5cf6); display: flex; align-items: center;
+    justify-content: center; font-size: 1.1em; flex-shrink: 0; }
+  .site-info { flex: 1; min-width: 0; }
+  .site-host { font-weight: 700; font-size: 0.85em; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
+  .site-meta { color: #b1bad3; font-size: 0.7em; margin-top: 2px; }
+  .site-badge { background: rgba(74,222,128,0.18); color: #4ade80; padding: 4px 10px;
+    border-radius: 10px; font-size: 0.65em; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px; border: 1px solid rgba(74,222,128,0.3); }
+
+  /* Action buttons */
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .btn { padding: 11px; border: none; border-radius: 10px; cursor: pointer; font-weight: 700;
+    font-size: 0.78em; font-family: inherit; letter-spacing: 0.5px; text-transform: uppercase;
+    display: flex; align-items: center; justify-content: center; gap: 6px; transition: 0.2s; }
+  .btn-primary { background: linear-gradient(135deg, #ec4899, #8b5cf6); color: #fff;
+    box-shadow: 0 4px 14px rgba(236,72,153,0.4); }
+  .btn-secondary { background: rgba(255,255,255,0.06); color: #ec4899;
+    border: 1px solid rgba(236,72,153,0.3); }
+
+  /* Recent log */
+  .log-title { display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px; }
+  .log-title h4 { font-size: 0.7em; color: #b1bad3; text-transform: uppercase;
+    letter-spacing: 1.5px; font-weight: 700; }
+  .clear-link { color: #ec4899; font-size: 0.7em; cursor: pointer; }
+  .log-list { background: rgba(0,0,0,0.3); border-radius: 10px; padding: 4px 0;
+    max-height: 120px; overflow-y: auto; }
+  .log-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.75em; }
+  .log-item:last-child { border-bottom: none; }
+  .log-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; flex-shrink: 0; }
+  .log-dot.amber { background: #fbbf24; }
+  .log-host { color: #fff; font-weight: 600; flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-time { color: #6b7280; font-size: 0.85em; }
+
+  /* Footer */
+  .pop-footer { padding: 12px 18px; background: rgba(0,0,0,0.4);
+    border-top: 1px solid rgba(236,72,153,0.15);
+    display: flex; align-items: center; justify-content: space-between; }
+  .footer-left { display: flex; align-items: center; gap: 8px; }
+  .heart-mini { color: #ec4899; }
+  .footer-text { font-size: 0.7em; color: #b1bad3; }
+  .footer-icons { display: flex; gap: 10px; }
+  .icon-btn { width: 28px; height: 28px; border-radius: 8px; background: rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    border: 1px solid rgba(236,72,153,0.2); font-size: 0.85em; }
+
+  /* === Settings popup variant === */
+  .popup-2 .pop-body { padding: 16px 18px; }
+  .setting-row { display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-name { font-weight: 600; font-size: 0.85em; }
+  .setting-desc { font-size: 0.68em; color: #b1bad3; margin-top: 2px; }
+  .mini-toggle { width: 36px; height: 20px; background: linear-gradient(135deg, #ec4899, #8b5cf6);
+    border-radius: 10px; position: relative; flex-shrink: 0; }
+  .mini-toggle::after { content: ''; position: absolute; top: 2px; right: 2px;
+    width: 16px; height: 16px; background: #fff; border-radius: 50%; }
+  .mini-toggle.off { background: rgba(255,255,255,0.15); }
+  .mini-toggle.off::after { right: auto; left: 2px; }
+  .section-divider { font-size: 0.7em; color: #ec4899; text-transform: uppercase;
+    letter-spacing: 1.5px; font-weight: 700; margin: 14px 0 4px; }
+</style>
+</head>
+<body>
+
+<h1>🌸 ONICHAN BYPASSER V1 — UI PREVIEW 🌸</h1>
+<p class="subtitle">Two views of the Chrome extension popup. Tell me what to change before I package it as a zip.</p>
+
+<div class="row">
+  <!-- ============ POPUP 1 — MAIN ============ -->
+  <div>
+    <div class="label">Main Popup (default view)</div>
+    <div class="popup">
+      <div class="pop-header">
+        <div class="heart">💗</div>
+        <div class="heart">💗</div>
+        <div class="heart">💗</div>
+        <div class="brand">
+          <div class="brand-name">ONICHAN<br><span>BYPASSER</span></div>
+          <div class="brand-version">V1.0 · WAIFU EDITION</div>
+        </div>
+        <img class="mascot" src="/static/bypasser_mascot.png" alt="">
+      </div>
+
+      <div class="status-bar">
+        <div class="status-info">
+          <div class="status-dot"></div>
+          <div>
+            <div class="status-text">Bypass Active</div>
+            <div class="status-sub">Onee-chan is protecting you 💕</div>
+          </div>
+        </div>
+        <div class="toggle-wrap"><div class="toggle"></div></div>
+      </div>
+
+      <div class="pop-body">
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-icon">🛡️</div>
+            <div class="stat-num">1,247</div>
+            <div class="stat-label">Today</div>
+          </div>
+          <div class="stat">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-num">98.4%</div>
+            <div class="stat-label">Success</div>
+          </div>
+        </div>
+
+        <div class="site-card">
+          <div class="site-icon">🌐</div>
+          <div class="site-info">
+            <div class="site-host">checkout.shopify.com</div>
+            <div class="site-meta">Shop Pay · captcha bypassed</div>
+          </div>
+          <div class="site-badge">Bypassed</div>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-primary">⚡ Force Bypass</button>
+          <button class="btn btn-secondary">🔄 Reset</button>
+        </div>
+
+        <div class="log-title">
+          <h4>Recent Activity</h4>
+          <span class="clear-link">Clear</span>
+        </div>
+        <div class="log-list">
+          <div class="log-item">
+            <div class="log-dot"></div>
+            <div class="log-host">stripe.com/checkout</div>
+            <div class="log-time">2s ago</div>
+          </div>
+          <div class="log-item">
+            <div class="log-dot"></div>
+            <div class="log-host">paypal.com/signin</div>
+            <div class="log-time">14s ago</div>
+          </div>
+          <div class="log-item">
+            <div class="log-dot amber"></div>
+            <div class="log-host">cloudflare.com/cdn-cgi</div>
+            <div class="log-time">1m ago</div>
+          </div>
+          <div class="log-item">
+            <div class="log-dot"></div>
+            <div class="log-host">amazon.com/checkout</div>
+            <div class="log-time">3m ago</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pop-footer">
+        <div class="footer-left">
+          <span class="heart-mini">💗</span>
+          <span class="footer-text">Made with love by Onichan</span>
+        </div>
+        <div class="footer-icons">
+          <div class="icon-btn">⚙️</div>
+          <div class="icon-btn">📊</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ POPUP 2 — SETTINGS ============ -->
+  <div>
+    <div class="label">Settings Panel (click ⚙️)</div>
+    <div class="popup popup-2">
+      <div class="pop-header" style="height: 130px;">
+        <div class="brand">
+          <div class="brand-name"><span>⚙️</span> SETTINGS</div>
+          <div class="brand-version">CONFIGURE YOUR WAIFU</div>
+        </div>
+        <img class="mascot" src="/static/bypasser_mascot.png" alt="" style="height: 150px; opacity: 0.9;">
+      </div>
+
+      <div class="pop-body">
+        <div class="section-divider">⚡ Bypass Modules</div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-name">Cloudflare Challenge</div>
+            <div class="setting-desc">Auto-solve Turnstile + JS challenges</div>
+          </div>
+          <div class="mini-toggle"></div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-name">reCAPTCHA v2 / v3</div>
+            <div class="setting-desc">Google captcha auto-bypass</div>
+          </div>
+          <div class="mini-toggle"></div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-name">hCaptcha</div>
+            <div class="setting-desc">Image challenge auto-solver</div>
+          </div>
+          <div class="mini-toggle"></div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-name">DataDome</div>
+            <div class="setting-desc">Anti-bot fingerprint spoofer</div>
+          </div>
+          <div class="mini-toggle off"></div>
+        </div>
+
+        <div class="section-divider">🌸 Appearance</div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-name">Show Mascot</div>
+            <div class="setting-desc">Onee-chan watches your tabs 💕</div>
+          </div>
+          <div class="mini-toggle"></div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-name">Sound Effects</div>
+            <div class="setting-desc">Cute kawaii sounds on bypass</div>
+          </div>
+          <div class="mini-toggle off"></div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-name">Notifications</div>
+            <div class="setting-desc">Toast popup when bypass succeeds</div>
+          </div>
+          <div class="mini-toggle"></div>
+        </div>
+      </div>
+
+      <div class="pop-footer">
+        <div class="footer-left">
+          <span class="heart-mini">💗</span>
+          <span class="footer-text">v1.0 · 4 modules active</span>
+        </div>
+        <div class="footer-icons">
+          <div class="icon-btn">💾</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:20px;">
+  Color theme: deep navy <code>#14082a</code> + hot pink <code>#ec4899</code> + violet <code>#8b5cf6</code> accents.<br>
+  Fonts: <b>Orbitron</b> (cyber title) + <b>Quicksand</b> (body). Live mascot, animated heart particles, glowing pink toggles, pulsing status dot.
+</p>
+
+</body></html>
