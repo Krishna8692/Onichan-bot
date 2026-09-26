@@ -14023,7 +14023,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [_btn("Razorpay", icon=EID["card"], callback_data="gate_razorpay"), _btn("Shopify V2", icon=EID["bolt"], callback_data="gate_shopify_v2")],
             [_btn("PayU ₹1", icon=EID["card"], callback_data="gate_payu"), _btn("CC Killer", icon=EID["danger"], callback_data="gate_cc_killer")],
             [_btn("⬛ Square Auth", icon=EID["card"], callback_data="gate_square_auth"), _btn("⚡ Auto Hitter", icon=EID["bolt"], callback_data="gate_auto_hitter")],
-            [_btn("🎯 HITTER", style="danger", icon=EID["hitting"], callback_data="hitter_menu")],
             [_btn("BACK", style="default", icon=EID["back"], callback_data="start")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
