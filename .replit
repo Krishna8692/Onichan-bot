@@ -25,12 +25,12 @@ name = "Onichan Bot"
 author = "agent"
 
 [workflows.workflow.metadata]
-outputType = "console"
+outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace && PYTHONPATH=/home/runner/workspace/bot_src python bot_main.py"
-waitForPort = 5000
+args = "cd /home/runner/workspace && PORT=3000 PYTHONPATH=/home/runner/workspace/bot_src python bot_main.py"
+waitForPort = 3000
 
 [agent]
 stack = "PNPM_WORKSPACE"
