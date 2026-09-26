@@ -9,17 +9,9 @@ import os
 import re
 import json
 import logging
-from typing import Optional
 from urllib.parse import urlparse, urljoin
 
 logger = logging.getLogger(__name__)
-
-# Try to import existing bot captcha solvers
-try:
-    from modules.web_panel.nopecha_solver import solve_turnstile as _solve_turnstile, solve_recaptcha_v2 as _solve_recaptcha
-    NOPECHA_AVAILABLE = True
-except ImportError:
-    NOPECHA_AVAILABLE = False
 
 NOPECHA_SUBMIT = "https://api.nopecha.com/token"
 NOPECHA_RESULT = "https://api.nopecha.com/token"
@@ -89,6 +81,7 @@ def get_capsolver_key() -> str:
 
 def has_any_solver_key() -> bool:
     return bool(get_nopecha_key() or get_captchaai_key() or get_twocaptcha_key() or get_capsolver_key())
+
 
 
 # ============= PROVIDER IMPLEMENTATIONS =============
@@ -348,164 +341,3 @@ async def solve_turnstile(sitekey, pageurl, session=None, action=None, cdata=Non
     if action:
         cs_extra["action"] = action
     return await _capsolver_solve("AntiTurnstileTaskProxyless", sitekey, pageurl, session, extra=cs_extra or None)
-
-    async def _solve_turnstile(sitekey, url, proxy=None):
-        return None
-
-    async def _solve_recaptcha(sitekey, url, proxy=None):
-        return None
-
-async def _solve_capmonster(captcha_type: str, sitekey: str, url: str, proxy: Optional[str] = None) -> Optional[str]:
-    """Submit to CapMonster Cloud and poll for result."""
-    type_map = {
-        "recaptcha_v2": "NoCaptchaTaskProxyless",
-        "recaptcha_v3": "RecaptchaV3TaskProxyless",
-        "hcaptcha": "HCaptchaTaskProxyless",
-        "turnstile": "TurnstileTaskProxyless",
-    }
-    task_type = type_map.get(captcha_type, "NoCaptchaTaskProxyless")
-
-    create_task_url = "https://api.capmonster.cloud/createTask"
-    get_result_url = "https://api.capmonster.cloud/getTaskResult"
-
-    payload = {
-        "clientKey": CAPMONSTER_KEY,
-        "task": {
-            "type": task_type,
-            "websiteURL": url,
-            "websiteKey": sitekey,
-        },
-    }
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(create_task_url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as r:
-                data = await r.json()
-            if data.get("errorId") != 0:
-                return None
-
-            task_id = data.get("taskId")
-            for _ in range(24):
-                await asyncio.sleep(5)
-                async with session.post(
-                    get_result_url,
-                    json={"clientKey": CAPMONSTER_KEY, "taskId": task_id},
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as r:
-                    result = await r.json()
-                if result.get("status") == "ready":
-                    solution = result.get("solution", {})
-                    return solution.get("gRecaptchaResponse") or solution.get("token")
-    except Exception:
-        pass
-    return None
-
-async def solve_captcha(
-    captcha_type: str,
-    sitekey: str,
-    url: str,
-    proxy: Optional[str] = None,
-) -> Optional[str]:
-    """
-    Universal captcha solver. Tries NopeCHA first, then 2captcha, then CapMonster.
-    captcha_type: 'turnstile', 'recaptcha_v2', 'recaptcha_v3', 'hcaptcha'
-    Returns the solved token string, or None if unsolvable.
-    """
-    # 1. Try NopeCHA (already integrated in bot)
-    if NOPECHA_AVAILABLE:
-        try:
-            if captcha_type == "turnstile":
-                token = await _solve_turnstile(sitekey, url)
-            else:
-                token = await _solve_recaptcha(sitekey, url)
-            if token:
-                return token
-        except Exception:
-            pass
-
-    # 2. Try 2captcha
-    if TWOCAP_KEY:
-        token = await _solve_2captcha(captcha_type, sitekey, url, proxy)
-        if token:
-            return token
-
-    # 3. Try CapMonster
-    if CAPMONSTER_KEY:
-        token = await _solve_capmonster(captcha_type, sitekey, url, proxy)
-        if token:
-            return token
-
-    return None
-
-async def _solve_2captcha(captcha_type: str, sitekey: str, url: str, proxy: Optional[str] = None) -> Optional[str]:
-    """Submit to 2captcha and poll for result."""
-    type_map = {
-        "turnstile": "turnstile",
-        "recaptcha_v2": "userrecaptcha",
-        "recaptcha_v3": "userrecaptcha",
-        "hcaptcha": "hcaptcha",
-    }
-    task_type = type_map.get(captcha_type, "userrecaptcha")
-
-    submit_url = "https://2captcha.com/in.php"
-    result_url = "https://2captcha.com/res.php"
-
-    params = {
-        "key": TWOCAP_KEY,
-        "method": task_type,
-        "googlekey": sitekey,
-        "pageurl": url,
-        "json": 1,
-    }
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(submit_url, data=params, timeout=aiohttp.ClientTimeout(total=30)) as r:
-                data = await r.json()
-            if data.get("status") != 1:
-                return None
-
-            task_id = data.get("request")
-            for _ in range(24):  # Poll up to 2 minutes
-                await asyncio.sleep(5)
-                async with session.get(
-                    result_url,
-                    params={"key": TWOCAP_KEY, "action": "get", "id": task_id, "json": 1},
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as r:
-                    result = await r.json()
-                if result.get("status") == 1:
-                    return result.get("request")
-    except Exception:
-        pass
-    return None
-
-def detect_captcha_type(html_content: str) -> Optional[dict]:
-    """
-    Detect captcha type and sitekey from HTML content.
-    Returns dict with 'type' and 'sitekey', or None.
-    """
-    # Turnstile
-    ts = re.search(r'data-sitekey=["\']([^"\']+)["\'].*?turnstile', html_content, re.DOTALL | re.IGNORECASE)
-    if not ts:
-        ts = re.search(r'turnstile.*?data-sitekey=["\']([^"\']+)["\']', html_content, re.DOTALL | re.IGNORECASE)
-    if not ts:
-        ts = re.search(r'cf-turnstile.*?data-sitekey=["\']([^"\']+)["\']', html_content, re.DOTALL | re.IGNORECASE)
-    if ts:
-        return {"type": "turnstile", "sitekey": ts.group(1)}
-
-    # hCaptcha
-    hc = re.search(r'data-sitekey=["\']([^"\']+)["\'].*?hcaptcha', html_content, re.DOTALL | re.IGNORECASE)
-    if not hc:
-        hc = re.search(r'hcaptcha.*?data-sitekey=["\']([^"\']+)["\']', html_content, re.DOTALL | re.IGNORECASE)
-    if hc:
-        return {"type": "hcaptcha", "sitekey": hc.group(1)}
-
-    # reCAPTCHA v2
-    rc = re.search(r'data-sitekey=["\']([^"\']+)["\']', html_content)
-    if rc:
-        sitekey = rc.group(1)
-        if "recaptcha" in html_content.lower() or len(sitekey) > 20:
-            return {"type": "recaptcha_v2", "sitekey": sitekey}
-
-    return None

@@ -15,7 +15,7 @@ import base64
 import urllib.parse
 from typing import Dict, Optional, Tuple
 from urllib.parse import urljoin, urlparse, parse_qs
-from modules.freaky.curl_compat import ChromeSession
+from .curl_compat import ChromeSession
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 

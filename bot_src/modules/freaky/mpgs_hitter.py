@@ -1,11 +1,8 @@
 import asyncio
 import re
 import json
-from modules.freaky.curl_compat import ChromeSession
-try:
-    from stripe_3ds_bypasser import Stripe3DSBypasser
-except ImportError:
-    Stripe3DSBypasser = None
+from .curl_compat import ChromeSession
+from .stripe.stripe_3ds_bypasser import Stripe3DSBypasser
 
 class MPGSHitter:
     @staticmethod

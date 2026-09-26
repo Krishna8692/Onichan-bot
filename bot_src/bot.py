@@ -182,20 +182,8 @@ except ImportError:
     stripe = None
 
 # ─── FreakyHitter Modules ────────────────────────────────────────────────────
-try:
-    from modules.freaky.freaky_checkout import hit_checkout
-    from modules.freaky.freaky_adyen import hit_adyen, hit_adyen_v2
-    from modules.freaky.freaky_mpgs import hit_mpgs
-    from modules.freaky.freaky_whop import hit_whop
-    from modules.freaky.freaky_paddle import hit_paddle
-    from modules.freaky.freaky_epoch import hit_epoch as freaky_hit_epoch
-    from modules.freaky.freaky_jio import hit_jio
-    from modules.freaky_generators import generate_iban, resolve_country_code, get_supported_countries, IBAN_FORMATS
-    from modules.freaky_file_tools import pick_random_cards, split_cards, get_country_stats, parse_cards_from_text, format_cards_as_text
-    FREAKY_AVAILABLE = True
-except Exception as _freaky_err:
-    FREAKY_AVAILABLE = False
-    print(f"[FreakyHitter] Import error: {_freaky_err}")
+# Gateway classes are imported lazily inside each command handler in freaky_commands.py
+FREAKY_AVAILABLE = True
 
 # Fake Auto Hitter Response Mode
 FAKE_AUTOHITTER_MODE = False
@@ -493,6 +481,9 @@ def _build_start_keyboard(theme_idx: int, owner: bool) -> "InlineKeyboardMarkup"
         [
             _btn("Gates",   style=t["st_gates"],   icon=t["gates"],   callback_data="gates"),
             _btn("Tools",   style=t["st_tools"],   icon=t["tools"],   callback_data="tools"),
+        ],
+        [
+            _btn("🎯 HITTER", style="danger", callback_data="hitter_menu"),
         ],
         [
             _btn("Premium", style=t["st_premium"], icon=t["premium"], callback_data="premium"),
@@ -15174,6 +15165,9 @@ Premium activates within 5 mins! ✅
             [
                 _btn("Gates", icon=EID["live"], callback_data="gates"),
                 _btn("Tools", icon=EID["bolt"], callback_data="tools")
+            ],
+            [
+                _btn("🎯 HITTER", callback_data="hitter_menu"),
             ],
             [
                 _btn("Premium", icon=EID["crown"], callback_data="premium"),

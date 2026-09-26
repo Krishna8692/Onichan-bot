@@ -16,11 +16,11 @@ import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlencode, parse_qs, urlparse
 from typing import Dict, Optional, List
-from modules.freaky.curl_compat import ChromeSession
+from .curl_compat import ChromeSession
 
 try:
-    from adyen_bypass import bypass_pipeline, inject_payment_bypass
-    from adyen_escalate import (ShopperProfile, build_browser_info,
+    from .adyen_bypass import bypass_pipeline, inject_payment_bypass
+    from .adyen_escalate import (ShopperProfile, build_browser_info,
                                 minor_to_major)
     _HAS_BYPASS = True
 except ImportError:
