@@ -18391,6 +18391,140 @@ def run():
     except ImportError:
         app.run(host='0.0.0.0', port=port, threaded=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  FreakyHitter Tools API — POST /api/tools/<gateway>
+# ══════════════════════════════════════════════════════════════════════════════
+
+import asyncio as _asyncio
+import sys as _sys
+import os as _os_fh
+
+def _run_async(coro):
+    """Run an async coroutine from a sync Flask route."""
+    try:
+        loop = _asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_asyncio.run, coro)
+                return future.result(timeout=120)
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return _asyncio.run(coro)
+
+def _parse_card_dict(card_str: str) -> dict:
+    parts = card_str.strip().split("|")
+    card = parts[0].strip() if parts else ""
+    month = parts[1].strip().zfill(2) if len(parts) > 1 else "01"
+    year = parts[2].strip() if len(parts) > 2 else "30"
+    cvv = parts[3].strip() if len(parts) > 3 else ""
+    return {"card": card, "month": month, "year": year, "cvv": cvv}
+
+
+@app.route('/api/tools/<gateway>', methods=['POST', 'OPTIONS'])
+def api_tools_gateway(gateway):
+    if request.method == 'OPTIONS':
+        resp = jsonify({})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        return resp
+
+    body = request.get_json(force=True, silent=True) or {}
+
+    # ── /api/tools/gen — card generator ──────────────────────────────────────
+    if gateway == 'gen':
+        bin_pat = body.get('bin', '')
+        count = min(max(1, int(body.get('count', 10))), 500)
+        if not bin_pat:
+            return jsonify({"error": "bin required"}), 400
+        try:
+            _sys.path.insert(0, _os_fh.path.join(_os_fh.path.dirname(__file__)))
+            from modules.freaky_generators import generate_bin_cards
+            cards = generate_bin_cards(bin_pat, count)
+            return jsonify({"cards": cards, "count": len(cards)})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ── /api/tools/fake — fake identity ──────────────────────────────────────
+    if gateway == 'fake':
+        country = body.get('country', 'United States')
+        try:
+            from modules.freaky_generators import generate_fake_identity
+            identity = generate_fake_identity(country)
+            return jsonify({"identity": identity})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ── /api/tools/iban — IBAN generator ─────────────────────────────────────
+    if gateway == 'iban':
+        country = (body.get('country') or 'DE').upper()
+        count = min(max(1, int(body.get('count', 5))), 50)
+        try:
+            from modules.freaky_generators import generate_iban
+            ibans = [generate_iban(country) for _ in range(count)]
+            ibans = [ib for ib in ibans if ib]
+            return jsonify({"ibans": ibans, "country": country})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ── /api/tools/clean — CC cleaner ────────────────────────────────────────
+    if gateway == 'clean':
+        text = body.get('text', '')
+        if not text:
+            return jsonify({"error": "text required"}), 400
+        try:
+            from modules.freaky_file_tools import clean_and_sort_cards_text
+            output, stats = clean_and_sort_cards_text(text)
+            return jsonify({"output": output, "stats": stats})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # ── Hitter gateways ───────────────────────────────────────────────────────
+    card_str = body.get('card', '')
+    url = body.get('url', '')
+    if not card_str:
+        return jsonify({"error": "card required"}), 400
+
+    card_dict = _parse_card_dict(card_str)
+
+    async def _hit():
+        try:
+            if gateway == 'checkout':
+                from modules.freaky.checkout_hitter import CheckoutHitter
+                return await CheckoutHitter(url).hit(card_str, 1, 0)
+            elif gateway == 'adyen':
+                from modules.freaky.adyen_hitter import AdyenHitter
+                return await AdyenHitter(url).hit(card_dict, 1, 0)
+            elif gateway == 'adyen_ccn':
+                from modules.freaky.adyen_hitter import AdyenHitter
+                return await AdyenHitter(url).hit_ccn(card_dict, 1, 0)
+            elif gateway == 'mpgs':
+                from modules.freaky.mpgs_hitter import MPGSHitter
+                return await MPGSHitter.process_card(url, card_dict)
+            elif gateway == 'whop':
+                from modules.freaky.whop_hitter import WhopHitter
+                return await WhopHitter(url).hit(card_dict, 1, 0)
+            elif gateway == 'paddle':
+                from modules.freaky.paddle_hitter import PaddleHitter
+                return await PaddleHitter(url).hit(card_dict, 1, 0)
+            elif gateway == 'epoch':
+                from modules.freaky.epoch_hitter import EpochHitter
+                return await EpochHitter(url).hit(card_dict, 1, 0)
+            elif gateway == 'jio':
+                phone = body.get('phone', '')
+                plan = body.get('plan', '')
+                from modules.freaky.jio_hitter import JioHitter
+                return await JioHitter(phone, plan).hit(card_dict)
+            else:
+                return {"error": f"Unknown gateway: {gateway}", "success": False}
+        except Exception as e:
+            return {"success": False, "error": str(e), "decline_code": "exception"}
+
+    result = _run_async(_hit())
+    return jsonify(result)
+
+
 def keep_alive():
     t = Thread(target=run)
     t.start()

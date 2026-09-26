@@ -4,6 +4,13 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
+import { Sidebar } from '@/components/sidebar';
+import Dashboard from '@/pages/dashboard';
+import Hitters from '@/pages/hitters';
+import CcTools from '@/pages/cc-tools';
+import Generators from '@/pages/generators';
+import Wallet from '@/pages/wallet';
+import Admin from '@/pages/admin';
 import {
   Route,
   Switch,
@@ -13,30 +20,23 @@ import {
 
 const queryClient = new QueryClient();
 
-function Home() {
-  return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900">
-          Replit Agent is building...
-        </h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Your app will appear here once it's ready.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function Router() {
   return (
-    // Keep a shared shell (sidebar, navbar) outside the boundary so it
-    // survives a page crash.
     <RoutedErrorBoundary>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route component={NotFound} />
-      </Switch>
+      <div className="flex min-h-screen bg-[#0d0d21] text-white">
+        <Sidebar />
+        <main className="flex-1 overflow-y-auto">
+          <Switch>
+            <Route path="/"            component={Dashboard}  />
+            <Route path="/hitters"     component={Hitters}    />
+            <Route path="/cc-tools"    component={CcTools}    />
+            <Route path="/generators"  component={Generators} />
+            <Route path="/wallet"      component={Wallet}     />
+            <Route path="/admin"       component={Admin}      />
+            <Route                     component={NotFound}   />
+          </Switch>
+        </main>
+      </div>
     </RoutedErrorBoundary>
   );
 }
