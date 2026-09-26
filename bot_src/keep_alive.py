@@ -15819,14 +15819,20 @@ def api_wallet_qr():
 def api_wallet_deposit_addresses():
     tg_id = session.get('user_id')
     try:
-        from modules.hd_wallet import get_or_create_addresses, is_available
-        if not is_available():
-            return jsonify({
-                "addresses": {},
-                "error": "HD wallet not configured (set MASTER_WALLET_MNEMONIC env secret)"
-            }), 503
-        addrs = get_or_create_addresses(int(tg_id))
-        return jsonify({"addresses": addrs})
+        # Primary: HD wallet (deterministic from master mnemonic)
+        from modules.hd_wallet import get_or_create_addresses as hd_get, is_available
+        if is_available():
+            addrs = hd_get(int(tg_id))
+            if addrs:
+                return jsonify({"addresses": addrs})
+
+        # Fallback: per-user random wallets (no master mnemonic required)
+        from modules.random_wallet import get_or_create_addresses as rw_get
+        addrs = rw_get(int(tg_id))
+        if addrs:
+            return jsonify({"addresses": addrs})
+
+        return jsonify({"addresses": {}, "error": "Wallet service unavailable"}), 503
     except Exception as e:
         return jsonify({"addresses": {}, "error": str(e)}), 500
 

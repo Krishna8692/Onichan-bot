@@ -867,6 +867,70 @@ def sweep_to_hot_wallet(chain: str, from_hd_index: int) -> tuple[str, Optional[s
     return ("", "unsupported_chain_auto")
 
 
+def sweep_random_wallet_to_hot(chain: str, telegram_id: int) -> tuple[str, Optional[str]]:
+    """
+    Sweep all native-coin balance from an EVM random-wallet deposit address
+    (derivation_index == 0) to the hot wallet.
+
+    Uses the encrypted private key stored in wallet_deposit_addresses rather
+    than HD derivation, so no master mnemonic is required.
+
+    Returns (tx_hash, error) — same convention as sweep_to_hot_wallet().
+    """
+    chain = (chain or "").lower()
+    if chain not in cc.CHAINS or not cc.CHAINS[chain].get("is_evm"):
+        return ("", "unsupported_chain_auto")
+
+    try:
+        from eth_account import Account  # type: ignore
+    except Exception as e:
+        return ("", f"rpc_error: eth_account not available: {e}")
+
+    try:
+        from modules.random_wallet import get_decrypted_private_key
+    except Exception as e:
+        return ("", f"rpc_error: random_wallet import failed: {e}")
+
+    pk_hex = get_decrypted_private_key(int(telegram_id), chain)
+    if not pk_hex:
+        return ("", "random_wallet_key_unavailable")
+    if not pk_hex.startswith("0x"):
+        pk_hex = "0x" + pk_hex
+
+    acct = Account.from_key(pk_hex)
+    src_addr = acct.address
+    hot_addr = hd_wallet.derive_address(chain, HOT_WALLET_INDEX)
+    if not hot_addr:
+        return ("", "hd_unavailable")
+    if src_addr.lower() == hot_addr.lower():
+        return ("", None)
+
+    try:
+        balance = _evm_get_balance(chain, src_addr)
+        gas_price = _evm_get_gas_price(chain)
+        gas_limit = 21000
+        gas_cost = gas_price * gas_limit
+        if balance <= gas_cost:
+            return ("", "insufficient_hot_balance")
+        send_wei = balance - gas_cost
+        chain_id = cc.CHAINS[chain]["chain_id"]
+        nonce = _evm_get_nonce(chain, src_addr)
+        signed = Account.sign_transaction({
+            "to": hot_addr,
+            "value": send_wei,
+            "data": b"",
+            "gas": gas_limit,
+            "gasPrice": gas_price,
+            "nonce": nonce,
+            "chainId": chain_id,
+        }, pk_hex)
+        res = _evm_rpc(chain, "eth_sendRawTransaction",
+                       [signed.raw_transaction.hex()])
+        return (res or "sweep_rw_evm", None)
+    except Exception as e:
+        return ("", f"rpc_error: random wallet evm sweep: {e}")
+
+
 # ─── Dispatcher ─────────────────────────────────────────────────────────────
 
 def is_auto_broadcastable(chain: str) -> bool:

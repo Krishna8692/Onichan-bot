@@ -303,6 +303,13 @@ def _create_tables():
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_wda_addr ON wallet_deposit_addresses(chain, address)")
 
+            # Random-wallet support: store encrypted private key alongside address.
+            # derivation_index = 0 means "randomly generated, not HD-derived".
+            cur.execute(
+                "ALTER TABLE wallet_deposit_addresses "
+                "ADD COLUMN IF NOT EXISTS encrypted_private_key TEXT"
+            )
+
             # Atomic, race-safe HD derivation-index allocator.
             # Each new user gets a unique index via nextval() — no SELECT MAX races.
             cur.execute("CREATE SEQUENCE IF NOT EXISTS wallet_hd_index_seq START WITH 1")

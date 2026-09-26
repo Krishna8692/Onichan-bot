@@ -18990,17 +18990,18 @@ async def cmd_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/deposit [chain] — show HD-derived deposit address."""
+    """/deposit [chain] — show deposit address (HD wallet preferred, random fallback)."""
     user = update.effective_user
     chain = (context.args[0].lower() if context.args else "").strip()
     try:
-        from modules.hd_wallet import get_or_create_addresses, is_available
-        if not is_available():
-            await update.message.reply_text(
-                "⚠️ HD wallet not configured. Owner must set MASTER_WALLET_MNEMONIC.",
-                parse_mode=ParseMode.HTML)
-            return
-        addrs = get_or_create_addresses(user.id) or {}
+        from modules.hd_wallet import get_or_create_addresses as hd_get, is_available
+        addrs = {}
+        if is_available():
+            addrs = hd_get(user.id) or {}
+        if not addrs:
+            # Fallback: per-user random wallets (no master mnemonic needed)
+            from modules.random_wallet import get_or_create_addresses as rw_get
+            addrs = rw_get(user.id) or {}
     except Exception as e:
         await update.message.reply_text(ae(f"❌ Error: {e}"), parse_mode=ParseMode.HTML)
         return
@@ -21981,14 +21982,20 @@ def main():
                                                           "polygon", "arbitrum",
                                                           "optimism", "avalanche"):
                                 def _do_sweep(_chain=chain, _tg=tg_id):
-                                    import threading as _thr
                                     try:
                                         from modules.hd_wallet import get_address_index
-                                        from modules.onchain_broadcaster import sweep_to_hot_wallet
+                                        from modules.onchain_broadcaster import (
+                                            sweep_to_hot_wallet,
+                                            sweep_random_wallet_to_hot,
+                                        )
                                         idx = get_address_index(int(_tg), _chain)
-                                        if idx is None or idx == 0:
+                                        if idx is None:
                                             return
-                                        s_hash, s_err = sweep_to_hot_wallet(_chain, idx)
+                                        if idx == 0:
+                                            # Random wallet — use encrypted private key path
+                                            s_hash, s_err = sweep_random_wallet_to_hot(_chain, int(_tg))
+                                        else:
+                                            s_hash, s_err = sweep_to_hot_wallet(_chain, idx)
                                         if s_err and s_err not in ("unsupported_chain_auto",
                                                                     "insufficient_hot_balance"):
                                             print(f"[Wallet] ⚠️  Sweep {_chain} idx={idx} → hot: {s_err}")
