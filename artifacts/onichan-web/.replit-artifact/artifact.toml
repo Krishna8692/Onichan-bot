@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Onichan Web Panel"
+description = "Web panel and dashboard for the Onichan Telegram bot, serving the Flask-based admin and user interface."
+version = "1.0.0"
+id = "artifacts/onichan-web"
+router = "path"
+
+[[services]]
+name = "web"
+paths = ["/"]
+localPort = 21353
+
+[services.development]
+run = "pnpm --filter @workspace/onichan-web run dev"
+
+[services.production]
+
+[services.production.run]
+args = ["python", "bot_main.py"]
+
+[services.production.run.env]
+PORT = "21353"
+PYTHONPATH = "/home/runner/workspace/bot_src"
+
+[services.env]
+PORT = "21353"
+BASE_PATH = "/"
