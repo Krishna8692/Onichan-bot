@@ -76,9 +76,12 @@ export default defineConfig({
       // Forward everything except Vite HMR to the Flask bot web panel
       '/admin': { target: 'http://localhost:3000', changeOrigin: true, ws: true },
       '/user': { target: 'http://localhost:3000', changeOrigin: true, ws: true },
+      // /wallet redirects to /user/wallet server-side; must be proxied too
+      '/wallet': { target: 'http://localhost:3000', changeOrigin: true },
       '/ping': { target: 'http://localhost:3000', changeOrigin: true },
       '/static': { target: 'http://localhost:3000', changeOrigin: true },
-      '/api/pro': { target: 'http://localhost:3000', changeOrigin: true },
+      // Forward all /api/* calls — covers /api/wallet/*, /api/pro, /api/check/*, etc.
+      '/api': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
   preview: {
