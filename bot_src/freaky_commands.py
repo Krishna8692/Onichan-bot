@@ -196,7 +196,18 @@ async def cmd_hitjio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     target = args[0]
     card = args[1]
-    proxy = args[2] if len(args) > 2 else None
+    # Only accept arg[2] as proxy if it looks like a real proxy URL
+    raw_proxy = args[2] if len(args) > 2 else None
+    proxy = (
+        raw_proxy
+        if raw_proxy and (
+            raw_proxy.startswith("http://")
+            or raw_proxy.startswith("https://")
+            or raw_proxy.startswith("socks4://")
+            or raw_proxy.startswith("socks5://")
+        )
+        else None
+    )
 
     loading_msg = await update.message.reply_text(
         f"⌛️ <b>Hitting Jio...</b>\n💳 <code>{card}</code>",

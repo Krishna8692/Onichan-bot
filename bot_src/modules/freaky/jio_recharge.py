@@ -125,9 +125,14 @@ async def do_jio_recharge(
         return _classify_jio_response(pay_data, text, status_code)
 
     except asyncio.TimeoutError:
-        return {"status": "error", "message": "Request timed out"}
+        return {"status": "error", "message": "Request timed out ⏱"}
     except Exception as e:
-        return {"status": "error", "message": str(e)[:100]}
+        err = str(e).strip()
+        # Give a human-readable message when the exception stringifies to something
+        # non-descriptive (e.g. aiohttp.InvalidURL stringifies to just the bad URL)
+        if not err or len(err) <= 8 or err.replace(".", "").isdigit():
+            err = f"Connection failed ({err})" if err else "Connection failed"
+        return {"status": "error", "message": err[:120]}
 
 
 def _classify_jio_response(data: dict, text: str, status_code: int) -> Dict[str, str]:
@@ -139,7 +144,7 @@ def _classify_jio_response(data: dict, text: str, status_code: int) -> Dict[str,
     if result in ("success", "approved", "paid") or "success" in msg:
         return {"status": "live", "message": "Recharge Successful ✅"}
     if result in ("failed", "declined", "rejected") or "declined" in msg:
-        return {"status": "decline", "message": data.get("message", "Payment Declined") + " ❌"}
+        return {"status": "decline", "message": str(data.get("message") or "Payment Declined") + " ❌"}
     if "otp" in lower or "authentication" in lower or "3d" in lower or "verify" in lower:
         return {"status": "3ds", "message": "OTP/Verification Required 🔐"}
     if any(k in lower for k in ["successful", "recharge done", "activated"]):
