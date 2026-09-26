@@ -133,8 +133,8 @@ async def do_jio_recharge(
 def _classify_jio_response(data: dict, text: str, status_code: int) -> Dict[str, str]:
     lower = text.lower()
 
-    result = data.get("result", data.get("status", "")).lower()
-    msg = data.get("message", data.get("msg", "")).lower()
+    result = str(data.get("result", data.get("status", "")) or "").lower()
+    msg = str(data.get("message", data.get("msg", "")) or "").lower()
 
     if result in ("success", "approved", "paid") or "success" in msg:
         return {"status": "live", "message": "Recharge Successful ✅"}
