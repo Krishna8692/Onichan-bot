@@ -18786,3 +18786,34 @@ def api_hitpad():
         return jsonify(result)
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'Paddle', 'time_taken': 0}), 500
+
+
+@app.route('/api/stats', methods=['GET'])
+def api_stats():
+    """Bot statistics endpoint for the web panel dashboard."""
+    try:
+        stats = get_stats()
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+@app.route('/api/user/me', methods=['GET'])
+def api_user_me():
+    """Current session user info for the web panel."""
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    try:
+        info = get_user_info(str(user_id))
+        utype = info.get('type', 'unknown')
+        return jsonify({
+            'user_id': str(user_id),
+            'username': str(user_id),
+            'is_admin': utype in ('owner',),
+            'is_premium': utype in ('owner', 'premium'),
+            'approved': utype not in ('banned', 'unknown'),
+            'account_type': utype,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)[:100]}), 500

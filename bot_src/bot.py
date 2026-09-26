@@ -21879,26 +21879,6 @@ def main():
     application.add_handler(CommandHandler("sig", cmd_signal))
     application.add_handler(CommandHandler("mysignals", cmd_mysignals))
 
-    # ── FreakyHitter commands ──────────────────────────────────────────────────
-    from modules.freaky_commands import (
-        cmd_hitck, cmd_hitad, cmd_hitad1, cmd_hitmpgs,
-        cmd_hitwhop, cmd_hitpad, cmd_hitep,
-        cmd_jio, cmd_iban, cmd_ibancountry,
-        cmd_pick, cmd_split, cmd_country,
-    )
-    application.add_handler(CommandHandler("hitck",       cmd_hitck))
-    application.add_handler(CommandHandler("hitad",       cmd_hitad))
-    application.add_handler(CommandHandler("hitad1",      cmd_hitad1))
-    application.add_handler(CommandHandler("hitmpgs",     cmd_hitmpgs))
-    application.add_handler(CommandHandler("hitwhop",     cmd_hitwhop))
-    application.add_handler(CommandHandler("hitpad",      cmd_hitpad))
-    application.add_handler(CommandHandler("hitep",       cmd_hitep))
-    application.add_handler(CommandHandler("jio",         cmd_jio))
-    application.add_handler(CommandHandler("iban",        cmd_iban))
-    application.add_handler(CommandHandler("ibancountry", cmd_ibancountry))
-    application.add_handler(CommandHandler("pick",        cmd_pick))
-    application.add_handler(CommandHandler("split",       cmd_split))
-    application.add_handler(CommandHandler("country",     cmd_country))
     # Live card paste gate-selection callback
     application.add_handler(CallbackQueryHandler(paste_gate_callback, pattern="^paste_gate:"))
     # BIN shop purchase callback
