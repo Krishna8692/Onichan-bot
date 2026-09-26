@@ -10732,8 +10732,6 @@ def oxapay_webhook():
         return jsonify({"error": str(e)}), 500
 
 
-
-
 @app.route('/webhook/easebuzz/success', methods=['POST'])
 def easebuzz_success():
     """Handle Easebuzz payment success callback"""
@@ -11591,9 +11589,17 @@ def _get_async_loop():
     return _async_loop
 
 def _run_async(coro):
-    loop = _get_async_loop()
-    future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result(timeout=120)
+    """Run an async coroutine from a sync Flask route."""
+    try:
+        loop = _asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_asyncio.run, coro)
+                return future.result(timeout=120)
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return _asyncio.run(coro)
 
 @app.route('/api/checkout/info', methods=['POST'])
 @auth_required
@@ -12337,7 +12343,6 @@ def api_wallet_tx_history():
 
     except Exception as e:
         return jsonify({"error": f"History fetch failed: {e}"}), 502
-
 
 
 # ─── CC SHOP ADMIN ROUTES ────────────────────────────────────────────────────
@@ -17298,10 +17303,6 @@ def tonconnect_manifest():
     })
 
 
-
-
-
-
 from modules.casino_routes import register_casino_routes
 register_casino_routes(app, user_required, owner_required, get_user_sidebar, USER_CSS, ADMIN_CSS)
 
@@ -17354,8 +17355,9 @@ def download_animated_emojis():
         max_age=0
     )
 
-
-# ===== Onichan Bypasser V1 — Premium Key API =====
+def _freaky_run_async(coro):
+    """Run a freaky hitter coroutine from a Flask route (sync context)."""
+    return _run_async(coro)
 @app.route('/api/bypasser/validate', methods=['POST', 'OPTIONS'])
 def api_bypasser_validate():
     """Validate a premium key for the Onichan Bypasser Chrome extension.
@@ -18528,3 +18530,259 @@ def api_tools_gateway(gateway):
 def keep_alive():
     t = Thread(target=run)
     t.start()
+
+@app.route('/api/tools/hit', methods=['POST'])
+@user_required
+def api_hit_auto():
+    """Auto hitter endpoint — detects gateway from URL."""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        card = data.get('card', '').strip()
+        url = data.get('url', '').strip()
+        proxy = data.get('proxy') or None
+        if not card or not url:
+            return jsonify({'error': 'card and url required'}), 400
+
+        url_lower = url.lower()
+
+        if 'checkout.com' in url_lower or 'cko' in url_lower:
+            from modules.freaky.freaky_checkout import hit_checkout
+            result = _freaky_run_async(hit_checkout(url, card, proxy))
+        elif 'adyen' in url_lower:
+            from modules.freaky.freaky_adyen import hit_adyen
+            result = _freaky_run_async(hit_adyen(url, card, proxy))
+        elif 'mastercard' in url_lower or 'mpgs' in url_lower:
+            from modules.freaky.freaky_mpgs import hit_mpgs
+            result = _freaky_run_async(hit_mpgs(url, card, proxy))
+        elif 'whop' in url_lower:
+            from modules.freaky.freaky_whop import hit_whop
+            result = _freaky_run_async(hit_whop(url, card, proxy))
+        elif 'paddle' in url_lower or 'buy.paddle' in url_lower:
+            from modules.freaky.freaky_paddle import hit_paddle
+            result = _freaky_run_async(hit_paddle(url, card, proxy))
+        elif 'epoch' in url_lower:
+            from modules.freaky.freaky_epoch import hit_epoch
+            result = _freaky_run_async(hit_epoch(url, card, proxy))
+        elif 'jio' in url_lower:
+            from modules.freaky.freaky_jio import hit_jio
+            result = _freaky_run_async(hit_jio(url, card, proxy))
+        else:
+            # Default to checkout.com flow
+            from modules.freaky.freaky_checkout import hit_checkout
+            result = _freaky_run_async(hit_checkout(url, card, proxy))
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'Auto', 'time_taken': 0}), 500
+
+@app.route('/api/tools/hitwhop', methods=['POST'])
+@user_required
+def api_hitwhop():
+    """Whop hitter endpoint."""
+    try:
+        from modules.freaky.freaky_whop import hit_whop
+        data = request.get_json(force=True, silent=True) or {}
+        card = data.get('card', '').strip()
+        url = data.get('url', '').strip()
+        proxy = data.get('proxy') or None
+        if not card or not url:
+            return jsonify({'error': 'card and url required'}), 400
+        result = _freaky_run_async(hit_whop(url, card, proxy))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'Whop', 'time_taken': 0}), 500
+
+@app.route('/api/tools/jio', methods=['POST'])
+@user_required
+def api_jio():
+    """Jio hitter endpoint."""
+    try:
+        from modules.freaky.freaky_jio import hit_jio
+        data = request.get_json(force=True, silent=True) or {}
+        card = data.get('card', '').strip()
+        target = data.get('url', data.get('mobile', '')).strip()
+        proxy = data.get('proxy') or None
+        if not card or not target:
+            return jsonify({'error': 'card and url/mobile required'}), 400
+        result = _freaky_run_async(hit_jio(target, card, proxy))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'Jio', 'time_taken': 0}), 500
+
+@app.route('/api/tools/hitmpgs', methods=['POST'])
+@user_required
+def api_hitmpgs():
+    """MPGS hitter endpoint."""
+    try:
+        from modules.freaky.freaky_mpgs import hit_mpgs
+        data = request.get_json(force=True, silent=True) or {}
+        card = data.get('card', '').strip()
+        url = data.get('url', '').strip()
+        proxy = data.get('proxy') or None
+        if not card or not url:
+            return jsonify({'error': 'card and url required'}), 400
+        result = _freaky_run_async(hit_mpgs(url, card, proxy))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'MPGS', 'time_taken': 0}), 500
+
+@app.route('/api/tools/gen', methods=['GET'])
+@user_required
+def api_tools_gen():
+    """Card generator endpoint for web panel."""
+    try:
+        from modules.cc_generator import generate_cards, parse_gen_format, get_card_brand
+        bin_number = request.args.get('bin', '').strip()
+        count = min(int(request.args.get('count', 10)), 500)
+        if not bin_number or len(bin_number) < 6:
+            return jsonify({'error': 'bin must be at least 6 digits'}), 400
+        parsed = parse_gen_format(f"{bin_number} {count}")
+        if not parsed:
+            return jsonify({'error': 'Invalid BIN format'}), 400
+        bn, custom_month, custom_year, custom_cvv, cnt = parsed
+        cards = generate_cards(bn, cnt, custom_month, custom_year, custom_cvv)
+        brand = get_card_brand(bn)
+        return jsonify({'cards': cards, 'count': len(cards), 'bin': bn, 'brand': brand})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+@app.route('/api/tools/pick', methods=['POST'])
+@user_required
+def api_tools_pick():
+    """Card picker endpoint for web panel."""
+    try:
+        from modules.freaky_file_tools import pick_random_cards, parse_cards_from_text
+        data = request.get_json(force=True, silent=True) or {}
+        text = data.get('text', '')
+        n = min(int(data.get('count', 10)), 10000)
+        if not text:
+            return jsonify({'error': 'text required'}), 400
+        cards = parse_cards_from_text(text)
+        picked = pick_random_cards(cards, n)
+        return jsonify({'cards': picked, 'count': len(picked), 'total': len(cards)})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+@app.route('/api/tools/hitad', methods=['POST'])
+@user_required
+def api_hitad():
+    """Adyen hitter endpoint."""
+    try:
+        from modules.freaky.freaky_adyen import hit_adyen
+        data = request.get_json(force=True, silent=True) or {}
+        card = data.get('card', '').strip()
+        url = data.get('url', '').strip()
+        proxy = data.get('proxy') or None
+        if not card or not url:
+            return jsonify({'error': 'card and url required'}), 400
+        result = _freaky_run_async(hit_adyen(url, card, proxy))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'Adyen', 'time_taken': 0}), 500
+
+@app.route('/api/tools/hitck', methods=['POST'])
+@user_required
+def api_hitck():
+    """Checkout.com hitter endpoint."""
+    try:
+        from modules.freaky.freaky_checkout import hit_checkout
+        data = request.get_json(force=True, silent=True) or {}
+        card = data.get('card', '').strip()
+        url = data.get('url', '').strip()
+        proxy = data.get('proxy') or None
+        if not card or not url:
+            return jsonify({'error': 'card and url required'}), 400
+        result = _freaky_run_async(hit_checkout(url, card, proxy))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'Checkout.com', 'time_taken': 0}), 500
+
+@app.route('/api/tools/hitep', methods=['POST'])
+@user_required
+def api_hitep():
+    """Epoch hitter endpoint."""
+    try:
+        from modules.freaky.freaky_epoch import hit_epoch
+        data = request.get_json(force=True, silent=True) or {}
+        card = data.get('card', '').strip()
+        url = data.get('url', '').strip()
+        proxy = data.get('proxy') or None
+        if not card or not url:
+            return jsonify({'error': 'card and url required'}), 400
+        result = _freaky_run_async(hit_epoch(url, card, proxy))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'Epoch', 'time_taken': 0}), 500
+
+@app.route('/api/tools/fake', methods=['GET'])
+@user_required
+def api_tools_fake():
+    """Fake identity generator endpoint for web panel."""
+    try:
+        country = request.args.get('country', 'us').strip().lower()
+        from modules.fake_identity import generate_fullz
+        fullz = generate_fullz(country)
+        return jsonify(fullz if fullz else {'error': 'Could not generate identity'})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+@app.route('/api/tools/clean', methods=['POST'])
+@user_required
+def api_tools_clean():
+    """Card cleaner endpoint for web panel."""
+    try:
+        from modules.cc_cleaner import extract_cards_from_junk, remove_duplicates, sort_cards, get_statistics
+        data = request.get_json(force=True, silent=True) or {}
+        text = data.get('text', '')
+        if not text:
+            return jsonify({'error': 'text required'}), 400
+        raw = extract_cards_from_junk(text, remove_expired=True)
+        deduped = remove_duplicates(raw)
+        sorted_cards = sort_cards(deduped, by='brand')
+        stats = get_statistics(sorted_cards)
+        return jsonify({'cards': sorted_cards, 'count': len(sorted_cards), 'stats': stats, 'dupes': len(raw) - len(deduped)})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+def _freaky_parse_card(card_str):
+    """Parse card from various formats, returns (cc, mm, yy, cvv) or None."""
+    import re
+    parts = re.split(r'[|/\s]', (card_str or '').strip())
+    if len(parts) < 4:
+        return None
+    cc, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
+    if len(yy) == 4:
+        yy = yy[2:]
+    if not cc.isdigit() or len(cc) < 13:
+        return None
+    return cc, mm, yy, cvv
+
+@app.route('/api/tools/iban', methods=['GET'])
+@user_required
+def api_tools_iban():
+    """IBAN generator endpoint for web panel."""
+    try:
+        from modules.freaky_generators import generate_iban, resolve_country_code
+        country = request.args.get('country', '').strip()
+        cc = resolve_country_code(country) if country else None
+        iban, meta = generate_iban(cc)
+        return jsonify({'iban': iban, **meta})
+    except Exception as e:
+        return jsonify({'error': str(e)[:200]}), 500
+
+@app.route('/api/tools/hitpad', methods=['POST'])
+@user_required
+def api_hitpad():
+    """Paddle hitter endpoint."""
+    try:
+        from modules.freaky.freaky_paddle import hit_paddle
+        data = request.get_json(force=True, silent=True) or {}
+        card = data.get('card', '').strip()
+        url = data.get('url', '').strip()
+        proxy = data.get('proxy') or None
+        if not card or not url:
+            return jsonify({'error': 'card and url required'}), 400
+        result = _freaky_run_async(hit_paddle(url, card, proxy))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)[:200], 'gateway': 'Paddle', 'time_taken': 0}), 500

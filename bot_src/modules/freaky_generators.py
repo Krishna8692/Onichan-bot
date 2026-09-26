@@ -1,6 +1,105 @@
-import random, re
+"""
+FreakyHitter generators module for Onichan Bot.
+Provides IBAN generation, enhanced card generation, and fake identity generation.
+"""
+import re
+import random
+import string
+from typing import Optional, Tuple, List, Dict
+
+# ─── IBAN Generation ───────────────────────────────────────────────────────────
+
+IBAN_FORMATS = {
+    "AL": {"length": 28, "country": "Albania", "flag": "🇦🇱", "bban": "8n,16c"},
+    "AD": {"length": 24, "country": "Andorra", "flag": "🇦🇩"},
+    "AT": {"length": 20, "country": "Austria", "flag": "🇦🇹"},
+    "AZ": {"length": 28, "country": "Azerbaijan", "flag": "🇦🇿"},
+    "BH": {"length": 22, "country": "Bahrain", "flag": "🇧🇭"},
+    "BE": {"length": 16, "country": "Belgium", "flag": "🇧🇪"},
+    "BA": {"length": 20, "country": "Bosnia", "flag": "🇧🇦"},
+    "BR": {"length": 29, "country": "Brazil", "flag": "🇧🇷"},
+    "BG": {"length": 22, "country": "Bulgaria", "flag": "🇧🇬"},
+    "CR": {"length": 22, "country": "Costa Rica", "flag": "🇨🇷"},
+    "HR": {"length": 21, "country": "Croatia", "flag": "🇭🇷"},
+    "CY": {"length": 28, "country": "Cyprus", "flag": "🇨🇾"},
+    "CZ": {"length": 24, "country": "Czech Republic", "flag": "🇨🇿"},
+    "DK": {"length": 18, "country": "Denmark", "flag": "🇩🇰"},
+    "DO": {"length": 28, "country": "Dominican Republic", "flag": "🇩🇴"},
+    "EE": {"length": 20, "country": "Estonia", "flag": "🇪🇪"},
+    "FI": {"length": 18, "country": "Finland", "flag": "🇫🇮"},
+    "FR": {"length": 27, "country": "France", "flag": "🇫🇷"},
+    "GE": {"length": 22, "country": "Georgia", "flag": "🇬🇪"},
+    "DE": {"length": 22, "country": "Germany", "flag": "🇩🇪"},
+    "GI": {"length": 23, "country": "Gibraltar", "flag": "🇬🇮"},
+    "GR": {"length": 27, "country": "Greece", "flag": "🇬🇷"},
+    "GT": {"length": 28, "country": "Guatemala", "flag": "🇬🇹"},
+    "HU": {"length": 28, "country": "Hungary", "flag": "🇭🇺"},
+    "IS": {"length": 26, "country": "Iceland", "flag": "🇮🇸"},
+    "IE": {"length": 22, "country": "Ireland", "flag": "🇮🇪"},
+    "IL": {"length": 23, "country": "Israel", "flag": "🇮🇱"},
+    "IT": {"length": 27, "country": "Italy", "flag": "🇮🇹"},
+    "JO": {"length": 30, "country": "Jordan", "flag": "🇯🇴"},
+    "KZ": {"length": 20, "country": "Kazakhstan", "flag": "🇰🇿"},
+    "XK": {"length": 20, "country": "Kosovo", "flag": "🇽🇰"},
+    "KW": {"length": 30, "country": "Kuwait", "flag": "🇰🇼"},
+    "LV": {"length": 21, "country": "Latvia", "flag": "🇱🇻"},
+    "LB": {"length": 28, "country": "Lebanon", "flag": "🇱🇧"},
+    "LI": {"length": 21, "country": "Liechtenstein", "flag": "🇱🇮"},
+    "LT": {"length": 20, "country": "Lithuania", "flag": "🇱🇹"},
+    "LU": {"length": 20, "country": "Luxembourg", "flag": "🇱🇺"},
+    "MK": {"length": 19, "country": "North Macedonia", "flag": "🇲🇰"},
+    "MT": {"length": 31, "country": "Malta", "flag": "🇲🇹"},
+    "MR": {"length": 27, "country": "Mauritania", "flag": "🇲🇷"},
+    "MU": {"length": 30, "country": "Mauritius", "flag": "🇲🇺"},
+    "MD": {"length": 24, "country": "Moldova", "flag": "🇲🇩"},
+    "MC": {"length": 27, "country": "Monaco", "flag": "🇲🇨"},
+    "ME": {"length": 22, "country": "Montenegro", "flag": "🇲🇪"},
+    "NL": {"length": 18, "country": "Netherlands", "flag": "🇳🇱"},
+    "NO": {"length": 15, "country": "Norway", "flag": "🇳🇴"},
+    "PK": {"length": 24, "country": "Pakistan", "flag": "🇵🇰"},
+    "PS": {"length": 29, "country": "Palestine", "flag": "🇵🇸"},
+    "PL": {"length": 28, "country": "Poland", "flag": "🇵🇱"},
+    "PT": {"length": 25, "country": "Portugal", "flag": "🇵🇹"},
+    "QA": {"length": 29, "country": "Qatar", "flag": "🇶🇦"},
+    "RO": {"length": 24, "country": "Romania", "flag": "🇷🇴"},
+    "SM": {"length": 27, "country": "San Marino", "flag": "🇸🇲"},
+    "SA": {"length": 24, "country": "Saudi Arabia", "flag": "🇸🇦"},
+    "RS": {"length": 22, "country": "Serbia", "flag": "🇷🇸"},
+    "SK": {"length": 24, "country": "Slovakia", "flag": "🇸🇰"},
+    "SI": {"length": 19, "country": "Slovenia", "flag": "🇸🇮"},
+    "ES": {"length": 24, "country": "Spain", "flag": "🇪🇸"},
+    "SE": {"length": 24, "country": "Sweden", "flag": "🇸🇪"},
+    "CH": {"length": 21, "country": "Switzerland", "flag": "🇨🇭"},
+    "TL": {"length": 23, "country": "East Timor", "flag": "🇹🇱"},
+    "TN": {"length": 24, "country": "Tunisia", "flag": "🇹🇳"},
+    "TR": {"length": 26, "country": "Turkey", "flag": "🇹🇷"},
+    "AE": {"length": 23, "country": "UAE", "flag": "🇦🇪"},
+    "GB": {"length": 22, "country": "United Kingdom", "flag": "🇬🇧"},
+    "VG": {"length": 24, "country": "British Virgin Islands", "flag": "🇻🇬"},
+}
+
+# Country code aliases
+COUNTRY_ALIASES = {
+    "united kingdom": "GB", "uk": "GB", "england": "GB", "britain": "GB",
+    "germany": "DE", "france": "FR", "spain": "ES", "italy": "IT",
+    "netherlands": "NL", "holland": "NL", "switzerland": "CH",
+    "sweden": "SE", "norway": "NO", "denmark": "DK", "finland": "FI",
+    "poland": "PL", "portugal": "PT", "belgium": "BE", "austria": "AT",
+    "turkey": "TR", "turkiye": "TR", "greece": "GR",
+    "czech": "CZ", "czechia": "CZ", "czech republic": "CZ",
+    "hungary": "HU", "romania": "RO", "bulgaria": "BG",
+    "croatia": "HR", "slovakia": "SK", "slovenia": "SI",
+    "estonia": "EE", "latvia": "LV", "lithuania": "LT",
+    "ireland": "IE", "luxembourg": "LU", "malta": "MT",
+    "iceland": "IS", "cyprus": "CY",
+    "saudi arabia": "SA", "saudi": "SA", "uae": "AE", "dubai": "AE",
+    "qatar": "QA", "kuwait": "KW", "bahrain": "BH", "israel": "IL",
+    "pakistan": "PK", "jordan": "JO",
+    "brazil": "BR",
+}
 
 # ==================== BIN CARD GENERATOR ====================
+
 def generate_bin_cards(bin_pattern: str, count: int = 10, preserve_no_cvc: bool = False) -> list:
     """
     Generates Luhn-valid cards matching bin_pattern.
@@ -314,3 +413,104 @@ def generate_fake_identity(country_query="United States"):
         "id_name": info["id_name"],
         "id_val": id_num
     }
+
+def _mod97(number_str: str) -> int:
+    remainder = 0
+    for char in number_str:
+        remainder = (remainder * 10 + int(char)) % 97
+    return remainder
+
+def _letter_to_digits(char: str) -> str:
+    """Convert letter to digits for IBAN check digit calculation."""
+    if char.isalpha():
+        return str(ord(char.upper()) - 55)
+    return char
+
+def _random_bank_name(country_code: str) -> str:
+    names = BANK_NAMES.get(country_code, ["International Bank", "Global Bank", "National Bank"])
+    return random.choice(names)
+
+def get_supported_countries() -> List[Dict]:
+    """Return list of all supported IBAN countries."""
+    return [
+        {
+            "code": code,
+            "country": fmt["country"],
+            "flag": fmt.get("flag", "🏳️"),
+            "iban_length": fmt["length"],
+        }
+        for code, fmt in sorted(IBAN_FORMATS.items(), key=lambda x: x[1]["country"])
+    ]
+
+def resolve_country_code(country_input: str) -> Optional[str]:
+    """Resolve country name or code to ISO alpha-2 code."""
+    inp = country_input.strip().upper()
+    if inp in IBAN_FORMATS:
+        return inp
+    lower = country_input.strip().lower()
+    if lower in COUNTRY_ALIASES:
+        return COUNTRY_ALIASES[lower]
+    # Partial match
+    for alias, code in COUNTRY_ALIASES.items():
+        if lower in alias or alias in lower:
+            return code
+    return None
+
+def _generate_bic(country_code: str) -> str:
+    """Generate a plausible-looking BIC/SWIFT code."""
+    bank_code = ''.join(random.choices(string.ascii_uppercase, k=4))
+    location = ''.join(random.choices(string.ascii_uppercase + string.digits, k=2))
+    branch = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
+    return f"{bank_code}{country_code}{location}{branch}"
+
+def generate_iban(country_code: str = None) -> Tuple[str, Dict]:
+    """
+    Generate a valid IBAN for the given country code.
+    Returns (iban_string, metadata_dict).
+    """
+    if country_code is None:
+        country_code = random.choice(list(IBAN_FORMATS.keys()))
+
+    cc = country_code.upper().strip()
+
+    # Resolve aliases
+    if cc.lower() in COUNTRY_ALIASES:
+        cc = COUNTRY_ALIASES[cc.lower()]
+
+    if cc not in IBAN_FORMATS:
+        # Try to find by country name
+        for alias, code in COUNTRY_ALIASES.items():
+            if cc.lower() == alias:
+                cc = code
+                break
+        else:
+            cc = random.choice(list(IBAN_FORMATS.keys()))
+
+    fmt = IBAN_FORMATS[cc]
+    total_length = fmt["length"]
+
+    # BBAN length = total - 4 (2 country + 2 check digits)
+    bban_length = total_length - 4
+
+    # Generate BBAN (all numeric for simplicity, works for most countries)
+    bban = ''.join(random.choices(string.digits, k=bban_length))
+
+    # Compute check digits
+    # Rearrange: BBAN + country_code + "00"
+    rearranged = bban + cc + "00"
+    numeric = ''.join(_letter_to_digits(c) for c in rearranged)
+    check_digits = str(98 - _mod97(numeric)).zfill(2)
+
+    iban = cc + check_digits + bban
+
+    metadata = {
+        "iban": iban,
+        "country": fmt.get("country", cc),
+        "flag": fmt.get("flag", "🏳️"),
+        "country_code": cc,
+        "length": total_length,
+        # Fake bank details
+        "bic": _generate_bic(cc),
+        "bank": _random_bank_name(cc),
+    }
+    return iban, metadata

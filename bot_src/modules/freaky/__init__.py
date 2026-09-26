@@ -1,1 +1,1 @@
-# FreakyHitter modules — ported into Onichan's module tree
+# FreakyHitter gateway modules for Onichan Bot — ported into Onichan's module tree

