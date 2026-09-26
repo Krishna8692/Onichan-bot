@@ -275,29 +275,42 @@ async def cmd_hitep(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_hitjio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Hit Jio recharge using JioHitter (the full PayGlocal/JioPG flow)."""
+    """Hit Jio recharge using JioHitter.  Format: /jio <mobile> <card|mm|yy|cvv> <plan> [proxy]"""
     if not context.args:
         await update.message.reply_text(
             "💜 <b>ONICHAN • JIO HITTER</b>\n\n"
-            "📝 <b>Usage</b>: <code>/jio &lt;mobile&gt; &lt;card|mm|yy|cvv&gt;</code>\n\n"
+            "📝 <b>Usage</b>:\n"
+            "<code>/jio &lt;mobile&gt; &lt;card|mm|yy|cvv&gt; &lt;plan&gt;</code>\n\n"
             "📌 <b>Examples</b>:\n"
-            "<code>/jio 9876543210 4532111111111111|12|28|123</code>\n"
-            "<code>/jio https://jio.com/pay 4532111111111111|12|28|123</code>",
+            "<code>/jio 9876543210 4532111111111111|12|28|123 239</code>\n"
+            "<code>/jio 9876543210 4532111111111111|12|28|123 11</code>",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    if len(context.args) < 2:
+    if len(context.args) < 3:
         await update.message.reply_text(
-            "❌ Usage: <code>/jio &lt;mobile&gt; &lt;card|mm|yy|cvv&gt;</code>",
+            "❌ Usage: <code>/jio &lt;mobile&gt; &lt;card|mm|yy|cvv&gt; &lt;plan&gt;</code>",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    target = context.args[0]
+    target   = context.args[0]
     card_str = context.args[1]
-    # arg[2] is only treated as proxy if it looks like a valid proxy URL
-    raw_proxy = context.args[2] if len(context.args) > 2 else None
+    plan_arg = context.args[2]
+
+    # Parse plan amount (numeric value like 11, 239, 299 …)
+    try:
+        plan_amount = float(plan_arg)
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Plan must be a number (e.g. <code>239</code>).",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # arg[3] is treated as proxy only if it looks like a proxy URL
+    raw_proxy = context.args[3] if len(context.args) > 3 else None
     proxy_str = (
         raw_proxy
         if raw_proxy and raw_proxy.startswith(("http://", "https://", "socks4://", "socks5://"))
@@ -310,13 +323,14 @@ async def cmd_hitjio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     loading_msg = await update.message.reply_text(
-        f"⌛️ <b>Hitting Jio...</b>\n💳 <code>{card_str}</code>",
+        f"⌛️ <b>Hitting Jio...</b>\n"
+        f"📱 <code>{target}</code>  |  💳 <code>{card_str}</code>  |  💰 ₹{plan_amount:.0f}",
         parse_mode=ParseMode.HTML,
     )
     try:
         from modules.freaky.jio_hitter import JioHitter
         proxy_data = _parse_proxy_str(proxy_str)
-        hitter = JioHitter(phone_number=target, proxy_data=proxy_data)
+        hitter = JioHitter(phone_number=target, proxy_data=proxy_data, plan_amount=plan_amount)
         result = await hitter.hit(card)
         normalized = _normalize_result(result, "Jio")
         await loading_msg.edit_text(
