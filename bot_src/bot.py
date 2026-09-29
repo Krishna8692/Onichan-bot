@@ -6819,6 +6819,239 @@ async def sk_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ============================================================================
+# 9KBOSS ACCOUNT CHECKER
+# Logs in to 9kboss.com (with CAPTCHA + request signing) and reports
+# balance, VIP level, and last withdrawal status.
+# ============================================================================
+
+async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, args_override=None):
+    """
+    Core logic for /9k and the document-caption variant.
+    args_override: list of strings to use instead of context.args (for caption routing).
+    """
+    from modules.ninek_checker import (
+        start_captcha_flow, complete_login, check_with_token, format_result,
+    )
+
+    user = update.effective_user
+    message = update.message
+    args = args_override if args_override is not None else (context.args or [])
+
+    # ── Parse credentials ────────────────────────────────────────────────────
+    txt_creds = []   # list of "email:password" strings from a .txt file
+    inline_cred = None
+    captcha_code = None
+
+    # .txt file: attached directly or replied-to document
+    doc = message.document
+    if not doc and message.reply_to_message:
+        doc = message.reply_to_message.document
+    if doc and (
+        (doc.mime_type and "text" in doc.mime_type)
+        or (doc.file_name and doc.file_name.lower().endswith(".txt"))
+    ):
+        try:
+            tg_file = await context.bot.get_file(doc.file_id)
+            raw = await tg_file.download_as_bytearray()
+            lines = raw.decode("utf-8", errors="ignore").splitlines()
+            txt_creds = [
+                l.strip() for l in lines
+                if ":" in l and l.strip() and not l.startswith("#")
+            ]
+        except Exception as e:
+            await message.reply_text(f"❌ Could not read file: {e}")
+            return
+    elif args:
+        inline_cred = args[0].strip()
+        if len(args) >= 2:
+            captcha_code = args[1].strip()
+
+    # ── Usage help if nothing provided ──────────────────────────────────────
+    if not txt_creds and not inline_cred:
+        await message.reply_text(
+            "🎯 <b>9kBoss Checker</b>\n\n"
+            "<b>Usage:</b>\n"
+            "  <code>/9k email:password</code>  → fetches CAPTCHA image\n"
+            "  <code>/9k email:password CODE</code>  → logs in with CAPTCHA\n\n"
+            "<b>Bulk (TXT file):</b>\n"
+            "  Send a .txt file (one <code>email:password</code> per line)\n"
+            "  with caption <code>/9k</code>, or reply to the file with <code>/9k</code>\n"
+            "  ⚠️ Bulk mode only shows results for accounts already verified in this session.\n"
+            "  New accounts need the two-step CAPTCHA flow individually.\n\n"
+            "ℹ️ Auth token is cached ~5 h per account after first login.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # ── Single-credential mode ───────────────────────────────────────────────
+    if inline_cred:
+        if ":" not in inline_cred:
+            await message.reply_text(
+                "❌ <b>Invalid format.</b> Use <code>email:password</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        email, _, password = inline_cred.partition(":")
+
+        # Step 2: captcha code provided → complete login
+        if captcha_code:
+            loading = await message.reply_text(
+                "🔑 <b>Logging in to 9kBoss…</b>\n\n⏳ Verifying credentials…",
+                parse_mode=ParseMode.HTML,
+            )
+            ok, result, err = complete_login(user.id, email, password, captcha_code)
+            if not ok:
+                await loading.edit_text(
+                    f"❌ <b>Login Failed</b>\n\n{html.escape(err[:300])}",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            text, balance = format_result(result, email)
+            text += (
+                f"\n<b>Checked by:</b> "
+                f"<a href='tg://user?id={user.id}'>{html.escape(user.first_name)}</a>"
+            )
+            try:
+                await loading.delete()
+            except Exception:
+                pass
+
+            if balance > 0:
+                await _reply_with_gif(message, "success", text)
+            else:
+                await message.reply_text(text, parse_mode=ParseMode.HTML)
+            return
+
+        # Step 1: no captcha → try this user's own cached token first
+        ok, result, err = check_with_token(user.id, email)
+        if ok:
+            text, balance = format_result(result, email)
+            text += (
+                f"\n<b>Checked by:</b> "
+                f"<a href='tg://user?id={user.id}'>{html.escape(user.first_name)}</a>"
+            )
+            if balance > 0:
+                await _reply_with_gif(message, "success", text)
+            else:
+                await message.reply_text(text, parse_mode=ParseMode.HTML)
+            return
+
+        # No cached token → fetch CAPTCHA and ask user to complete step 2
+        loading = await message.reply_text("🔐 <b>Fetching CAPTCHA…</b>", parse_mode=ParseMode.HTML)
+        cap_ok, cap_bytes, cap_err = start_captcha_flow(user.id, email, password)
+        try:
+            await loading.delete()
+        except Exception:
+            pass
+
+        if not cap_ok:
+            await message.reply_text(
+                f"❌ <b>Could not fetch CAPTCHA</b>\n\n{html.escape(cap_err[:200])}",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        import io as _io
+        await message.reply_photo(
+            photo=_io.BytesIO(cap_bytes),
+            caption=(
+                "🔢 <b>CAPTCHA required</b>\n\n"
+                "Enter the text shown in the image by sending:\n"
+                f"<code>/9k {html.escape(inline_cred)} CODE</code>\n\n"
+                "(Replace <code>CODE</code> with the characters in the image)"
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # ── Bulk TXT file mode ───────────────────────────────────────────────────
+    if not txt_creds:
+        await message.reply_text("❌ No credentials found in file.", parse_mode=ParseMode.HTML)
+        return
+
+    total = len(txt_creds)
+    loading = await message.reply_text(
+        f"📂 <b>9kBoss Bulk Check</b>\n\n"
+        f"⏳ Checking {total} account(s) against cached sessions…\n"
+        f"<i>(Only accounts verified in this session are shown — "
+        f"use /9k individually for new accounts)</i>",
+        parse_mode=ParseMode.HTML,
+    )
+
+    results_text = []
+    need_captcha = []
+    errors = []
+
+    for line in txt_creds:
+        if ":" not in line:
+            errors.append(f"⚠️ Invalid line: <code>{html.escape(line[:40])}</code>")
+            continue
+        em, _, pw = line.partition(":")
+        em = em.strip()
+        pw = pw.strip()
+
+        # Only use tokens cached for THIS user
+        ok, result, _ = check_with_token(user.id, em)
+        if ok:
+            _, balance = format_result(result, em)
+            bal_icon = "💰" if balance > 0 else "💸"
+            vip = result.get("user_info", {}).get("vipLevel") or "?"
+            results_text.append(
+                f"{bal_icon} <code>{html.escape(em)}</code> | ₹{balance:.2f} | VIP {vip}"
+            )
+        else:
+            need_captcha.append(em)
+
+    # Build bulk summary
+    lines_out = ["<b>9kBoss Bulk Check Results</b>\n━━━━━━━━━━━━━━"]
+    if results_text:
+        lines_out.append(f"<b>✅ Results ({len(results_text)}/{total}):</b>")
+        lines_out.extend(results_text)
+    if need_captcha:
+        lines_out.append(
+            f"\n<b>⚠️ Not yet verified ({len(need_captcha)}) — CAPTCHA needed:</b>\n"
+            f"Run <code>/9k email:password</code> for each to log in first."
+        )
+        for em in need_captcha[:10]:
+            lines_out.append(f"  • <code>{html.escape(em)}</code>")
+        if len(need_captcha) > 10:
+            lines_out.append(f"  … and {len(need_captcha) - 10} more")
+    if errors:
+        lines_out.append("\n<b>❌ Parse errors:</b>")
+        lines_out.extend(errors[:5])
+
+    report = "\n".join(lines_out)
+    try:
+        await loading.delete()
+    except Exception:
+        pass
+    await message.reply_text(report[:4000], parse_mode=ParseMode.HTML)
+
+
+@require_approval
+async def ninek_check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/9k command handler (text commands and replies to .txt documents)."""
+    await _ninek_process(update, context)
+
+
+@require_approval
+async def ninek_doc_caption_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handles .txt document uploads where the caption starts with /9k.
+    Telegram's CommandHandler does not fire for captions, so this separate
+    MessageHandler catches that case and routes it through the same logic.
+    """
+    # Parse args from the caption (e.g. "/9k" → [], "/9k email:pass" → ["email:pass"])
+    caption = (update.message.caption or "").strip()
+    parts = caption.split()
+    # parts[0] is "/9k" or "/9k@botname"; remainder are args
+    args_override = parts[1:] if len(parts) > 1 else []
+    await _ninek_process(update, context, args_override=args_override)
+
+
+# ============================================================================
 # EXGATE — EXTRACTED GATE CHECKER (sk-based / shopify / razorpay)
 # Reverse-engineered from approvedchkr.store/api/v1/check.php
 # ============================================================================
@@ -21566,6 +21799,8 @@ def main():
     application.add_handler(CommandHandler("ipscore", ip_check_command))
     application.add_handler(CommandHandler("sk", sk_check_command))
     application.add_handler(CommandHandler("skinfo", sk_check_command))
+    application.add_handler(CommandHandler("9k", ninek_check_command))
+    application.add_handler(CommandHandler("9kboss", ninek_check_command))
     application.add_handler(CommandHandler("exgate", gate_exgate))
     application.add_handler(CommandHandler("xgate", gate_exgate))
     application.add_handler(CommandHandler("ckproxy", proxy_check_command))
@@ -21605,6 +21840,12 @@ def main():
     # Unified document handler (handles all TXT file scenarios)
     async def unified_document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle all TXT file uploads based on context"""
+        # /9k caption: route to 9kboss checker
+        caption = (update.message.caption or "").strip()
+        if caption.lower().startswith("/9k"):
+            await ninek_doc_caption_handler(update, context)
+            return
+
         # Check for mass check TXT shortcut
         if 'mass_check_gate' in context.user_data:
             await handle_mass_check_txt_file(update, context)

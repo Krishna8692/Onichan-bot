@@ -1,0 +1,1 @@
+- [9kboss API signing](9kboss-api.md) — requests need ST/STT headers + Indian proxy; CAPTCHA required from server IPs
