@@ -81,55 +81,72 @@ def format_keys_display(keys, days):
     return output
 
 def create_key(days, created_by, key_type="PREMIUM"):
-    """Create and save a premium key to PostgreSQL - with retry and duplicate handling"""
-    max_attempts = 5
-    
-    for attempt in range(max_attempts):
+    """Create and save a premium key using a fresh direct connection.
+
+    Uses its own psycopg2 connection instead of the shared pool so that
+    pool exhaustion from concurrent card-checker threads cannot block key
+    generation.
+    """
+    import psycopg2
+    import psycopg2.extras
+
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    if not DATABASE_URL:
+        print("[KeyGen] DATABASE_URL not set")
+        return None
+
+    creator_id = None
+    if created_by is not None:
         try:
-            ensure_db()
-            
-            key = generate_key(days, key_type)
-            
-            # Handle creator_id conversion robustly
+            creator_id = int(created_by)
+        except (ValueError, TypeError):
             creator_id = None
-            if created_by is not None:
-                try:
-                    creator_id = int(created_by)
-                except (ValueError, TypeError):
-                    creator_id = None
-            
-            print(f"[KeyGen] Attempting to insert key: {key[:15]}... for {days} days by {creator_id}")
-            
-            result = _execute_with_retry("""
-                INSERT INTO premium_keys (key, days, created_by, used, created_at)
-                VALUES (%s, %s, %s, FALSE, NOW())
-                RETURNING id, key
-            """, (key, days, creator_id), fetch_one=True)
-            
-            print(f"[KeyGen] Insert result: {result}, type: {type(result)}")
-            
-            # Check result more robustly - RealDictCursor returns RealDictRow
-            if result is not None:
-                result_id = result.get('id') if hasattr(result, 'get') else (result['id'] if 'id' in result else None)
-                if result_id:
-                    print(f"[KeyGen] Successfully created key: {key}")
-                    return {
-                        "key": key,
-                        "days": days,
-                        "type": key_type,
-                        "created_by": created_by,
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
-            
-            print(f"[KeyGen] Insert returned no id, attempt {attempt + 1}/{max_attempts}")
-                
+
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        conn = None
+        try:
+            key = generate_key(days, key_type)
+            print(f"[KeyGen] Attempt {attempt + 1}: inserting key {key[:15]}... for {days} days by {creator_id}")
+
+            conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+            conn.autocommit = True
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO premium_keys (key, days, created_by, used, created_at)
+                    VALUES (%s, %s, %s, FALSE, NOW())
+                    RETURNING id, key
+                """, (key, days, creator_id))
+                result = cur.fetchone()
+
+            if result and result.get("id"):
+                print(f"[KeyGen] Successfully created key: {key}")
+                return {
+                    "key": key,
+                    "days": days,
+                    "type": key_type,
+                    "created_by": created_by,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+
+            print(f"[KeyGen] Insert returned no id on attempt {attempt + 1}")
+
+        except psycopg2.errors.UniqueViolation:
+            # Key collision — retry with a freshly generated key
+            pass
         except Exception as e:
             import traceback
             print(f"[KeyGen] Exception on attempt {attempt + 1}/{max_attempts}: {type(e).__name__}: {e}")
-            print(f"[KeyGen] Traceback: {traceback.format_exc()}")
-        
+            print(traceback.format_exc())
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
         time.sleep(0.3)
-    
+
     print(f"[KeyGen] Failed after {max_attempts} attempts to create key")
     return None
 
