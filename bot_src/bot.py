@@ -7000,7 +7000,7 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
                 f"🔢 <b>Manual CAPTCHA required</b>\n"
                 f"{html.escape(cap_err[:100]) if os.environ.get('NOPECHA_API_KEY') else 'Nopecha is not configured.'}\n\n"
                 "Enter the text shown in the image by sending:\n"
-                f"<code>/9k {html.escape(inline_cred)} CODE</code>\n\n"
+                "<code>/9k email:password CODE</code>\n\n"
                 "(Replace <code>CODE</code> with the characters in the image)"
             ),
             parse_mode=ParseMode.HTML,

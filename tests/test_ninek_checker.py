@@ -2,6 +2,7 @@
 
 import time
 import unittest
+from unittest.mock import patch
 
 from bot_src.modules import ninek_checker as checker
 
@@ -90,6 +91,18 @@ class LoginResponseTests(unittest.TestCase):
         ok, result, error = self.login(session)
         self.assertTrue(ok, error)
         self.assertEqual(checker.format_result(result, self.email)[1], 0)
+
+    def test_request_signature_uses_current_millisecond_time(self):
+        with patch.object(checker.time, "time", return_value=1790740800.123):
+            headers = checker._build_headers("/api/auth/login")
+        self.assertEqual(headers["ST"], "1790740800123")
+        self.assertEqual(headers["TZ"], "5.5")
+        self.assertEqual(headers["Device"], "PC")
+        self.assertEqual(
+            headers["STT"],
+            checker._compute_stt("/api/auth/login", headers["ST"]),
+        )
+        self.assertNotEqual(headers["ST"], "-5.5")
 
 
 if __name__ == "__main__":

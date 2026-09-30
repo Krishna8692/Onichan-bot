@@ -20,7 +20,7 @@ except ImportError:
     CURL_CFFI_OK = False
 
 BASE = "https://9kboss.com"
-ST_VAL = "-5.5"  # India timezone: UTC+5:30 → getTimezoneOffset()/60 = -5.5
+TZ_VAL = "5.5"  # India timezone; separate from ST (server time in milliseconds).
 
 # --- Pending login sessions: (user_id, email) → {session, proxy, password} ---
 _PENDING: Dict[Tuple[int, str], Dict] = {}
@@ -36,7 +36,7 @@ def _password_hash(password: str, salt: bytes) -> bytes:
 
 # ── Signature helpers ────────────────────────────────────────────────────────
 
-def _compute_stt(url_path: str, st: str = ST_VAL) -> str:
+def _compute_stt(url_path: str, st: str) -> str:
     """Compute the STT request signature required by 9kboss API."""
     # Secret embedded in RPX JS bundle (chunk 6639); combined with path + ST offset.
     raw = f"#kfdjksgjdksajgkdsjkdjfkda#{url_path}#{st}"
@@ -45,15 +45,18 @@ def _compute_stt(url_path: str, st: str = ST_VAL) -> str:
 
 def _build_headers(url_path: str, token: Optional[str] = None) -> dict:
     """Return the minimal required headers for a 9kboss API request."""
+    st = str(int(time.time() * 1000))
     h = {
-        "Accept": "application/json, text/plain, */*",
+        "Accept": "application/json",
         "Accept-Language": "en-IN,en;q=0.9",
         "Origin": BASE,
         "Referer": f"{BASE}/login",
+        "Device": "PC",
         "COUNTRY": "IN",
         "LANG": "en",
-        "ST": ST_VAL,
-        "STT": _compute_stt(url_path, ST_VAL),
+        "ST": st,
+        "TZ": TZ_VAL,
+        "STT": _compute_stt(url_path, st),
     }
     if token:
         h["Auth"] = token
