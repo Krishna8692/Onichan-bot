@@ -6830,6 +6830,7 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
     args_override: list of strings to use instead of context.args (for caption routing).
     """
     from modules.ninek_checker import (
+        CAPTCHA_EXPIRED_MESSAGE,
         start_captcha_flow, complete_login, check_with_token,
         check_account_auto, format_result,
     )
@@ -6906,28 +6907,38 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
             ok, result, err = await asyncio.to_thread(
                 complete_login, user.id, email, password, captcha_code
             )
-            if not ok:
+            if not ok and err == CAPTCHA_EXPIRED_MESSAGE:
+                # The old image/code cannot be reused. Continue through the
+                # normal no-CODE path, which uses a cached token or fetches
+                # and solves a fresh CAPTCHA.
+                try:
+                    await loading.delete()
+                except Exception:
+                    await loading.edit_text(
+                        "♻️ Old CAPTCHA expired. Starting a fresh check…"
+                    )
+            elif not ok:
                 await loading.edit_text(
                     f"❌ <b>Login Failed</b>\n\n{html.escape(err[:300])}",
                     parse_mode=ParseMode.HTML,
                 )
                 return
-
-            text, balance = format_result(result, email)
-            text += (
-                f"\n<b>Checked by:</b> "
-                f"<a href='tg://user?id={user.id}'>{html.escape(user.first_name)}</a>"
-            )
-            try:
-                await loading.delete()
-            except Exception:
-                pass
-
-            if balance > 0:
-                await _reply_with_gif(message, "success", text)
             else:
-                await message.reply_text(text, parse_mode=ParseMode.HTML)
-            return
+                text, balance = format_result(result, email)
+                text += (
+                    f"\n<b>Checked by:</b> "
+                    f"<a href='tg://user?id={user.id}'>{html.escape(user.first_name)}</a>"
+                )
+                try:
+                    await loading.delete()
+                except Exception:
+                    pass
+
+                if balance > 0:
+                    await _reply_with_gif(message, "success", text)
+                else:
+                    await message.reply_text(text, parse_mode=ParseMode.HTML)
+                return
 
         # Step 1: no captcha → try this user's own cached token first
         ok, result, err = await asyncio.to_thread(

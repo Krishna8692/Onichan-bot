@@ -104,6 +104,18 @@ class LoginResponseTests(unittest.TestCase):
         )
         self.assertNotEqual(headers["ST"], "-5.5")
 
+    def test_captcha_cannot_be_reused_after_one_login_attempt(self):
+        session = FakeSession(
+            {"status": 0, "user": {"token": "fixture-token"}},
+            {"status": 0, "user": {"balance": 0}},
+        )
+        self.assertTrue(self.login(session)[0])
+        ok, _, error = checker.complete_login(
+            self.user_id, self.email, self.password, "AB12"
+        )
+        self.assertFalse(ok)
+        self.assertEqual(error, checker.CAPTCHA_EXPIRED_MESSAGE)
+
 
 if __name__ == "__main__":
     unittest.main()

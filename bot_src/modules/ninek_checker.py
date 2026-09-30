@@ -21,6 +21,9 @@ except ImportError:
 
 BASE = "https://9kboss.com"
 TZ_VAL = "5.5"  # India timezone; separate from ST (server time in milliseconds).
+CAPTCHA_EXPIRED_MESSAGE = (
+    "CAPTCHA expired or already used. Start a fresh /9k check without the old CODE."
+)
 
 # --- Pending login sessions: (user_id, email) → {session, proxy, password} ---
 _PENDING: Dict[Tuple[int, str], Dict] = {}
@@ -252,7 +255,7 @@ def complete_login(
         s = pending["session"]
         proxy = pending["proxy"]
     else:
-        return False, {}, "CAPTCHA session expired. Send /9k email:password again."
+        return False, {}, CAPTCHA_EXPIRED_MESSAGE
 
     # ── 1. Login ─────────────────────────────────────────────────────────────
     login_path = "/api/auth/login"
