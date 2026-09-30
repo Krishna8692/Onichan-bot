@@ -5,11 +5,11 @@ description: Non-obvious constraints discovered while accessing the 9kboss.com A
 
 # 9kboss API constraints
 
-Signed requests and an Indian proxy are both necessary. Direct requests fail at the CDN; unsigned requests that reach the application return an application-level forbidden response. The login flow also requires a CAPTCHA.
+Signed API requests are required; the login flow also requires a CAPTCHA. A previously observed CDN block on the homepage does not imply direct API endpoints are blocked: direct requests to the CAPTCHA endpoint and a dummy login request without a CAPTCHA reached the application. A successful authenticated login over direct access has not been verified.
 
-**Why:** These are independent barriers; changing only the HTTP library or adding a proxy will not fix an unsigned request. A successful HTTP status alone does not prove login succeeded.
+**Why:** CDN behavior differs by path and may change. Changing only the HTTP library or a proxy will not fix an unsigned request, and a successful HTTP status alone does not prove login succeeded.
 
-**How to apply:** Reuse the project's current API helper and verify the account-detail response before reporting any balance. If the site changes, inspect its current browser bundle rather than guessing fields or endpoints.
+**How to apply:** Test the exact endpoint and preserve the same session/route from CAPTCHA to login. Reuse the current signature helper and verify the account-detail response before reporting any balance. If the site changes, inspect its current browser bundle rather than guessing fields or endpoints.
 
 Withdrawal history was not verified through a real authenticated session. Never report an empty history just because an unconfirmed endpoint failed.
 

@@ -7,7 +7,9 @@ import hashlib
 import hmac
 import secrets
 import time
-import io
+import base64
+import html
+import os
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
 
@@ -72,26 +74,44 @@ _FALLBACK_PROXIES = [
     "http://45.195.90.228:8080",
     "http://45.194.3.132:8080",
 ]
+_BAD_ROUTES: Dict[str, float] = {}
 
 
-def _get_proxy() -> Optional[Dict[str, str]]:
-    """Return a proxy dict from the bot's pool, or a fallback."""
+def _route_id(proxy) -> str:
+    return proxy["https"] if proxy else "direct"
+
+
+def _mark_route_failed(proxy) -> None:
+    _BAD_ROUTES[_route_id(proxy)] = time.monotonic() + 90
+
+
+def _proxy_candidates():
+    """Try fresh Indian routes first, then fallbacks, then direct access."""
+    urls = []
     try:
         from modules.database import _execute_with_retry
         rows = _execute_with_retry(
-            """SELECT host, port FROM proxy_pool
+            """SELECT host, port, proxy_type FROM proxy_pool
                WHERE alive = TRUE AND country_code = 'IN'
-               ORDER BY last_checked DESC NULLS LAST LIMIT 10""",
+               ORDER BY last_checked DESC NULLS LAST LIMIT 8""",
             fetch=True,
         )
         for row in rows or []:
-            proxy_url = f"http://{row['host']}:{row['port']}"
-            return {"http": proxy_url, "https": proxy_url}
+            if str(row["proxy_type"]).lower() in ("http", "https"):
+                urls.append(f"http://{row['host']}:{row['port']}")
     except Exception:
         pass
-    for p in _FALLBACK_PROXIES:
-        return {"http": p, "https": p}
-    return None
+    for url in _FALLBACK_PROXIES:
+        if url not in urls:
+            urls.append(url)
+    candidates = [{"http": url, "https": url} for url in urls] + [None]
+    now = time.monotonic()
+    return [p for p in candidates if _BAD_ROUTES.get(_route_id(p), 0) <= now] or [None]
+
+
+def _get_proxy() -> Optional[Dict[str, str]]:
+    """Preferred route for authenticated lookups."""
+    return _proxy_candidates()[0]
 
 
 def _new_session() -> "cffi_requests.Session":
@@ -111,33 +131,99 @@ def start_captcha_flow(
     if not CURL_CFFI_OK:
         return False, None, "curl_cffi not installed"
 
-    proxy = _get_proxy()
-    if not proxy:
-        return False, None, "No proxy available"
+    # The homepage request is not required to obtain an image and can fail
+    # with a proxy CONNECT 500 even when the CAPTCHA endpoint is reachable.
+    for proxy in _proxy_candidates():
+        try:
+            s = _new_session()
+            r = s.get(
+                f"{BASE}/api/auth/image_code?t={int(time.time() * 1000)}",
+                headers={"COUNTRY": "IN", "LANG": "en", "Accept": "image/png,image/*,*/*"},
+                proxies=proxy,
+                timeout=6,
+            )
+            if r.status_code != 200 or not r.content.startswith(b"\x89PNG\r\n\x1a\n"):
+                _mark_route_failed(proxy)
+                continue
+            _PENDING[(user_id, email)] = {
+                "session": s,
+                "proxy": proxy,
+                "password": password,
+                "created": time.monotonic(),
+            }
+            return True, bytes(r.content), "ok"
+        except Exception:
+            _mark_route_failed(proxy)
+            continue
+    return False, None, "9kBoss CAPTCHA is unreachable through all available routes."
 
+
+def solve_text_captcha(image: bytes, api_key: str) -> str:
+    """Submit a PNG to Nopecha's textcaptcha recognition API; poll for text."""
+    url = "https://api.nopecha.com/v1/recognition/textcaptcha"
+    headers = {"Authorization": f"Basic {api_key}"}
+    s = _new_session()
     try:
-        s = _new_session()
-        s.get(BASE, proxies=proxy, timeout=12)
-
-        ts = int(time.time() * 1000)
-        r = s.get(
-            f"{BASE}/api/auth/image_code?t={ts}",
-            headers={"COUNTRY": "IN", "LANG": "en", "Accept": "image/png,image/*,*/*"},
-            proxies=proxy,
+        response = s.post(
+            url,
+            json={"image_data": ["data:image/png;base64," + base64.b64encode(image).decode("ascii")]},
+            headers=headers,
             timeout=10,
         )
-        if r.status_code != 200 or not r.content:
-            return False, None, f"Failed to get CAPTCHA (HTTP {r.status_code})"
+        response.raise_for_status()
+        data = response.json()
+        job_id = data.get("data")
+        if not isinstance(job_id, str) or not job_id:
+            raise ValueError("Nopecha did not accept the CAPTCHA image")
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            time.sleep(2)
+            result = s.get(url, params={"id": job_id}, headers=headers, timeout=8)
+            result.raise_for_status()
+            body = result.json()
+            answer = body.get("data")
+            if isinstance(answer, list) and answer and isinstance(answer[0], str):
+                code = answer[0].strip()
+                if code:
+                    return code
+            if body.get("error") not in (9, 14) and "incomplete" not in str(
+                body.get("message", "")
+            ).lower():
+                raise ValueError("Nopecha could not solve this CAPTCHA")
+    except Exception as exc:
+        # Never include Authorization headers or API key in bot responses.
+        raise ValueError("Nopecha solver unavailable") from exc
+    raise TimeoutError("Nopecha solver timed out")
 
-        _PENDING[(user_id, email)] = {
-            "session": s,
-            "proxy": proxy,
-            "password": password,
-        }
-        return True, bytes(r.content), "ok"
 
-    except Exception as e:
-        return False, None, str(e)
+def check_account_auto(user_id: int, email: str, password: str):
+    """Solve in a worker thread; return (ok, result, error, manual_image)."""
+    api_key = os.environ.get("NOPECHA_API_KEY")
+    if not api_key:
+        return False, {}, "Nopecha is not configured", None
+    for attempt in range(2):
+        fetched, image, error = start_captcha_flow(user_id, email, password)
+        if not fetched:
+            return False, {}, error, None
+        try:
+            code = solve_text_captcha(image, api_key)
+        except (ValueError, TimeoutError):
+            # The pending session still holds the original CAPTCHA.
+            return False, {}, "Automatic CAPTCHA solving unavailable", image
+        ok, result, error = complete_login(user_id, email, password, code)
+        if ok:
+            return True, result, "", None
+        if "connection to 9kboss failed" in error.lower():
+            # The failing route was put on cooldown; a new attempt fetches
+            # a new challenge through another route.
+            if attempt == 0:
+                continue
+            return False, {}, error, None
+        if not any(word in error.lower() for word in ("captcha", "image code")):
+            return False, {}, error, None
+    # A failed challenge cannot be reused: send a fresh one for manual entry.
+    fetched, image, error = start_captcha_flow(user_id, email, password)
+    return False, {}, "Automatic CAPTCHA answer was rejected", image if fetched else None
 
 
 def complete_login(
@@ -158,19 +244,12 @@ def complete_login(
 
     # Retrieve stored session (keyed to this user_id + email)
     pending = _PENDING.pop((user_id, email), None)
-    if pending and pending.get("password") == password:
+    if (pending and pending.get("password") == password
+            and time.monotonic() - pending["created"] < 180):
         s = pending["session"]
         proxy = pending["proxy"]
     else:
-        # No matching pending session — create a fresh one
-        proxy = _get_proxy()
-        if not proxy:
-            return False, {}, "No proxy available"
-        s = _new_session()
-        try:
-            s.get(BASE, proxies=proxy, timeout=12)
-        except Exception:
-            pass
+        return False, {}, "CAPTCHA session expired. Send /9k email:password again."
 
     # ── 1. Login ─────────────────────────────────────────────────────────────
     login_path = "/api/auth/login"
@@ -182,10 +261,12 @@ def complete_login(
             proxies=proxy,
             timeout=15,
         )
-    except Exception as e:
-        return False, {}, f"Network error: {e}"
+    except Exception:
+        _mark_route_failed(proxy)
+        return False, {}, "Connection to 9kBoss failed. Please retry the command."
 
     if r.status_code != 200:
+        _mark_route_failed(proxy)
         return False, {}, f"Login HTTP error {r.status_code}"
 
     try:
@@ -221,6 +302,7 @@ def complete_login(
         "expiry": time.time() + 18000,
         "salt": salt,
         "password_hash": _password_hash(password, salt),
+        "proxy": proxy,
     }
 
     # Withdrawal history endpoint has not been confirmed. Do not run a
@@ -251,16 +333,18 @@ def check_with_token(
         return False, {}, "Credentials do not match the verified session"
 
     token = cached["token"]
-    proxy = _get_proxy()
-    if not proxy:
-        return False, {}, "No proxy available"
-
-    s = _new_session()
-    user_info = _fetch_user_info(s, token, proxy)
+    user_info = {}
+    preferred = cached.get("proxy")
+    routes = [preferred] + [p for p in _proxy_candidates() if p != preferred]
+    for proxy in routes[:4]:
+        s = _new_session()
+        user_info = _fetch_user_info(s, token, proxy)
+        if user_info:
+            cached["proxy"] = proxy
+            break
     if not user_info:
-        # Token expired on server side
-        _TOKEN_CACHE.pop((user_id, email), None)
-        return False, {}, "Cached token expired"
+        # A network error is not evidence that the token expired.
+        return False, {}, "Account details temporarily unavailable"
 
     last_withdraw = None
     return True, {"token": token, "user_info": user_info, "last_withdraw": last_withdraw}, ""
@@ -413,9 +497,9 @@ def format_result(result: dict, email: str) -> Tuple[str, float]:
     lines = [
         "<b>9kBoss Account Check ✅</b>",
         "━━━━━━━━━━━━━━",
-        f"📧 <b>Email:</b> <code>{email}</code>",
-        f"👤 <b>Name:</b> {name}",
-        f"👑 <b>VIP Level:</b> {vip}",
+        f"📧 <b>Email:</b> <code>{html.escape(str(email))}</code>",
+        f"👤 <b>Name:</b> {html.escape(str(name))}",
+        f"👑 <b>VIP Level:</b> {html.escape(str(vip))}",
         f"{bal_icon} <b>Balance:</b> ₹{bal:.2f}",
         "━━━━━━━━━━━━━━",
     ]
@@ -425,9 +509,9 @@ def format_result(result: dict, email: str) -> Tuple[str, float]:
         lw_icon = "✅" if "PAID" in lw_status else "⏳" if "PENDING" in lw_status else "❌"
         lines += [
             "<b>Last Withdrawal:</b>",
-            f"   {lw_icon} Status: <b>{lw_status}</b>",
-            f"   💵 Amount: ₹{lw.get('amount', 0)}",
-            f"   🕐 Date: {lw.get('created_at', 'N/A')}",
+            f"   {lw_icon} Status: <b>{html.escape(str(lw_status))}</b>",
+            f"   💵 Amount: ₹{html.escape(str(lw.get('amount', 0)))}",
+            f"   🕐 Date: {html.escape(str(lw.get('created_at', 'N/A')))}",
             "━━━━━━━━━━━━━━",
         ]
     else:
