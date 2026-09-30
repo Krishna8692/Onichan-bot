@@ -6900,7 +6900,9 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
                 "🔑 <b>Logging in to 9kBoss…</b>\n\n⏳ Verifying credentials…",
                 parse_mode=ParseMode.HTML,
             )
-            ok, result, err = complete_login(user.id, email, password, captcha_code)
+            ok, result, err = await asyncio.to_thread(
+                complete_login, user.id, email, password, captcha_code
+            )
             if not ok:
                 await loading.edit_text(
                     f"❌ <b>Login Failed</b>\n\n{html.escape(err[:300])}",
@@ -6925,7 +6927,9 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
             return
 
         # Step 1: no captcha → try this user's own cached token first
-        ok, result, err = check_with_token(user.id, email)
+        ok, result, err = await asyncio.to_thread(
+            check_with_token, user.id, email, password
+        )
         if ok:
             text, balance = format_result(result, email)
             text += (
@@ -6940,7 +6944,9 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
 
         # No cached token → fetch CAPTCHA and ask user to complete step 2
         loading = await message.reply_text("🔐 <b>Fetching CAPTCHA…</b>", parse_mode=ParseMode.HTML)
-        cap_ok, cap_bytes, cap_err = start_captcha_flow(user.id, email, password)
+        cap_ok, cap_bytes, cap_err = await asyncio.to_thread(
+            start_captcha_flow, user.id, email, password
+        )
         try:
             await loading.delete()
         except Exception:
@@ -6993,7 +6999,9 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
         pw = pw.strip()
 
         # Only use tokens cached for THIS user
-        ok, result, _ = check_with_token(user.id, em)
+        ok, result, _ = await asyncio.to_thread(
+            check_with_token, user.id, em, pw
+        )
         if ok:
             _, balance = format_result(result, em)
             bal_icon = "💰" if balance > 0 else "💸"

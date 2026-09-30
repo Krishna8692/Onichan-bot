@@ -4,6 +4,8 @@ Handles login (with CAPTCHA), balance, VIP level, and withdrawal records.
 """
 
 import hashlib
+import hmac
+import secrets
 import time
 import io
 from datetime import datetime
@@ -21,9 +23,13 @@ ST_VAL = "-5.5"  # India timezone: UTC+5:30 → getTimezoneOffset()/60 = -5.5
 # --- Pending login sessions: (user_id, email) → {session, proxy, password} ---
 _PENDING: Dict[Tuple[int, str], Dict] = {}
 
-# --- Cached auth tokens: (user_id, email) → {token, expiry} ---
-# Scoped to (user_id, email) so one Telegram user can never read another's cached token.
+# --- Cached auth tokens: (user_id, email) → {token, expiry, salt, password_hash} ---
+# A cached session must only be used for the credentials that created it.
 _TOKEN_CACHE: Dict[Tuple[int, str], Dict] = {}
+
+
+def _password_hash(password: str, salt: bytes) -> bytes:
+    return hashlib.sha256(salt + password.encode("utf-8")).digest()
 
 
 # ── Signature helpers ────────────────────────────────────────────────────────
@@ -203,14 +209,23 @@ def complete_login(
     if not token:
         return False, {}, "Login succeeded but no auth token in response"
 
-    # Cache token scoped to this specific Telegram user + email (5 hours)
-    _TOKEN_CACHE[(user_id, email)] = {"token": token, "expiry": time.time() + 18000}
-
     # ── 2. User detail info ──────────────────────────────────────────────────
     user_info = _fetch_user_info(s, token, proxy)
+    if not user_info:
+        return False, {}, "Login succeeded, but account details could not be retrieved. Please try again."
 
-    # ── 3. Withdrawal records ────────────────────────────────────────────────
-    last_withdraw = _fetch_last_withdraw(s, token, proxy)
+    # Cache only after both login and account-detail fetch succeed.
+    salt = secrets.token_bytes(16)
+    _TOKEN_CACHE[(user_id, email)] = {
+        "token": token,
+        "expiry": time.time() + 18000,
+        "salt": salt,
+        "password_hash": _password_hash(password, salt),
+    }
+
+    # Withdrawal history endpoint has not been confirmed. Do not run a
+    # series of speculative requests during an account check.
+    last_withdraw = None
 
     return True, {
         "token": token,
@@ -220,7 +235,7 @@ def complete_login(
 
 
 def check_with_token(
-    user_id: int, email: str
+    user_id: int, email: str, password: str
 ) -> Tuple[bool, Dict[str, Any], str]:
     """
     Try to check account (user_id, email) using the caller's own cached auth token.
@@ -230,6 +245,10 @@ def check_with_token(
     cached = _TOKEN_CACHE.get((user_id, email))
     if not cached or time.time() >= cached["expiry"]:
         return False, {}, "No valid cached token"
+    if not hmac.compare_digest(
+        cached["password_hash"], _password_hash(password, cached["salt"])
+    ):
+        return False, {}, "Credentials do not match the verified session"
 
     token = cached["token"]
     proxy = _get_proxy()
@@ -243,7 +262,7 @@ def check_with_token(
         _TOKEN_CACHE.pop((user_id, email), None)
         return False, {}, "Cached token expired"
 
-    last_withdraw = _fetch_last_withdraw(s, token, proxy)
+    last_withdraw = None
     return True, {"token": token, "user_info": user_info, "last_withdraw": last_withdraw}, ""
 
 
@@ -412,7 +431,7 @@ def format_result(result: dict, email: str) -> Tuple[str, float]:
             "━━━━━━━━━━━━━━",
         ]
     else:
-        lines.append("📋 <b>No withdrawal records found</b>")
+        lines.append("📋 <b>Withdrawal history unavailable</b>")
         lines.append("━━━━━━━━━━━━━━")
 
     return "\n".join(lines), bal
