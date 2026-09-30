@@ -6839,6 +6839,14 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
     message = update.message
     args = args_override if args_override is not None else (context.args or [])
 
+    # Credential-free check of which bot build is actually receiving Telegram
+    # updates. An older poller will not recognize this command.
+    if len(args) == 1 and args[0].lower() == "status":
+        await message.reply_text(
+            "✅ 9k checker build 2026-09-30: fresh CAPTCHA recovery active."
+        )
+        return
+
     # ── Parse credentials ────────────────────────────────────────────────────
     txt_creds = []   # list of "email:password" strings from a .txt file
     inline_cred = None
