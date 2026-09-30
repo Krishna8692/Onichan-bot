@@ -279,16 +279,20 @@ def complete_login(
         msg = data.get("message") or data.get("msg") or "Login failed"
         return False, {}, str(msg)
 
-    # Token: check response headers first, then body
+    # The site's browser client persists response.user.token after login.
+    # Keep older response shapes as fallbacks, but never treat status 0 alone
+    # as proof that an authenticated account can be queried.
     token = (
-        r.headers.get("Auth")
+        _deep_get(data, "user", "token")
+        or r.headers.get("Auth")
         or r.headers.get("auth")
         or _deep_get(data, "data", "token")
         or _deep_get(data, "data", "userInfo", "token")
+        or _deep_get(data, "model", "token")
         or _deep_get(data, "token")
     )
-    if not token:
-        return False, {}, "Login succeeded but no auth token in response"
+    if not isinstance(token, str) or not token.strip():
+        return False, {}, "Login response did not include a usable auth token"
 
     # ── 2. User detail info ──────────────────────────────────────────────────
     user_info = _fetch_user_info(s, token, proxy)
@@ -353,8 +357,8 @@ def check_with_token(
 # ── Internal fetch helpers ───────────────────────────────────────────────────
 
 def _fetch_user_info(s, token: str, proxy: dict) -> dict:
-    """Fetch /api/user/user_detail_info and return the raw data dict."""
-    path = "/api/user/user_detail_info"
+    """Fetch the same account response the site's browser uses for balance."""
+    path = "/api/auth/user_info"
     try:
         r = s.get(
             BASE + path,
@@ -365,7 +369,11 @@ def _fetch_user_info(s, token: str, proxy: dict) -> dict:
         if r.status_code == 200:
             d = r.json()
             if d.get("status") == 0:
-                return d.get("data") or {}
+                user = d.get("user")
+                # Do not report a fabricated zero balance for an unexpected
+                # response shape or a failed authenticated lookup.
+                if isinstance(user, dict) and user.get("balance") is not None:
+                    return user
     except Exception:
         pass
     return {}
@@ -483,6 +491,8 @@ def format_result(result: dict, email: str) -> Tuple[str, float]:
         or ui.get("vipGrade")
         or "0"
     )
+    if isinstance(vip, dict):
+        vip = vip.get("level") or vip.get("name") or "0"
 
     name = (
         ui.get("nickname")

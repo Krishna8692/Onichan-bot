@@ -7047,6 +7047,8 @@ async def _ninek_process(update: Update, context: ContextTypes.DEFAULT_TYPE, arg
             text, balance = format_result(result, em)
             bal_icon = "💰" if balance > 0 else "💸"
             vip = result.get("user_info", {}).get("vipLevel") or "?"
+            if isinstance(vip, dict):
+                vip = vip.get("level") or vip.get("name") or "?"
             results_text.append(
                 f"{bal_icon} <code>{html.escape(em)}</code> | ₹{balance:.2f} | VIP {html.escape(str(vip))}"
             )
