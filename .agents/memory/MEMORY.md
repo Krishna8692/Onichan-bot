@@ -1,1 +1,2 @@
 - [9kboss API signing](9kboss-api.md) — requests need ST/STT headers + Indian proxy; CAPTCHA required from server IPs
+- [Standalone Python acquisition](python314-on-replit.md) — older uv may reject release URLs; verified interpreter acquisition is separate from dependency sync.
