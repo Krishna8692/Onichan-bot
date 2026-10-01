@@ -1,0 +1,127 @@
+model:
+  provider: anthropic
+  default: claude-sonnet-5
+  max_tokens: 8192
+
+providers:
+  anthropic:
+    request_timeout_seconds: 90
+
+tools:
+  tool_search:
+    enabled: false
+
+agent:
+  max_turns: 25
+  disabled_toolsets:
+    - bot_room
+    - browser
+    - clarify
+    - code_execution
+    - coding
+    - computer_use
+    - connections
+    - context_engine
+    - cronjob
+    - debugging
+    - delegation
+    - desktop_ui
+    - discord
+    - discord_admin
+    - feishu_doc
+    - feishu_drive
+    - file
+    - hermes-acp
+    - hermes-api-server
+    - hermes-bluebubbles
+    - hermes-cli
+    - hermes-cron
+    - hermes-dingtalk
+    - hermes-discord
+    - hermes-email
+    - hermes-feishu
+    - hermes-gateway
+    - hermes-homeassistant
+    - hermes-matrix
+    - hermes-mattermost
+    - hermes-qqbot
+    - hermes-signal
+    - hermes-slack
+    - hermes-sms
+    - hermes-telegram
+    - hermes-webhook
+    - hermes-wecom
+    - hermes-wecom-callback
+    - hermes-weixin
+    - hermes-whatsapp
+    - hermes-yuanbao
+    - homeassistant
+    - image_gen
+    - kanban
+    - project
+    - safe
+    - search
+    - session_search
+    - setup
+    - skills
+    - spotify
+    - terminal
+    - tts
+    - video
+    - video_gen
+    - vision
+    - web
+    - x_search
+    - yuanbao
+
+platform_toolsets:
+  api_server: [todo, memory]
+  cli: [todo, memory]
+
+platforms:
+  api_server:
+    enabled: true
+    extra:
+      host: 127.0.0.1
+      port: 8642
+      direct_model_requests: true
+  telegram: {enabled: false}
+  discord: {enabled: false}
+  whatsapp: {enabled: false}
+  slack: {enabled: false}
+  signal: {enabled: false}
+  homeassistant: {enabled: false}
+  qqbot: {enabled: false}
+  yuanbao: {enabled: false}
+  teams: {enabled: false}
+  google_chat: {enabled: false}
+  mattermost: {enabled: false}
+  matrix: {enabled: false}
+  irc: {enabled: false}
+  webhook: {enabled: false}
+
+terminal:
+  backend: local
+  cwd: .hermes-home/sandbox
+  home_mode: profile
+
+approvals:
+  mode: manual
+  cron_mode: deny
+  single_query_mode: deny
+  unattended_mode: deny
+
+cron:
+  catch_up_missed: false
+  allow_agent_scheduling: false
+
+skills:
+  creation_nudge_interval: 0
+
+curator:
+  enabled: false
+
+plugins:
+  enabled: []
+
+mcp_servers: {}

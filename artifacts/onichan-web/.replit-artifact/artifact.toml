@@ -16,13 +16,13 @@ run = "pnpm --filter @workspace/onichan-web run dev"
 
 [services.production]
 
-# Makes sure the workspace-local CPython 3.14 + venv exist in the image (no-op when already present).
+# Provision the bot runtime and separate restricted Hermes runtime.
 [services.production.build]
-args = ["bash", "scripts/setup-python314.sh"]
+args = ["bash", "scripts/setup-production.sh"]
 
-# Starts the bot on CPython 3.14 (scripts/run-bot.sh strips Replit's python-3.11 environment).
+# Independently supervise the bot and authenticated loopback-only Hermes.
 [services.production.run]
-args = ["bash", "scripts/run-bot.sh"]
+args = ["bash", "scripts/run-production.sh"]
 
 [services.production.run.env]
 PORT = "21353"

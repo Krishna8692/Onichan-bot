@@ -12,6 +12,19 @@ Telegram bot (`bot_src/bot.py`, ~120 modules) with a Flask web panel, plus a pnp
 - Dev workflow runs with `BOT_DISABLE_POLLING=1` (the published bot owns Telegram polling on the live token) and `PORT=3000` for the panel.
 - Required env: `BOT_TOKEN`, `OWNER_ID`, `SESSION_SECRET`; optional per-feature keys (see `bot_src/modules/*`).
 
+### Hermes `/agent`
+- `/agent` in the configured owner's private Telegram chat opens the Claude model picker; `/agent <request>` continues the current conversation. **New conversation** clears its conversation/memory scope while retaining the model. **Reset settings** also restores the default model.
+- Models: **Claude Sonnet 5** (default, balanced), **Claude Opus 5** (strongest reasoning, slower and most expensive), **Claude Haiku 4.5** (fastest/cheapest, simple requests).
+- Uses Replit-managed Anthropic access through `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` and `AI_INTEGRATIONS_ANTHROPIC_API_KEY`. No personal provider key is needed; model usage is billed to Replit credits.
+- `bash scripts/setup-hermes.sh` provisions the pinned official NousResearch source installation. `bash scripts/run-hermes.sh` launches only its authenticated API at `127.0.0.1:8642`; the `Hermes Agent` console workflow deliberately has no public-port readiness requirement.
+- `hermes/config.yaml` is the reviewed policy. **Only memory and task-planning tools are available. Shell, file, web, browser, skills, delegation, plugins, MCP and messaging adapters are disabled.** The sandbox working directory is not a filesystem security boundary. Do not enable unrestricted local tools in this repository.
+- Hermes receives an allowlisted environment with managed Claude access and a derived API key, **not** the bot token, owner ID, captcha keys, or source `SESSION_SECRET`. Only the bot's strict configured `OWNER_ID` may use the command; hardcoded bot administrators do not inherit access.
+- Hermes' own Telegram adapter is disabled. Development keeps bot polling disabled; never start a second poller with the live token.
+- `.hermes-agent/`, `.hermes-home/`, and `.hermes-bootstrap-home/` are gitignored runtime data and must remain included in deployment snapshots. Hermes PM uses its own pinned CPython **3.14.7** rather than the bot's interpreter/venv.
+- To update Hermes, review a new upstream commit and its matching official installer, update the runtime source pin and any pinned installation inputs, rebuild with `setup-hermes.sh`, and verify the effective tool policy and live model path. Avoid `hermes update` in place: the launcher rejects unreviewed source or configuration changes.
+- Published builds run `scripts/setup-production.sh`; `scripts/run-production.sh` supervises the bot and restricted Hermes independently, with crash backoff and graceful shutdown. The old `bot_src/production_start.py` is not used.
+- Verification: run bridge tests with the bot's Python and runtime tests with Hermes' PM-selected Python (the bot environment intentionally has no Hermes YAML/provider dependencies): `bash -c 'source scripts/python314-env.sh; "$PY314_VENV_PY" -m unittest discover -s tests -p "test_hermes_agent.py"; HP=$(python3 scripts/hermes_runtime.py resolve-python); "$HP" -m unittest discover -s tests -p "test_hermes_runtime.py"'`. Optional billable gateway check: `bash -c 'source scripts/python314-env.sh; "$PY314_VENV_PY" tests/hermes_live_check.py'`.
+
 ### Node workspace
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
 - `pnpm run typecheck` — full typecheck across all packages
@@ -27,8 +40,8 @@ Telegram bot (`bot_src/bot.py`, ~120 modules) with a Flask web panel, plus a pnp
 
 - `bot_main.py` → entrypoint; runs `bot_src/bot.py`. `bot_src/keep_alive.py` is the Flask panel; `bot_src/modules/` holds features.
 - `scripts/python314-env.sh` — single source of truth for the 3.14 toolchain (version pin, sha256, paths, env sanitising). `setup-python314.sh`, `run-bot.sh`, `uv314.sh` all source it.
-- `artifacts/onichan-web/.replit-artifact/artifact.toml` — production build (`scripts/setup-python314.sh`) and run (`scripts/run-bot.sh`) commands for the bot. `.replit` `[deployment]` holds no run command.
-- `scripts/post-merge.sh` — pnpm install, db push, then the Python setup script (post-merge timeout is 10 min to allow a cold toolchain rebuild).
+- `artifacts/onichan-web/.replit-artifact/artifact.toml` — production build (`scripts/setup-production.sh`) and supervised run (`scripts/run-production.sh`) commands. `.replit` `[deployment]` holds no run command.
+- `scripts/post-merge.sh` — pnpm install, db push, then bot and Hermes setup (cold provisioning can take several minutes).
 
 ## Architecture decisions
 

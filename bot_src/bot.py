@@ -3981,6 +3981,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /scr · /tmail · /cmail · /sk · /config
 /conv &lt;sym&gt; [amt] [cur] — live price + chart
 /signal — Pocket Option AI trading signal
+/agent — private owner-only Claude assistant
 {sep}
 🧹 <b>CLEANER</b>
 /clean · /filter
@@ -21888,6 +21889,10 @@ def main():
     application.add_handler(CommandHandler("proxymode", lambda u, c: _proxy_toggle_mode(u.message, u.effective_user.id, " ".join(c.args).strip() if c.args else "")))
     application.add_handler(CommandHandler("tempphone", temp_phone_command))
     application.add_handler(CommandHandler("ask", ask_command))
+    # General-purpose assistant; its handlers enforce owner/private-chat access.
+    from modules.hermes_commands import get_hermes_handlers
+    for agent_handler in get_hermes_handlers():
+        application.add_handler(agent_handler)
     application.add_handler(CommandHandler("ai", ask_command))
     application.add_handler(CommandHandler("gpt", ask_command))
     application.add_handler(CommandHandler("askill", askill_command))

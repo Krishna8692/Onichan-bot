@@ -52,5 +52,8 @@ Thumbs.db
 .python/
 .venv/
 .pythonlibs/
+.hermes-agent/
+.hermes-home/
+.hermes-bootstrap-home/
 __pycache__/
 *.pyc

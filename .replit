@@ -21,6 +21,10 @@ author = "agent"
 task = "workflow.run"
 args = "Onichan Bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Hermes Agent"
+
 [[workflows.workflow]]
 name = "Onichan Bot"
 author = "agent"
@@ -32,6 +36,17 @@ outputType = "webview"
 task = "shell.exec"
 args = "cd /home/runner/workspace && BOT_DISABLE_POLLING=1 PORT=3000 bash scripts/run-bot.sh"
 waitForPort = 3000
+
+[[workflows.workflow]]
+name = "Hermes Agent"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && bash scripts/run-hermes.sh"
 
 [agent]
 stack = "PNPM_WORKSPACE"
