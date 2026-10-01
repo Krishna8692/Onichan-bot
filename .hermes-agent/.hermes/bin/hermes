@@ -1,0 +1,25 @@
+#!/bin/sh
+exec /home/runner/workspace/.hermes-home/tools/python-3.14.7+20260901-linux-x64/bin/python3 -I -c 'import os, re, sys
+os.environ.pop('"'"'PYTHONHOME'"'"', None)
+os.environ.pop('"'"'PYTHONPATH'"'"', None)
+sys.path.insert(0, '"'"'/home/runner/workspace/.hermes-agent'"'"')
+if sys.argv[1:2] == ['"'"'--print-runtime-command'"'"']: sys.dont_write_bytecode = True
+from hermes_constants import get_default_hermes_root
+os.environ['"'"'HERMES_HOME'"'"'] = os.environ.get('"'"'HERMES_HOME'"'"') or str(get_default_hermes_root())
+if sys.argv[1:2] == ['"'"'--print-runtime-command'"'"']:
+    from pathlib import Path
+    from hermes_cli._launchers import print_runtime_command
+    print_runtime_command(Path('"'"'/home/runner/workspace/.hermes-agent'"'"'), sys.argv[2:])
+    sys.exit(0)
+import hermes_bootstrap
+if sys.argv[1:2] == ['"'"'--run-module'"'"']:
+    import runpy
+    if len(sys.argv) < 3: sys.exit('"'"'hermes: --run-module needs a module'"'"')
+    module = sys.argv.pop(2)
+    del sys.argv[1]
+    runpy.run_module(module, run_name='"'"'__main__'"'"', alter_sys=True)
+    sys.exit(0)
+from hermes_cli.main import main
+sys.argv[0] = re.sub(r'"'"'(-script\.pyw|\.exe)?$'"'"', '"'"''"'"', sys.argv[0])
+sys.exit(main())
+' "$@"
