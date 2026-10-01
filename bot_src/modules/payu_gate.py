@@ -50,7 +50,7 @@ async def check_payu_async(card: str, retries: int = 2) -> dict:
                 "time": 0
             }
         
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, lambda: _check_payu_sync(cc, mm, yy, cvv, card))
         result["time"] = round(time.time() - start_time, 2)
         return result
@@ -268,16 +268,14 @@ def _check_payu_sync(cc: str, mm: str, yy: str, cvv: str, original_card: str) ->
 def check_payu(card: str) -> dict:
     """Sync wrapper for async check"""
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, check_payu_async(card))
-                return future.result()
-        else:
-            return asyncio.run(check_payu_async(card))
-    except:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No loop running in this thread (Python 3.14 no longer creates one implicitly)
         return asyncio.run(check_payu_async(card))
+    # Called from inside a running loop: never block it, run on a helper thread
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, check_payu_async(card)).result()
 
 
 def format_payu_response(result: dict, bin_info: dict = None, username: str = None) -> str:

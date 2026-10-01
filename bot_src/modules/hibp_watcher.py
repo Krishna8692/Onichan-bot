@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import threading
+import asyncio
 import requests
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
@@ -19,6 +20,9 @@ HIBP_BASE = "https://haveibeenpwned.com/api/v3"
 CHECK_INTERVAL = 3600 * 6
 
 _bot_ref = None
+# Event loop the bot runs on; captured in start_watcher() because the watcher
+# thread has no loop of its own (asyncio.get_event_loop() raises there on 3.14).
+_loop: Optional[asyncio.AbstractEventLoop] = None
 _watcher_thread: Optional[threading.Thread] = None
 _stop_event = threading.Event()
 
@@ -159,10 +163,12 @@ def _watcher_loop() -> None:
                                f"{breach_list}\n\n"
                                f"⚠️ Change your passwords immediately!")
                         try:
+                            if _loop is None or _loop.is_closed():
+                                raise RuntimeError("no bot event loop captured")
                             asyncio.run_coroutine_threadsafe(
                                 _bot_ref.send_message(
                                     chat_id=user_id, text=msg, parse_mode="HTML"),
-                                asyncio.get_event_loop()
+                                _loop
                             )
                         except Exception as e:
                             print(f"[HIBP] Notify error for {user_id}: {e}")
@@ -174,9 +180,15 @@ def _watcher_loop() -> None:
         _stop_event.wait(300)
 
 
-def start_watcher(bot=None) -> None:
-    global _bot_ref, _watcher_thread
+def start_watcher(bot=None, loop=None) -> None:
+    global _bot_ref, _loop, _watcher_thread
     _bot_ref = bot
+    if loop is None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None  # started from sync code: notifications need an explicit loop
+    _loop = loop
     _stop_event.clear()
     _watcher_thread = threading.Thread(target=_watcher_loop, daemon=True, name="HIBPWatcher")
     _watcher_thread.start()

@@ -9757,7 +9757,7 @@ async def gate_sq(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 data     = await _call_square_api(c, m, y, cv)
                 raw_resp = data.get("Response", "")
-                bin_info = await asyncio.get_event_loop().run_in_executor(None, _gbi, c)
+                bin_info = await asyncio.get_running_loop().run_in_executor(None, _gbi, c)
                 if _sq_is_approved(raw_resp):
                     approved.append(card)
                     log_approved_card(user_id, username, c, m, y, cv, "sq", raw_resp, bin_info)
@@ -12192,7 +12192,7 @@ async def gate_wah(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gif_url = get_sexy_anime_gif("failed")
             await update.message.reply_animation(animation=gif_url, caption=text, parse_mode=ParseMode.HTML)
 
-    loop = _asyncio.get_event_loop()
+    loop = _asyncio.get_running_loop()
 
     # ══════════════════════════════════════════════════════════════════════════
     # MODE A — Single card
@@ -15535,7 +15535,7 @@ async def gate_st1(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML
     )
     
-    start_ts = asyncio.get_event_loop().time()
+    start_ts = asyncio.get_running_loop().time()
     try:
         # check_razorpay is the actual function exported from rpp_gate
         result = await check_razorpay(
@@ -15545,7 +15545,7 @@ async def gate_st1(update: Update, context: ContextTypes.DEFAULT_TYPE):
             card['cvv'],
             amount=1
         )
-        elapsed = round(asyncio.get_event_loop().time() - start_ts, 2)
+        elapsed = round(asyncio.get_running_loop().time() - start_ts, 2)
 
         status     = result.get('status', 'UNKNOWN')
         card_str   = result.get('card', card_text)
@@ -17056,7 +17056,7 @@ async def gate_sq(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 data     = await _call_square_api(c, m, y, cv)
                 raw_resp = data.get("Response", "")
-                bin_info = await asyncio.get_event_loop().run_in_executor(None, _gbi, c)
+                bin_info = await asyncio.get_running_loop().run_in_executor(None, _gbi, c)
                 if _sq_is_approved(raw_resp):
                     approved.append(card)
                     log_approved_card(user_id, username, c, m, y, cv, "sq", raw_resp, bin_info)

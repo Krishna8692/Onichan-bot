@@ -30,7 +30,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace && BOT_DISABLE_POLLING=1 PORT=3000 PYTHONPATH=/home/runner/workspace/bot_src python bot_main.py"
+args = "cd /home/runner/workspace && BOT_DISABLE_POLLING=1 PORT=3000 bash scripts/run-bot.sh"
 waitForPort = 3000
 
 [agent]
@@ -39,7 +39,7 @@ expertMode = true
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 600000
 
 [nix]
 channel = "stable-25_05"

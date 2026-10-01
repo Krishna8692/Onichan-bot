@@ -249,16 +249,14 @@ async def check_rz_async(card: str, proxy: str = None, retries: int = 2) -> dict
 def check_rz(card: str, proxy: str = None) -> dict:
     """Sync wrapper for async check"""
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, check_rz_async(card, proxy))
-                return future.result()
-        else:
-            return asyncio.run(check_rz_async(card, proxy))
-    except:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No loop running in this thread (Python 3.14 no longer creates one implicitly)
         return asyncio.run(check_rz_async(card, proxy))
+    # Called from inside a running loop: never block it, run on a helper thread
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, check_rz_async(card, proxy)).result()
 
 
 def format_rz_response(result: dict, bin_info: dict = None, username: str = None) -> str:

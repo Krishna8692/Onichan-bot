@@ -16,12 +16,16 @@ run = "pnpm --filter @workspace/onichan-web run dev"
 
 [services.production]
 
+# Makes sure the workspace-local CPython 3.14 + venv exist in the image (no-op when already present).
+[services.production.build]
+args = ["bash", "scripts/setup-python314.sh"]
+
+# Starts the bot on CPython 3.14 (scripts/run-bot.sh strips Replit's python-3.11 environment).
 [services.production.run]
-args = ["python", "bot_main.py"]
+args = ["bash", "scripts/run-bot.sh"]
 
 [services.production.run.env]
 PORT = "21353"
-PYTHONPATH = "/home/runner/workspace/bot_src"
 
 [services.env]
 PORT = "21353"

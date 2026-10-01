@@ -11591,15 +11591,14 @@ def _get_async_loop():
 def _run_async(coro):
     """Run an async coroutine from a sync Flask route."""
     try:
-        loop = _asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures as _cf
-            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(_asyncio.run, coro)
-                return future.result(timeout=120)
-        return loop.run_until_complete(coro)
+        _asyncio.get_running_loop()
     except RuntimeError:
+        # No loop in this (waitress worker) thread - Python 3.14 never creates one implicitly
         return _asyncio.run(coro)
+    # A loop is running in this thread: never block it, run on a helper thread
+    import concurrent.futures as _cf
+    with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_asyncio.run, coro).result(timeout=120)
 
 @app.route('/api/checkout/info', methods=['POST'])
 @auth_required
@@ -13152,7 +13151,7 @@ def admin_bin_shop():
                                 .catch(function(){{ setStatus('Lookup failed — fill details manually', 'err'); }});
                         }}
                         inp.addEventListener('input', function(){{
-                            var raw = inp.value.replace(/\D/g,'');
+                            var raw = inp.value.replace(/\\D/g,'');
                             if (raw.length >= 6) {{
                                 clearTimeout(timer);
                                 timer = setTimeout(function(){{ doLookup(raw.slice(0,6)); }}, 600);
@@ -17088,7 +17087,7 @@ async function doWithdraw() {{
       var feeData = CHAIN_CFG.fees[chain];
       var feeNum = parseFloat(feeData.fee) || 0;
       var totalNum = parseFloat(amount) + feeNum;
-      feeInfo = '\\n\\nNetwork fee: ' + feeNum + ' ' + feeData.symbol + '\\nTotal deducted: ' + totalNum.toFixed(8).replace(/\.?0+$/,'') + ' ' + token;
+      feeInfo = '\\n\\nNetwork fee: ' + feeNum + ' ' + feeData.symbol + '\\nTotal deducted: ' + totalNum.toFixed(8).replace(/\\.?0+$/,'') + ' ' + token;
     }}
     confirmMsg = 'Withdraw ' + amount + ' ' + token + ' to ' + shortAddr + ' on ' + net + '?' + feeInfo + '\\n\\nThis is irreversible.';
   }}
@@ -18404,15 +18403,14 @@ import os as _os_fh
 def _run_async(coro):
     """Run an async coroutine from a sync Flask route."""
     try:
-        loop = _asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures as _cf
-            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(_asyncio.run, coro)
-                return future.result(timeout=120)
-        return loop.run_until_complete(coro)
+        _asyncio.get_running_loop()
     except RuntimeError:
+        # No loop in this (waitress worker) thread - Python 3.14 never creates one implicitly
         return _asyncio.run(coro)
+    # A loop is running in this thread: never block it, run on a helper thread
+    import concurrent.futures as _cf
+    with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_asyncio.run, coro).result(timeout=120)
 
 def _parse_card_dict(card_str: str) -> dict:
     parts = card_str.strip().split("|")

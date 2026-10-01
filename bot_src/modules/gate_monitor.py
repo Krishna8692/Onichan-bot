@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import threading
+import asyncio
 import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -19,6 +20,9 @@ from modules.database import _execute_with_retry, get_connection_with_retry
 
 _bot_ref = None
 _admin_chat_id = None
+# Event loop the bot runs on; captured in start_monitor() because the monitor
+# thread has no loop of its own (asyncio.get_event_loop() raises there on 3.14).
+_loop: Optional[asyncio.AbstractEventLoop] = None
 _monitor_thread: Optional[threading.Thread] = None
 _stop_event = threading.Event()
 
@@ -182,23 +186,32 @@ def _monitor_loop() -> None:
                 if not up:
                     fails = _get_consecutive_failures(gate)
                     if fails == 1 and _bot_ref and _admin_chat_id:
-                        asyncio.run_coroutine_threadsafe(
-                            _notify_admin(
-                                f"⚠️ <b>Gate Down:</b> <code>{gate.upper()}</code>\n"
-                                f"URL unreachable at {datetime.utcnow().strftime('%H:%M UTC')}"
-                            ),
-                            asyncio.get_event_loop()
-                        )
+                        if _loop is None or _loop.is_closed():
+                            print(f"[GateMonitor] {gate} down, but no bot loop to notify on")
+                        else:
+                            asyncio.run_coroutine_threadsafe(
+                                _notify_admin(
+                                    f"⚠️ <b>Gate Down:</b> <code>{gate.upper()}</code>\n"
+                                    f"URL unreachable at {datetime.utcnow().strftime('%H:%M UTC')}"
+                                ),
+                                _loop
+                            )
             except Exception as e:
                 print(f"[GateMonitor] Error checking {gate}: {e}")
         _stop_event.wait(PING_INTERVAL)
     print("[GateMonitor] Monitor stopped")
 
 
-def start_monitor(bot=None, admin_chat_id=None) -> None:
-    global _bot_ref, _admin_chat_id, _monitor_thread
+def start_monitor(bot=None, admin_chat_id=None, loop=None) -> None:
+    global _bot_ref, _admin_chat_id, _loop, _monitor_thread
     _bot_ref = bot
     _admin_chat_id = admin_chat_id
+    if loop is None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None  # started from sync code: notifications need an explicit loop
+    _loop = loop
     _stop_event.clear()
     _monitor_thread = threading.Thread(target=_monitor_loop, daemon=True,
                                        name="GateMonitor")
